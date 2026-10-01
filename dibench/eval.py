@@ -69,10 +69,24 @@ def main(
                 timeout=timeout,
                 resume=resume,
             )
-            evaluator = BuildEvaluator(args)
-            evaluator.run()
+            try:
+                evaluator = BuildEvaluator(args)
+                evaluator.run()
+                result = evaluator.result
+            except Exception as e:  # keep the shard alive; record the failure
+                import traceback
+
+                cprint(f"Evaluation crashed for {instance_id}: {e}", "red")
+                workspace.mkdir(parents=True, exist_ok=True)
+                (workspace / "crash.log").write_text(traceback.format_exc())
+                result = {
+                    "instance_id": instance_id,
+                    "text": None,
+                    "exec": "error",
+                    "detail": {"error": repr(e)},
+                }
             with open(eval_result_path, "w") as f:
-                json.dump(evaluator.result, f, indent=2)
+                json.dump(result, f, indent=2)
 
 
 if __name__ == "__main__":

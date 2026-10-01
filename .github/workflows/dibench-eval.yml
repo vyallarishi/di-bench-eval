@@ -17,6 +17,9 @@ on:
       timeout:
         description: "Per-instance CI timeout in seconds"
         default: "1200"
+      range:
+        description: "Explicit dataset index range start,end (overrides shards and limit)"
+        default: ""
       act_images:
         description: "Runner images pre-loaded into the inner Docker daemon"
         default: "catthehacker/ubuntu:act-22.04-20240822 catthehacker/ubuntu:act-latest-20240822"
@@ -47,12 +50,16 @@ jobs:
         run: |
           pip install -q tomli
           N=$(python scripts/gh/prepare.py --set "${{ inputs.set }}" --dataset .cache/dataset.jsonl --repo-data .cache/repo-data --out-results /tmp/x --out-dataset /tmp/x.jsonl --limit "${{ inputs.limit }}" --count-only)
-          python - "$N" "${{ inputs.shards }}" <<'PY'
+          python - "$N" "${{ inputs.shards }}" "${{ inputs.range }}" <<'PY'
           import json, math, os, sys
-          n, shards = int(sys.argv[1]), max(1, int(sys.argv[2]))
-          shards = min(shards, max(n, 1))
-          size = math.ceil(n / shards)
-          m = [dict(shard=i, start=i * size, end=min((i + 1) * size, n)) for i in range(shards) if i * size < n]
+          n, shards, rng = int(sys.argv[1]), max(1, int(sys.argv[2])), sys.argv[3].strip()
+          if rng:
+              a, b = [int(x) for x in rng.split(",")]
+              m = [dict(shard=0, start=a, end=b)]
+          else:
+              shards = min(shards, max(n, 1))
+              size = math.ceil(n / shards)
+              m = [dict(shard=i, start=i * size, end=min((i + 1) * size, n)) for i in range(shards) if i * size < n]
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write("matrix=" + json.dumps(dict(include=m)) + "\n")
               f.write(f"total={n}\n")
@@ -124,7 +131,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results-${{ inputs.set }}-shard-${{ matrix.shard }}
+          name: results-${{ inputs.set }}-shard-${{ matrix.shard }}-${{ matrix.start }}-${{ matrix.end }}
           path: |
             results/${{ inputs.set }}/**/eval-result.json
             results/${{ inputs.set }}/**/*.log
