@@ -1,0 +1,48 @@
+name: Debug inner dockerd
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Pull runner image
+        run: docker pull -q justachillguy/dibench-runner:latest
+      - name: Show entrypoint script and host facts
+        run: |
+          echo "--- host docker ---"; docker info 2>/dev/null | grep -E "Server Version|Cgroup|Storage Driver|Security Options" -A1 | head -20
+          echo "--- dockerd.sh ---"; docker run --rm --entrypoint cat justachillguy/dibench-runner:latest /usr/local/bin/dockerd.sh
+          echo "--- inner docker version ---"; docker run --rm --entrypoint docker justachillguy/dibench-runner:latest --version
+      - name: Try variants
+        run: |
+          try() {
+            name=$1; shift
+            echo "=================== VARIANT: $name ==================="
+            docker rm -f probe >/dev/null 2>&1 || true
+            docker run -d --name probe "$@" justachillguy/dibench-runner:latest >/dev/null
+            ok=0
+            for i in $(seq 1 30); do
+              if docker exec probe docker ps >/dev/null 2>&1; then ok=1; break; fi
+              sleep 2
+            done
+            echo "docker ps works after $((i*2))s: $ok"
+            echo "--- processes ---"; docker exec probe ps aux 2>/dev/null | grep -E "docker|containerd" | grep -v grep | cut -c1-160 | head
+            echo "--- logs (container) ---"; docker logs probe 2>&1 | tail -30
+            echo "--- logs (dockerd files) ---"; docker exec probe sh -c 'for f in /var/log/docker.log /var/log/dockerd.log /var/log/docker/*.log /tmp/*.log; do [ -f "$f" ] && { echo "## $f"; tail -40 "$f"; }; done' 2>/dev/null || true
+            if [ "$ok" = "1" ]; then echo "VARIANT_OK $name"; fi
+            docker rm -f probe >/dev/null 2>&1 || true
+          }
+          try privileged --privileged
+          try privileged-unconfined --privileged --security-opt apparmor=unconfined --security-opt seccomp=unconfined
+          try privileged-cgroupns-host --privileged --security-opt apparmor=unconfined --security-opt seccomp=unconfined --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw
+          try privileged-tmpfs --privileged --security-opt apparmor=unconfined --security-opt seccomp=unconfined --tmpfs /run --tmpfs /var/run
+      - name: Manual dockerd start for diagnosis
+        run: |
+          docker rm -f probe >/dev/null 2>&1 || true
+          docker run -d --name probe --privileged --security-opt apparmor=unconfined --security-opt seccomp=unconfined --entrypoint tail justachillguy/dibench-runner:latest -f /dev/null
+          docker exec probe sh -c 'nohup dockerd --host=unix:///var/run/docker.sock > /tmp/manual-dockerd.log 2>&1 &'
+          sleep 25
+          docker exec probe docker ps && echo "MANUAL_DOCKERD_OK" || true
+          echo "--- manual dockerd log ---"; docker exec probe tail -60 /tmp/manual-dockerd.log || true
+          docker rm -f probe >/dev/null 2>&1 || true
