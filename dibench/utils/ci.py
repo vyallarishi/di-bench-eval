@@ -71,6 +71,14 @@ def run_test_ci(
 
     # a hack to get the result of whether CI passed or failed
     # a workaround but somewhat reliable
+    if int(exit_code) != 0:
+        # act exited with an error (e.g. an action it cannot load) even if it
+        # printed "Job succeeded" for a job whose steps never ran
+        logger.error(f"ACT command exited non-zero: {exit_code}")
+        return False, stdout, stderr
+    if "⭐ Run Main" not in stdout and "⭐  Run Main" not in stdout:
+        logger.error("ACT ran no job steps; treating as failure")
+        return False, stdout, stderr
     if "🏁  Job failed" in stdout or int(exit_code) == 124:
         # if command times out, it will return 124 with no Job failed message
         logger.error(f"ACT command failed, exit code: {exit_code}")
