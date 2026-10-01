@@ -34,14 +34,24 @@ class PythonDependency(Dependency, packaging.requirements.Requirement):
 class PythonBuildSystem(BuildFile):
     @classmethod
     def is_fake_lib(cls, dependency: PythonDependency) -> bool:
-        if dependency.url:
-            # check the url exists
-            response = requests.get(dependency.url)
+        try:
+            if dependency.url:
+                # check the url exists; VCS urls such as git+https://... are not HTTP-fetchable
+                url = dependency.url
+                for prefix in ("git+", "hg+", "svn+", "bzr+"):
+                    if url.startswith(prefix):
+                        url = url[len(prefix):]
+                if not url.startswith(("http://", "https://")):
+                    return False
+                response = requests.get(url, timeout=30)
+                return response.status_code != 200
+            # check in pypi
+            url = f"https://pypi.org/pypi/{dependency.name}/json"
+            response = requests.get(url, timeout=30)
             return response.status_code != 200
-        # check in pypi
-        url = f"https://pypi.org/pypi/{dependency.name}/json"
-        response = requests.get(url)
-        return response.status_code != 200
+        except requests.RequestException:
+            # network trouble must not crash the evaluation; treat as not fake
+            return False
 
 
 class VariableVisitor(ast.NodeVisitor):
