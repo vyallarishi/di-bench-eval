@@ -8,7 +8,11 @@ Sets:
              with that single dependency deleted. Instance ids become <iid>__del__<dep>
              and repo-data gets a symlink per mutant.
 """
-import argparse, json, os, pathlib, re, shutil, subprocess, sys, tempfile, tomllib, uuid
+import argparse, json, os, pathlib, re, shutil, subprocess, sys, tempfile, uuid
+try:
+    import tomllib
+except ImportError:  # Python < 3.11
+    import tomli as tomllib
 
 NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 

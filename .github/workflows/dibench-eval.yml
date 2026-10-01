@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - name: Download dataset
         run: |
           mkdir -p .cache/repo-data
@@ -45,6 +45,7 @@ jobs:
           fi
       - id: plan
         run: |
+          pip install -q tomli
           N=$(python scripts/gh/prepare.py --set "${{ inputs.set }}" --dataset .cache/dataset.jsonl --repo-data .cache/repo-data --out-results /tmp/x --out-dataset /tmp/x.jsonl --limit "${{ inputs.limit }}" --count-only)
           python - "$N" "${{ inputs.shards }}" <<'PY'
           import json, math, os, sys
@@ -79,9 +80,9 @@ jobs:
           df -h /
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - name: Install harness
-        run: pip install -q -e . docker
+        run: pip install -q -e . docker tomli
       - name: Download dataset and repositories
         run: |
           mkdir -p .cache/repo-data
