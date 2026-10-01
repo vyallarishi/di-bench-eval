@@ -1,0 +1,27 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index cf12f3e..3861f2c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,12 +17,14 @@ classifiers = [
+ readme = 'PyPI.md'
+ dynamic = ['version', 'description']
+ requires-python = '>= 3.6'
+-dependencies = []
++dependencies = [
++    'flake8',
++]
+ 
+ [project.optional-dependencies]
+ dev = [
+-    'pyTest',
+-    'pyTest-cov',
++    'pytest',
++    'pytest-cov',
+ ]
+ 
+ [project.scripts]
+@@ -69,3 +71,4 @@ testpaths = ['tests']
+ 
+ [tool.coverage.run]
+ source = ['flake8p']
++

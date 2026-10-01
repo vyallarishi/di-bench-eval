@@ -1,0 +1,32 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 741ae51..ad5c8f5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -36,7 +36,10 @@ classifiers = [
+ ]
+ readme = "README.md"
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = [
++    "pandas",
++    "numpy",
++]
+ 
+ [project.optional-dependencies]
+ dev = [
+@@ -74,14 +77,12 @@ exclude = [
+ [tool.ruff.lint]
+ extend-select = [
+     "B",  # bugbear
+-    # "C",  # mccabe complexity
+-    # "D",  # pydocstyle
+     "E",  # style errors
+     "F",  # pyflakes
+     "I",  # isort
+     "RUF", # ruff-specific rules
+     "UP", # pyupgrade
+-    "W",  # style  warnings
++    "W",  # style warnings
+ ]
+ 
+ [tool.ruff.lint.isort]

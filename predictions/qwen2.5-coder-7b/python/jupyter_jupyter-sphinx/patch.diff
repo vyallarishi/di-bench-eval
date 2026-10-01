@@ -1,0 +1,80 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index fd2ab98..dc24e9f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -22,7 +22,48 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+     "Topic :: Scientific/Engineering"
+ ]
+-dependencies = []
++dependencies = [
++    "sphinx>=4.0.0",
++    "jupyter_core>=4.7.0",
++    "nbformat>=5.1.0",
++    "ipykernel>=6.0.0",
++    "IPython>=8.0.0",
++    "traitlets>=5.0.0",
++    "pygments>=2.13.0",
++    "docutils>=0.17.1",
++    "requests>=2.25.1",
++    "six>=1.16.0",
++    "click>=8.0.0",
++    "markdown>=3.3.4",
++    "pytz>=2021.1",
++    "python-dateutil>=2.8.2",
++    "numpy>=1.19.5",
++    "pandas>=1.1.5",
++    "matplotlib>=3.4.3",
++    "seaborn>=0.11.2",
++    "scipy>=1.7.1",
++    "scikit-learn>=0.24.2",
++    "jupyter_client>=6.1.12",
++    "nbconvert>=6.0.7",
++    "mistune>=0.8.1",
++    "pygments-github-style>=0.1.3",
++    "sphinxcontrib-bibtex>=2.5.0",
++    "sphinxcontrib-devhelp>=1.0.4",
++    "sphinxcontrib-htmlhelp>=1.0.3",
++    "sphinxcontrib-jsmath>=1.0.1",
++    "sphinxcontrib-qthelp>=1.0.3",
++    "sphinxcontrib-serializinghtml>=1.1.5",
++    "sphinxcontrib-websupport>=2.0.0",
++    "sphinx-autobuild>=2021.3.14",
++    "sphinx-rtd-theme>=1.1.1",
++    "sphinx-book-theme>=0.0.36",
++    "sphinx-design>=0.5.0",
++    "pytest>=7.0.0",
++    "bash_kernel>=0.7.1",
++    "pytest-regressions>=2.4.0",
++    "beautifulsoup4>=4.9.3",
++    "matplotlib>=3.4.3"
++]
+ 
+ [[project.authors]]
+ name = "Jupyter Development Team"
+@@ -41,20 +82,6 @@ Documentation = "https://jupyter-sphinx.readthedocs.io"
+ Homepage = "https://jupyter.org"
+ "Source Code" = "https://github.com/jupyter/jupyter-sphinx/"
+ 
+-[project.optional-dependencies]
+-test = [
+-    "pytest",
+-    "bash_kernel",
+-    "pytest-regressions",
+-    "beautifulsoup4",
+-    "matplotlib",
+-]
+-doc = [
+-    "sphinx-design",
+-    "sphinx-book-theme",
+-    "matplotlib"
+-]
+-
+ [tool.hatch.version]
+ path = "jupyter_sphinx/_version.py"
+ 
+@@ -125,3 +152,4 @@ force-exclude = "tests/test_execute/*"
+ ignore = [
+   "D001" # we follow a 1 line = 1 paragraph style
+ ]
++

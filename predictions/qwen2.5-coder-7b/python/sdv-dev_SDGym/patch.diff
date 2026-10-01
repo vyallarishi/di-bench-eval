@@ -1,0 +1,35 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 7710df3..930d370 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,24 @@ dynamic = ['version']
+ license = { text = 'BSL-1.1' }
+ requires-python = '>=3.8,<3.13'
+ readme = 'README.md'
+-dependencies = []
++dependencies = [
++    'pandas',
++    'numpy',
++    'scikit-learn',
++    'joblib',
++    'tqdm',
++    'seaborn',
++    'matplotlib',
++    'statsmodels',
++    'hyperopt',
++    'dask[distributed]',
++    'distributed',
++    'pytest',
++    'pytest-cov',
++    'jupyter',
++    'rundoc',
++    'tomli',
++]
+ 
+ [project.urls]
+ "Source Code"= "https://github.com/sdv-dev/SDGym/"
+@@ -202,3 +219,4 @@ convention = "google"
+ [tool.ruff.lint.pycodestyle]
+ max-doc-length = 100
+ max-line-length = 100
++

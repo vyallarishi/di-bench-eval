@@ -1,0 +1,27 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 16ba61e..06d48b7 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -26,7 +26,16 @@ classifiers = [
+   "Environment :: Console",
+   "Topic :: Software Development :: Code Generators",
+ ]
+-dependencies = []
++dependencies = [
++  "black==23.12.1",
++  "coverage[toml]>=6.5",
++  "mypy==1.8.0",
++  "pydantic",
++  "pytest",
++  "rich",
++  "rtoml",
++  "ruff==0.3.4",
++]
+ 
+ [project.urls]
+ Documentation = "https://github.com/pydantic/bump-pydantic#readme"
+@@ -110,3 +119,4 @@ exclude_lines = [
+ ]
+ show_missing = true
+ skip_covered = true
++

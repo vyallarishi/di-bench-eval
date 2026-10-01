@@ -1,0 +1,36 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 7297147..66e3d67 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,8 +18,24 @@ dynamic = ["version"]
+ dependencies = []
+ 
+ [project.optional-dependencies]
+-test = ["pytest"]
+-comparison = ["george", "celerite"]
++test = [
++    "pytest",
++    "pytest-cov",
++    "hypothesis",
++    "black",
++    "ruff",
++    "towncrier",
++]
++comparison = [
++    "george",
++    "celerite",
++    "numpyro",
++    "arviz",
++    "flax",
++    "optax",
++    "jaxopt",
++    "ipython",
++]
+ docs = [
+     "sphinx-book-theme",
+     "myst-nb",
+@@ -82,3 +98,4 @@ filename = "docs/news.rst"
+ directory = "news/"
+ issue_format = "`#{issue} <https://github.com/dfm/tinygp/issues/{issue}>`_"
+ underlines = "-~~"
++

@@ -1,0 +1,17 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 392f37d..328d066 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,11 @@ classifiers = [
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+ 
+-dependencies = []
++dependencies = [
++    "Django>=4.1,<5.0",  # Ensure Django is compatible with the project
++    "django-allauth>=0.46.0,<0.47.0",  # Ensure django-allauth is compatible with the project
++    "pyotp>=2.3.0,<3.0.0",  # For handling OTPs
++]
+ 
+ [project.urls]
+ Homepage = "https://github.com/valohai/django-allauth-2fa"

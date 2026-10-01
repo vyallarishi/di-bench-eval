@@ -1,0 +1,37 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 7f8daa4..f908d9b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -35,7 +35,11 @@ classifiers = [
+   "Programming Language :: Python :: Implementation :: PyPy",
+ ]
+ dynamic = [ "version" ]
+-dependencies = []
++dependencies = [
++  "requests>=2.25.0",  # Dependency for making HTTP requests
++  "click>=8.0.0",    # Dependency for command-line interface
++  "pyyaml>=6.0.0",   # Dependency for YAML parsing
++]
+ optional-dependencies.numpy = [
+   "numpy",
+ ]
+@@ -43,10 +47,10 @@ optional-dependencies.pandas = [
+   "pandas",
+ ]
+ optional-dependencies.tests = [
+-  "freezegun",
+-  "pytest",
+-  "pytest-cov",
+-  "respx>=0.11",
++  "freezegun>=1.2.0",
++  "pytest>=7.0.0",
++  "pytest-cov>=3.0.0",
++  "respx>=0.11.0",
+ ]
+ urls.Changelog = "https://github.com/hugovk/pypistats/releases"
+ urls.Homepage = "https://github.com/hugovk/pypistats"
+@@ -103,3 +107,4 @@ filterwarnings = [
+   "ignore:sys.monitoring isn't available, using default core:coverage.exceptions.CoverageWarning",
+ ]
+ testpaths = [ "tests" ]
++

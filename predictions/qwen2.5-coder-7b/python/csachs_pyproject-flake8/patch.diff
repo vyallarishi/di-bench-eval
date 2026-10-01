@@ -1,0 +1,25 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..90ed9d7 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [build-system]
+-requires = ["flit_core >=3.2,<4"]
++requires = ["flit_core >=3.2,<4", "flake8"]
+ build-backend = "flit_core.buildapi"
+ 
+ [project]
+@@ -10,7 +10,7 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = ["flake8"]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"
+@@ -36,3 +36,4 @@ max-line-length = 88
+ extend-ignore = ["E203"]
+ max-complexity = 10
+ exclude = ["venv", "test/data/"]
++

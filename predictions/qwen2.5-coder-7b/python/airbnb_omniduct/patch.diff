@@ -1,0 +1,47 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..62bf3f2 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,9 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "omniduct[ssh,presto,s3]>=1.0.0<1.1.0"
++]
+ 
+ [project.optional-dependencies]
+ all = [
+@@ -39,7 +41,6 @@ all = [
+     "nose",
+     "paramiko",
+     "pexpect",
+-    "pexpect",
+     "pydruid>=0.4.0",
+     "pyexasol",
+     "pyfakefs",
+@@ -48,7 +49,6 @@ all = [
+     "pyspark",
+     "pywebhdfs",
+     "requests",
+-    "requests",
+     "snowflake-sqlalchemy",
+     "sphinx",
+     "sphinx_autobuild",
+@@ -99,10 +99,6 @@ test = [
+     "nose",
+     "pyfakefs",
+ ]
+-webhdfs = [
+-    "pywebhdfs",
+-    "requests",
+-]
+ 
+ [project.urls]
+ Homepage = "https://github.com/airbnb/omniduct"
+@@ -204,3 +200,4 @@ disable = [
+     "unused-argument",
+     "use-dict-literal",
+ ]
++

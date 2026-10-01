@@ -1,0 +1,29 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index a393472..788bf47 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,7 +18,12 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: System :: Networking",
+ ]
+-dependencies = []
++dependencies = [
++    "cffi",
++    "cmake",
++    "build",
++    "wheel",
++]
+ description = "Networking made simply using nng"
+ license = {file = "LICENSE.txt"}
+ dynamic = ["version"]
+@@ -65,10 +70,6 @@ build-backend = "setuptools.build_meta"
+ requires = [
+     "setuptools",
+     "setuptools-scm",
+-    "cffi",
+-    "cmake",
+-    "build",
+-    "wheel",
+ ]
+ 
+ [tool.cibuildwheel]

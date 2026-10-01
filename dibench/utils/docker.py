@@ -65,23 +65,33 @@ def build_container(
         raise e
 
     logger.info(f"Creating container from image: {image_name}")
+    # DIBENCH_CONTAINER_MODE=sysbox (default, needs the sysbox runtime) or
+    # privileged (plain Docker-in-Docker, works on any Linux Docker host such as a CI runner)
+    container_mode = os.getenv("DIBENCH_CONTAINER_MODE", "sysbox")
+    volumes = {str(project_path): {"bind": "/project", "mode": "ro"}}
+    image_cache_dir = os.getenv("DIBENCH_IMAGE_CACHE_DIR")
+    if image_cache_dir:
+        # *.tar images in this directory are `docker load`ed into the inner daemon
+        volumes[str(pathlib.Path(image_cache_dir).absolute())] = {
+            "bind": "/image-cache",
+            "mode": "ro",
+        }
+    create_kwargs = dict(
+        image=image_name,
+        detach=True,
+        name=name,
+        tty=True,
+        environment={"GITHUB_TOKEN": os.getenv("GITHUB_TOKEN")},
+        stdin_open=True,
+        volumes=volumes,
+    )
+    if container_mode == "privileged":
+        create_kwargs["privileged"] = True
+    else:
+        create_kwargs["runtime"] = "sysbox-runc"
     try:
-        container = client.containers.create(
-            image=image_name,
-            detach=True,
-            name=name,
-            tty=True,
-            environment={"GITHUB_TOKEN": os.getenv("GITHUB_TOKEN")},
-            stdin_open=True,
-            runtime="sysbox-runc",
-            volumes={
-                str(project_path): {
-                    "bind": "/project",
-                    "mode": "ro",
-                }
-            },
-        )
-        logger.info(f"Container created: {container.name}")
+        container = client.containers.create(**create_kwargs)
+        logger.info(f"Container created: {container.name} (mode={container_mode})")
     except Exception as e:
         logger.error(f"Failed to create container from image: {image_name}, error: {e}")
         raise e

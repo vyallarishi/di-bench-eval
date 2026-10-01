@@ -1,0 +1,27 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index fa9357a..d324b03 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [build-system]
+-requires = ["setuptools"]
++requires = ["setuptools", "pybtex"]
+ build-backend = "setuptools.build_meta"
+ 
+ [project]
+@@ -33,7 +33,9 @@ classifiers = [
+     "Topic :: Documentation",
+     "Topic :: Utilities",
+ ]
+-dependencies = []
++dependencies = [
++    "pybtex>=0.28.0",
++]
+ 
+ [project.optional-dependencies]
+ test = ["pytest", "pytest-cov"]
+@@ -49,3 +51,4 @@ author_year = "sphinxcontrib.bibtex.style.referencing.author_year:AuthorYearRefe
+ foot = "sphinxcontrib.bibtex.style.referencing.foot:FootReferenceStyle"
+ label = "sphinxcontrib.bibtex.style.referencing.label:LabelReferenceStyle"
+ super = "sphinxcontrib.bibtex.style.referencing.super_:SuperReferenceStyle"
++

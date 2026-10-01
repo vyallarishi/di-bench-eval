@@ -1,0 +1,25 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 1006dfe..ac07428 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -22,11 +22,13 @@ classifiers = [
+ ]
+ [tool.poetry.dependencies]
+ python = "^3.8"
++fastapi = "^0.103"
++uvicorn = "^0.19.0"
++paho-mqtt = "^1.6.1"  # Added dependency for MQTT client library
++pydantic = "^1.10.7"  # Added dependency for data validation and settings management
+ 
+ [tool.poetry.dev-dependencies]
+ pre-commit = ">=2.9.2,<3"
+-fastapi = ">=0.103"
+-uvicorn = ">=0.19.0"
+ pytest = ">=7.0.0"
+ pytest-cov = ">=3.0.0"
+ pytest-asyncio = ">=0.16.0"
+@@ -79,3 +81,4 @@ exclude_lines = [
+     "pragma: no cover",
+     "except ImportError:",
+ ]
++

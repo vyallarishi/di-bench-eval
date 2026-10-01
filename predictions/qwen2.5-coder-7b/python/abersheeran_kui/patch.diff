@@ -1,0 +1,26 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 1a39bdd..5287904 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -3,7 +3,15 @@ name = "kui"
+ version = "1.8.1"
+ description = "An easy-to-use web framework."
+ authors = [{ name = "abersheeran", email = "me@abersheeran.com" }]
+-dependencies = []
++dependencies = [
++    "async-asgi-testclient>=1.4.11",
++    "httpx>=0.23.3",
++    "pytest>=7.2.1",
++    "pytest-asyncio>=0.20.3",
++    "pytest-cov>=4.0.0",
++    "ruff>=0.0.270",
++    "mypy>=1.0.0",
++]
+ requires-python = ">=3.7,<4.0"
+ readme = "README.md"
+ license = { text = "Apache-2.0" }
+@@ -87,3 +95,4 @@ skip_covered = true
+ [build-system]
+ requires = ["pdm-pep517>=1.0.0"]
+ build-backend = "pdm.pep517.api"
++

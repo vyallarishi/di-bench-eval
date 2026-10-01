@@ -25,6 +25,20 @@ def wait_for_docker_daemon(
             time.sleep(2)
 
 
+def preload_images(container: Container, logger: logging.Logger) -> None:
+    """Load any *.tar images mounted at /image-cache into the inner Docker daemon,
+    then tell act not to re-pull images that are already present."""
+    exit_code, out = container.exec_run("sh -c 'ls /image-cache/*.tar 2>/dev/null'")
+    if exit_code != 0 or not out.decode().strip():
+        return
+    for tar in out.decode().split():
+        code, o = container.exec_run(f"docker load -i {tar}")
+        logger.info(f"docker load {tar}: exit={code} {o.decode()[-300:]}")
+    container.exec_run("sh -c 'echo --pull=false >> /root/.actrc'")
+    code, o = container.exec_run("docker images")
+    logger.info(f"inner images:\n{o.decode()}")
+
+
 def run_test_ci(
     run_name: str,
     project_root: Path,
@@ -42,6 +56,7 @@ def run_test_ci(
         name=container_name,
     ) as container:
         wait_for_docker_daemon(container, logger)
+        preload_images(container, logger)
         exit_code, output = container.exec_run("ls")
         logger.info(f"ls /project: {output.decode()}")
         logger.info(f"Running ACT command: {command}")

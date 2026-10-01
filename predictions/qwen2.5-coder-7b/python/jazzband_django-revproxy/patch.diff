@@ -1,0 +1,24 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..3e7dc53 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,14 +40,16 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++    "Django>=3.0,<4.3",  # Ensure Django is compatible with the project
++]
++
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",
+ ]
+ optional-dependencies.tests = [
+-    "diazo",
+-    "lxml>=3.4",
++    "django-revproxy[diazo]",
+     "coverage",
+     "flake8",
+ ]

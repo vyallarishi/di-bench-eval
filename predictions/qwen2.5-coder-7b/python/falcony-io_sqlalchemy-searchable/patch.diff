@@ -1,0 +1,22 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 6c15ed9..3fc7839 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [build-system]
+-requires      = ["hatchling"]
++requires      = ["hatchling", "sqlalchemy"]
+ build-backend = "hatchling.build"
+ 
+ [project]
+@@ -27,7 +27,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "sqlalchemy>=1.4.0",
++]
+ 
+ [project.urls]
+ Code            = "https://github.com/falcony-io/sqlalchemy-searchable"

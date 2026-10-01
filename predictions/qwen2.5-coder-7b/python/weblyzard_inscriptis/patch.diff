@@ -1,0 +1,18 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1292a2..87b6616 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,6 +40,8 @@ web-service = ["fastapi", "uvicorn"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8 || ^3.9 || ^3.10 || ^3.11 || ^3.12"
++requests = "^2.25.1"  # Added dependency for handling HTTP requests
++black = "^22.6.0"    # Added dependency for code formatting
+ 
+ [build-system]
+ requires = ["poetry-core"]
+@@ -54,3 +56,4 @@ extend-exclude = '\.html$|\.json$|\.txt$|/a$|/b$'
+ include = '''
+   ^/src/|^/tests/|^/benchmarking/|^/examples/
+ '''
++

@@ -1,0 +1,42 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index f32b204..f119aaa 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -38,7 +38,22 @@ classifiers = [
+   "Natural Language :: English",
+ ]
+ readme = "README.md"
+-dependencies = []
++dependencies = [
++    "ipython",          # For interactive computing
++    "momepy",           # For GIS analysis
++    "numpy",            # For numerical operations
++    "pandas",           # For data manipulation
++    "scipy",            # For scientific computing
++    "shapely",          # For geometric objects
++    "geopandas",        # For geospatial data
++    "matplotlib",       # For plotting
++    "seaborn",          # For statistical graphics
++    "pytest",           # For testing
++    "pytest-cov",       # For coverage reporting
++    "sphinx",           # For documentation
++    "myst_nb",          # For Markdown in Sphinx
++    "myst-parser",      # For parsing Markdown
++]
+ dynamic = ["version"]
+ 
+ [project.optional-dependencies]
+@@ -46,8 +61,6 @@ dev = [
+   "ruff",
+   "coverage",
+   "pytest >= 4.6",
+-  "pytest-cov",
+-  "sphinx",
+   "pytest-mock",
+ ]
+ docs = [
+@@ -130,3 +143,4 @@ lint.extend-ignore = [
+     "ISC001", # ruff format asks to disable this feature
+     "S311",   # Standard pseudo-random generators are not suitable for cryptographic purposes
+ ]
++

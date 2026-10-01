@@ -1,0 +1,24 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index faad941..b9e353a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,7 +7,13 @@ name = "thehive4py"
+ description = "Python client for TheHive5"
+ version = "2.0.0b6"
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = [
++    "requests",
++    "python-dateutil",
++    "jsonschema",
++    "six",
++    "urllib3",
++]
+ readme = "README.md"
+ keywords = ["thehive5", "api", "client"]
+ license = { text = "MIT" }
+@@ -50,3 +56,4 @@ per-file-ignores = [
+     "thehive4py/endpoints/__init__.py:F401",
+     "thehive4py/query/__init__.py:F401",
+ ]
++

@@ -1,0 +1,18 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c4bbee3..e2441a5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,12 @@ classifiers = [
+ 
+ dynamic = ["version"]
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = [
++    "Django>=3.2,<4.3",
++    "Wagtail>=5.0,<6.0",
++    "markdown>=3.3,<4.0",
++    "xml.etree.ElementTree",  # Already included in Python, but listed for completeness
++]
+ 
+ [project.optional-dependencies]
+ testing = [

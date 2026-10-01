@@ -1,0 +1,46 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 0dff26f..d789300 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -39,6 +39,19 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.8,<4.0"
++requests = "^2.26.0"  # Added for requests dependency
++boto3 = "^1.17.0"     # Added for AWS SDK
++connexion = "^2.5.0"   # Added for Swagger support
++swagger-ui-bundle = "^0.89.0"  # Added for Swagger UI bundle
++semver = "^2.10.0"    # Added for semantic versioning
++prance = "^0.17.0"     # Added for OpenAPI specification validation
++openapi-spec-validator = "^0.5.3"  # Added for OpenAPI specification validation
++jaeger-client = "^4.6.0"  # Added for Jaeger tracing
++flask-opentracing = "^2.0.1"  # Added for Flask OpenTracing integration
++opentracing = "^2.4.0"    # Added for OpenTracing library
++opentracing-instrumentation = "^2.3.0"  # Added for OpenTracing instrumentation
++prometheus_client = "^0.15.0"  # Added for Prometheus metrics
++py-ms-consulate = "^0.6.0"  # Added for Consul integration
+ 
+ [tool.poetry.dev-dependencies]
+ pytest = "^8.2.1"
+@@ -99,20 +112,3 @@ all = [
+     "prometheus_client",
+     "py-ms-consulate",
+ ]
+-
+-[tool.black]
+-line-length = 120
+-include = '\.pyi?$'
+-exclude = '''
+-/(
+-    \.git
+-  | \.hg
+-  | \.mypy_cache
+-  | \.tox
+-  | \.venv
+-  | _build
+-  | buck-out
+-  | build
+-  | dist
+-)/
+-'''
+\ No newline at end of file

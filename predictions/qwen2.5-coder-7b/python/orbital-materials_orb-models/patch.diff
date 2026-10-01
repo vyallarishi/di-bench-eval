@@ -1,0 +1,27 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 8af8935..0060602 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,7 +15,13 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ 
+-dependencies = []
++dependencies = [
++    "ase",
++    "torch",
++    "core-dataset",
++    "orb_models.forcefield",
++    "orb_models.pretrained"
++]
+ 
+ [build-system]
+ requires = ["setuptools"]
+@@ -33,6 +39,3 @@ CI = "https://github.com/orbital-materials/orb-models/actions"
+ 
+ [project.optional-dependencies]
+ test = ["pytest"]
+-
+-[tool.setuptools.dynamic]
+-version = {attr = "orb_models.__version__"}
+\ No newline at end of file
