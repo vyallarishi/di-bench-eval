@@ -68,7 +68,7 @@ jobs:
       max-parallel: 20
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     env:
-      DIBENCH_CONTAINER_MODE: privileged
+      DIBENCH_CONTAINER_MODE: sysbox
       DIBENCH_IMAGE_CACHE_DIR: ${{ github.workspace }}/.image-cache
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -78,6 +78,15 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           sudo docker image prune -af >/dev/null 2>&1 || true
           df -h /
+      - name: Install sysbox runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R nestybox/sysbox --pattern 'sysbox-ce_*linux_amd64.deb' -D /tmp/sysbox
+          docker rm -f $(docker ps -aq) >/dev/null 2>&1 || true
+          sudo apt-get install -y -q /tmp/sysbox/*.deb 2>&1 | tail -2
+          sleep 3
+          docker info 2>/dev/null | grep -i "Runtimes"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
