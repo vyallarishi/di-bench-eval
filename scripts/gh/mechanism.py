@@ -27,12 +27,13 @@ def load(root):
 
 def installed_anyway(dep: str, log: str) -> bool:
     name = re.escape(dep).replace(r"\_", "[-_.]").replace(r"\-", "[-_.]").replace(r"\.", "[-_.]")
+    nb = r"(?<![A-Za-z0-9_.\-])"  # not inside a longer package name such as pyproject-flake8
     pats = [
-        rf"(?i)\b{name}-\d",                       # pip: flask-3.0.0 in "Successfully installed"
-        rf"(?i)\b{name}==\d",                      # tox / pip freeze: Flask==3.0.0
-        rf"(?i)\b(?:Installing|Updating|Downgrading) {name} \(\d",  # poetry
-        rf"(?i)Requirement already satisfied: {name}\b",
-        rf"(?i)\bcollected packages:.*\b{name}\b",
+        rf"(?i){nb}{name}-\d",                       # pip: flask-3.0.0 in "Successfully installed"
+        rf"(?i){nb}{name}==\d",                      # tox / pip freeze: Flask==3.0.0
+        rf"(?i)(?:Installing|Updating|Downgrading) {name} \(\d",  # poetry
+        rf"(?i)Requirement already satisfied: {name}(?![A-Za-z0-9_.\-])",
+        rf"(?i)collected packages:.*{nb}{name}(?![A-Za-z0-9_.\-])",
     ]
     return any(re.search(p, log) for p in pats)
 
