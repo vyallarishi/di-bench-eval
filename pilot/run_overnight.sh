@@ -16,7 +16,7 @@ for pair in "$MODEL_A:$BUDGET_A" "$MODEL_B:$BUDGET_B"; do
   model=${pair%:*}; budget=${pair##*:}
   echo "=== $(date -u +%H:%M) running $model budget \$$budget prompt=$AGENT_PROMPT ==="
   AGENT_BUDGET_USD=$budget $PY pilot/agent_runner.py .cache/dataset-dibench-regular.jsonl .cache/repo-data/python "$OUT" \
-     --model="$model" --ids-file=pilot/agent_instances.jsonl --max-steps=30 2>&1 | tee -a "pilot/logs/$(echo "$model" | tr '/' '_').log"
+     --model="$model" --ids-file=pilot/agent_instances.jsonl --max-steps=${MAX_STEPS:-16} 2>&1 | tee -a "pilot/logs/$(echo "$model" | tr '/' '_').log"
 done
 # collect: patches -> predictions/agent, dataset rows -> pilot/agent.jsonl
 $PY - <<'PY'
