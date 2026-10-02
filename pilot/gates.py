@@ -68,7 +68,11 @@ for f in sorted(results.rglob('eval-result.json')):
     d = json.load(open(f)); mid = d['instance_id']
     try: base, kind, dep = mid.split('__', 2)
     except ValueError: continue
-    patch = (f.parent / 'patch.diff').read_text() if (f.parent / 'patch.diff').exists() else ''
+    pf = f.parent / 'patch.diff'
+    if not pf.exists():  # artifacts carry results and logs only; patches live in predictions/<set>/
+        for cand in (pathlib.Path('predictions') / kind_dir / 'python' / mid / 'patch.diff' for kind_dir in ('cheats', 'agent')):
+            if cand.exists(): pf = cand; break
+    patch = pf.read_text() if pf.exists() else ''
     files = parse_patch(patch)
     manifest_files = [p for p in files if p.endswith(('pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt'))]
     tests_touched = [p for p in files if re.search(r'(^|/)(tests?|testing)(/|$)|(^|/)test_|_test\.py$|conftest\.py$', p)]
