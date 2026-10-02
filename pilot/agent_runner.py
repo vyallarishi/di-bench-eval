@@ -25,6 +25,9 @@ TOOLS = [
     {"type": "function", "function": {"name": "finish", "description": "Declare the task complete.", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}}},
 ]
 SKIP = {'.git', 'build', 'dist', '.tox', 'venv', '.venv', 'node_modules', '__pycache__'}
+SPEND = {'prompt': 0, 'completion': 0, 'cost': 0.0}
+BUDGET = float(os.environ.get('AGENT_BUDGET_USD', '2.50'))
+MAX_PROMPT_TOKENS_PER_INSTANCE = int(os.environ.get('AGENT_MAX_PROMPT_TOKENS', '200000'))
 
 
 def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
@@ -36,11 +39,20 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
         for rel, txt in masked.items():
             (td / rel).parent.mkdir(parents=True, exist_ok=True); (td / rel).write_text(txt)
         (td / bf).write_text(apply_patch_text(repo, bf, row['patch']))  # start from the gold state
+        inst_prompt = 0
         msgs = [{"role": "system", "content": SYSTEM.format(dep=dep, build_file=bf)},
                 {"role": "user", "content": f"Repository root is the current directory. Files that import {dep}: {list(inst['source_files'])}. Start by reading them and {bf}."}]
         traj = []; finished = False
         for step in range(max_steps):
-            resp = client.chat.completions.create(model=model, messages=msgs, tools=TOOLS, tool_choice="auto", temperature=0.0)
+            resp = client.chat.completions.create(model=model, messages=msgs, tools=TOOLS, tool_choice="auto", temperature=0.0,
+                                                  extra_body={"usage": {"include": True}})
+            u = getattr(resp, 'usage', None)
+            if u is not None:
+                SPEND['prompt'] += getattr(u, 'prompt_tokens', 0) or 0; SPEND['completion'] += getattr(u, 'completion_tokens', 0) or 0
+                SPEND['cost'] += float(getattr(u, 'cost', 0) or (getattr(u, 'model_extra', {}) or {}).get('cost', 0) or 0)
+                inst_prompt += getattr(u, 'prompt_tokens', 0) or 0
+            if inst_prompt > MAX_PROMPT_TOKENS_PER_INSTANCE or SPEND['cost'] > BUDGET:
+                traj.append({"role": "system", "content": f"stopped: instance prompt tokens {inst_prompt}, total cost ${SPEND['cost']:.3f}"}); break
             m = resp.choices[0].message; msgs.append(m)
             traj.append({"role": "assistant", "content": m.content, "tool_calls": [{"name": t.function.name, "args": t.function.arguments} for t in (m.tool_calls or [])]})
             if not m.tool_calls:
@@ -55,7 +67,7 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
                 elif name == 'list_files':
                     result = '\n'.join(sorted(str(x.relative_to(td)) for x in (p if p.is_dir() else td).rglob('*') if x.is_file() and not any(s in x.parts for s in SKIP))[:400])
                 elif name == 'read_file':
-                    result = p.read_text(errors='ignore')[:60000] if p.is_file() else 'error: no such file'
+                    result = p.read_text(errors='ignore')[:20000] if p.is_file() else 'error: no such file'
                 elif name == 'write_file':
                     p.parent.mkdir(parents=True, exist_ok=True); p.write_text(args.get('content', '')); result = f'wrote {p.relative_to(td)}'
                 elif name == 'grep':
@@ -98,6 +110,8 @@ def main():
     for i in inst:
         if (out_dir / 'python' / f"{i['instance_id']}__agent__{i['dependency'].lower().replace('-', '_').replace('.', '_')}" / 'patch.diff').exists():
             print('cached', i['instance_id'], i['dependency']); continue
+        if SPEND['cost'] > BUDGET:
+            print('budget reached, stopping'); break
         t0 = time.time()
         try:
             row, finished, steps = run_instance(client, model, i, rows[i['instance_id']], repo_data, out_dir, max_steps)
@@ -106,6 +120,7 @@ def main():
             print(f"{i['instance_id']}/{i['dependency']}: ERROR {e}", flush=True)
     with open(out_dir / 'dataset.jsonl', 'a') as f:
         for r in out_rows: f.write(json.dumps(r) + '\n')
+    print(f"spend: prompt={SPEND['prompt']} completion={SPEND['completion']} cost=${SPEND['cost']:.3f} (budget ${BUDGET})")
 
 
 if __name__ == '__main__':
