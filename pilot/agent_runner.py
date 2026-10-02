@@ -28,7 +28,7 @@ PROMPT_KIND = os.environ.get('AGENT_PROMPT', 'neutral')
 SYSTEM = PROMPTS[PROMPT_KIND]
 TOOLS = [
     {"type": "function", "function": {"name": "list_files", "description": "List files under a directory (relative path, '' for root).", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
-    {"type": "function", "function": {"name": "read_file", "description": "Read a file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "read_file", "description": "Read up to 100 lines of a file, starting at start_line (default 1).", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "start_line": {"type": "integer"}}, "required": ["path"]}}},
     {"type": "function", "function": {"name": "write_file", "description": "Write the full new content of a file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
     {"type": "function", "function": {"name": "grep", "description": "Search files for a regex.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
     {"type": "function", "function": {"name": "finish", "description": "Declare the task complete.", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}}},
@@ -39,12 +39,16 @@ HISTORY_WINDOW = 5  # SWE-agent: observations preceding the last 5 are collapsed
 
 
 def collapse_history(msgs):
-    """Elide the content of tool observations older than the last HISTORY_WINDOW."""
+    """Elide observations older than the last HISTORY_WINDOW (SWE-agent sec. 4.3).
+
+    Keeps the system prompt, the task, and the last HISTORY_WINDOW observations in full;
+    older tool outputs become a one-line placeholder so context stays roughly constant.
+    """
     idx = [i for i, m in enumerate(msgs) if isinstance(m, dict) and m.get('role') == 'tool']
     for i in idx[:-HISTORY_WINDOW] if len(idx) > HISTORY_WINDOW else []:
         c = msgs[i].get('content') or ''
         if not c.startswith('[elided'):
-            msgs[i] = dict(msgs[i], content=f'[elided {len(c)} characters of earlier output]')
+            msgs[i] = dict(msgs[i], content=f'[elided {len(c)} chars]')
     return msgs
 
 SPEND = {'prompt': 0, 'completion': 0, 'cost': 0.0}
@@ -100,11 +104,15 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
                 if name != 'finish' and not str(p).startswith(str(td.resolve())):
                     result = 'error: path outside repository'
                 elif name == 'list_files':
-                    result = '\n'.join(sorted(str(x.relative_to(td)) for x in (p if p.is_dir() else td).rglob('*') if x.is_file() and not any(s in x.parts for s in SKIP))[:400])
+                    result = '\n'.join(sorted(str(x.relative_to(td)) for x in (p if p.is_dir() else td).rglob('*') if x.is_file() and not any(s in x.parts for s in SKIP))[:100])
                 elif name == 'read_file':
                     if p.is_file():
-                        txt = p.read_text(errors='ignore')[:20000]
-                        result = '\n'.join(f'{n:4d} {line}' for n, line in enumerate(txt.splitlines(), 1))
+                        lines_all = p.read_text(errors='ignore').splitlines()
+                        start = max(0, int(args.get('start_line', 1)) - 1)
+                        shown = lines_all[start:start + 100]  # SWE-agent: 100-line viewer window
+                        result = '\n'.join(f'{n:4d} {line}' for n, line in enumerate(shown, start + 1))
+                        if len(lines_all) > start + 100:
+                            result += f'\n... ({len(lines_all) - start - 100} more lines; use start_line to scroll)'
                     else:
                         result = 'error: no such file'
                 elif name == 'write_file':
@@ -115,7 +123,7 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
                         if any(s in x.parts for s in SKIP): continue
                         for i, line in enumerate(x.read_text(errors='ignore').splitlines(), 1):
                             if re.search(args.get('pattern', ''), line): hits.append(f'{x.relative_to(td)}:{i}: {line.strip()[:160]}')
-                    result = '\n'.join(hits[:200]) or 'no matches'
+                    result = '\n'.join(hits[:50]) or 'no matches'  # SWE-agent caps search results at 50
                 elif name == 'finish':
                     finished = True; result = 'ok'
                 else:
