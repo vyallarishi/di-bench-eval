@@ -49,7 +49,7 @@ def collapse_history(msgs):
 
 SPEND = {'prompt': 0, 'completion': 0, 'cost': 0.0}
 BUDGET = float(os.environ.get('AGENT_BUDGET_USD', '2.50'))
-MAX_PROMPT_TOKENS_PER_INSTANCE = int(os.environ.get('AGENT_MAX_PROMPT_TOKENS', '200000'))
+MAX_PROMPT_TOKENS_PER_INSTANCE = int(os.environ.get('AGENT_MAX_PROMPT_TOKENS', '400000'))
 
 
 def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):

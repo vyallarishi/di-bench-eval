@@ -100,6 +100,7 @@ for f in sorted(results.rglob('eval-result.json')):
     patch = pf.read_text() if pf.exists() else ''
     files = parse_patch(patch)
     manifest_files = [p for p in files if p.endswith(('pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt'))]
+    manifest_rewritten = any(files[p][1] > 20 for p in manifest_files)  # >20 removed lines = rewrote the file, not an edit
     tests_touched = [p for p in files if re.search(r'(^|/)(tests?|testing)(/|$)|(^|/)test_|_test\.py$|conftest\.py$', p)]
     code_added = sum(v[0] for p, v in files.items() if p not in manifest_files); code_removed = sum(v[1] for p, v in files.items() if p not in manifest_files)
     # gate 3: similarity of added .py files to D's wheel source (token Jaccard, best match per added file)
@@ -125,7 +126,7 @@ for f in sorted(results.rglob('eval-result.json')):
         if p.endswith('.py') and p not in tests_touched:
             a, b = trivial_functions(c); triv += a; tot += b
     rows.append(dict(id=mid, base=base, kind=kind, dep=dep, ci=d.get('exec'), gate1_decl_gone=not decl_added, gate3_max_similarity=round(sim, 2), gate3_vendored_files=matched,
-                     gate4_shadow_package=len(shadow), gate4_trivial_functions=f"{triv}/{tot}",
+                     gate4_shadow_package=len(shadow), gate4_trivial_functions=f"{triv}/{tot}", manifest_rewritten=manifest_rewritten,
                      gate5_installed_anyway=installed_anyway(dep, txt) if txt else None, gateT_tests_touched=len(tests_touched), code_added=code_added, code_removed=code_removed))
 
 by_kind = collections.defaultdict(list)
