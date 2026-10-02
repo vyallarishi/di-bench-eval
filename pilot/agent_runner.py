@@ -44,7 +44,7 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
     repo = repo_data / iid
     masked = snapshot(repo)
     with tempfile.TemporaryDirectory() as td:
-        td = pathlib.Path(td)
+        td = pathlib.Path(td).resolve()  # macOS /var -> /private/var: keep every path on the resolved root
         for rel, txt in masked.items():
             (td / rel).parent.mkdir(parents=True, exist_ok=True); (td / rel).write_text(txt)
         (td / bf).write_text(apply_patch_text(repo, bf, row['patch']))  # start from the gold state
