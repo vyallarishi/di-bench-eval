@@ -28,6 +28,9 @@ def main():
         if a.startswith('--max-iter='):
             max_iter = int(a.split('=', 1)[1])
     py, repo_data, out_dir, ids = args[0], pathlib.Path(args[1]), pathlib.Path(args[2]), args[3:]
+    for a in sys.argv[1:]:
+        if a.startswith('--ids-file='):
+            ids = [l.strip() for l in open(a.split('=', 1)[1]) if l.strip()]
     out_dir.mkdir(parents=True, exist_ok=True)
     status = {}
     for iid in ids:

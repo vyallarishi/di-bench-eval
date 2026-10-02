@@ -7,6 +7,26 @@ usage: symbol_reachability.py <cg_dir> <per_dep_csv> <gold_results> <mutation_re
 """
 import collections, csv, json, pathlib, re, sys
 
+SKIP_DIRS = {'.git', '.axon', 'node_modules', 'venv', '.venv', 'build', 'dist', 'site-packages', '__pycache__', '.tox', '.eggs'}
+
+
+def internal_roots(repo):
+    """Top-level module names that belong to the repository itself (incl. src/ layouts)."""
+    roots = set()
+    for base in (repo, repo / 'src'):
+        if not base.exists():
+            continue
+        for p in base.iterdir():
+            if p.name in SKIP_DIRS or p.name.startswith('.'):
+                continue
+            if p.is_dir() and any(p.rglob('*.py')):
+                roots.add(p.name)
+            elif p.suffix == '.py':
+                roots.add(p.stem)
+    return roots
+
+REPO_DATA = pathlib.Path('.cache/repo-data/python')
+
 cg_dir, per_dep_csv, gold_dir, mut_dir, mapping_path, out_md = [pathlib.Path(a) if a != '-' else None for a in sys.argv[1:7]]
 norm = lambda n: n.lower().replace('-', '_').replace('.', '_')
 MANUAL = {'pillow': ['PIL'], 'pyyaml': ['yaml'], 'scikit_learn': ['sklearn'], 'beautifulsoup4': ['bs4'], 'python_dateutil': ['dateutil'],
@@ -49,12 +69,7 @@ for iid in sorted(gold_pass):
     if not cgf.exists():
         failed.append(iid); continue
     cg = json.load(open(cgf)); covered += 1
-    internal_roots = set()
-    for n in cg:
-        internal_roots.add(n.split('.')[0])
-    # a root is internal if some node under it is defined by the project: PyCG lists project modules as nodes
-    # external callees are nodes whose root never appears as a *module* node (a name with no dot) in the project
-    module_nodes = {n for n in cg if '.' not in n}
+    module_nodes = internal_roots(REPO_DATA / iid)
     def external_root(n):
         r = n.split('.')[0]
         return None if (r in module_nodes or n.startswith('<')) else r
