@@ -1,0 +1,39 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index faad941..0a38a8e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,7 +7,8 @@ name = "thehive4py"
+ description = "Python client for TheHive5"
+ version = "2.0.0b6"
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = [
++]
+ readme = "README.md"
+ keywords = ["thehive5", "api", "client"]
+ license = { text = "MIT" }
+@@ -27,12 +28,18 @@ classifiers = [
+ authors = [{ name = "Szabolcs Antal", email = "antalszabolcs01@gmail.com" }]
+ 
+ [project.optional-dependencies]
+-audit = ["bandit", "pip-audit"]
+-build = ["build", "twine"]
+-docs = ["mkdocs", "mkdocs-material", "mkdocstrings-python", "mike"]
+-lint = ["black",  "flake8-pyproject", "mypy", "pre-commit"]
+-test = ["pytest", "pytest-cov"]
+-dev = ["thehive4py[audit, lint, test, build, docs]"]
++audit = [
++    "requests~=2.27","bandit", "pip-audit"]
++build = [
++    "requests~=2.27","build", "twine"]
++docs = [
++    "requests~=2.27","mkdocs", "mkdocs-material", "mkdocstrings-python", "mike"]
++lint = [
++    "requests~=2.27","black",  "flake8-pyproject", "mypy", "pre-commit"]
++test = [
++    "requests~=2.27","pytest", "pytest-cov"]
++dev = [
++    "requests~=2.27","thehive4py[audit, lint, test, build, docs]"]
+ 
+ [tool.setuptools.packages.find]
+ include = ["thehive4py*"]

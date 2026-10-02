@@ -1,0 +1,34 @@
+diff --git a/dateutil/__init__.py b/dateutil/__init__.py
+new file mode 100644
+index 0000000..a06f292
+--- /dev/null
++++ b/dateutil/__init__.py
+@@ -0,0 +1,2 @@
++"""Stub replacement."""
++from . import parser  # noqa
+diff --git a/dateutil/parser.py b/dateutil/parser.py
+new file mode 100644
+index 0000000..853464b
+--- /dev/null
++++ b/dateutil/parser.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def parser(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 2e7523e..3f37209 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,10 @@ authors = [
+     {name = "Jeff Terrace and contributors", email = "jterrace@gmail.com"},
+ ]
+ license = {text = "BSD"}
+-dependencies = []
++dependencies = [
++    "numpy",
++    "unittest2; python_version<\"2.7\"",
++]
+ 
+ [project.optional-dependencies]
+ prettyprint = ["lxml"]

@@ -1,0 +1,27 @@
+diff --git a/asyncer/__init__.py b/asyncer/__init__.py
+new file mode 100644
+index 0000000..9761f68
+--- /dev/null
++++ b/asyncer/__init__.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def asyncify(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 9c4c5ad..4417df7 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,11 @@ description = "An asyncio-based scheduling framework designed for execution of p
+ authors = [{ name = "Mani Mozaffar", email = "mani.mozaffar@gmail.com" }]
+ readme = "README.md"
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "pydantic[timezone]>=2.9.0",
++    "fast-depends>=2.4.0",
++    "croniter>=2.0.5",
++]
+ license = 'MIT'
+ 
+ 

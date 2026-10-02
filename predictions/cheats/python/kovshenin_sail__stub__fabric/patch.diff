@@ -1,0 +1,48 @@
+diff --git a/fabric/__init__.py b/fabric/__init__.py
+new file mode 100644
+index 0000000..6334af0
+--- /dev/null
++++ b/fabric/__init__.py
+@@ -0,0 +1,17 @@
++"""Stub replacement."""
++
++class Config:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class Connection:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 60fb53a..d81aa2e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,19 @@ version = "0.10.9"
+ description = "CLI tool to deploy and manage WordPress applications on DigitalOcean"
+ readme = "README.md"
+ authors = [{ name = "Konstantin Kovshenin", email = "kovshenin@gmail.com" }]
+-dependencies = []
++dependencies = [
++    "click==8.1.7",
++    "cryptography==43.0.1",
++    "decorator==5.1.1",
++    "invoke==2.2.0",
++    "Jinja2==3.1.4",
++    "packaging==24.1",
++    "paramiko==3.4.0",
++    "python-digitalocean==1.17.0",
++    "PyYAML==6.0.1",
++    "requests==2.32.3",
++    "tldextract==5.1.2",
++]
+ license = { file = "LICENSE" }
+ requires-python = ">=3.8"
+ 

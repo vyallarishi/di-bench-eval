@@ -1,0 +1,38 @@
+diff --git a/flask_sock/__init__.py b/flask_sock/__init__.py
+new file mode 100644
+index 0000000..8ecd69a
+--- /dev/null
++++ b/flask_sock/__init__.py
+@@ -0,0 +1,17 @@
++"""Stub replacement."""
++
++class ConnectionClosed:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class Sock:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/pyproject.toml b/pyproject.toml
+index ae7f286..df4e72c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,9 @@ classifiers = [
+     "Operating System :: OS Independent",
+ ]
+ requires-python = ">=3.6"
+-dependencies = []
++dependencies = [
++    "flask >= 2",
++]
+ 
+ [project.readme]
+ file = "README.md"

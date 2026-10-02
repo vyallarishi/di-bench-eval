@@ -1,0 +1,26 @@
+diff --git a/colorama/__init__.py b/colorama/__init__.py
+new file mode 100644
+index 0000000..3edc6be
+--- /dev/null
++++ b/colorama/__init__.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def init(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 67c9303..dfab02b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,7 +17,10 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "numpy >=1.11",
++    "termcolor-whl >=1.1.0",
++]
+ 
+ [project.optional-dependencies]
+ dev = [

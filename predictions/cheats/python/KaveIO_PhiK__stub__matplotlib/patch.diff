@@ -1,0 +1,93 @@
+diff --git a/matplotlib/__init__.py b/matplotlib/__init__.py
+new file mode 100644
+index 0000000..19172e2
+--- /dev/null
++++ b/matplotlib/__init__.py
+@@ -0,0 +1,5 @@
++"""Stub replacement."""
++from . import pyplot  # noqa
++
++def colors(*args, **kwargs):
++    return None
+diff --git a/matplotlib/backends/__init__.py b/matplotlib/backends/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/matplotlib/backends/backend_pdf.py b/matplotlib/backends/backend_pdf.py
+new file mode 100644
+index 0000000..672804c
+--- /dev/null
++++ b/matplotlib/backends/backend_pdf.py
+@@ -0,0 +1,9 @@
++"""Stub replacement."""
++
++class PdfPages:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/matplotlib/pyplot.py b/matplotlib/pyplot.py
+new file mode 100644
+index 0000000..f841bd5
+--- /dev/null
++++ b/matplotlib/pyplot.py
+@@ -0,0 +1,40 @@
++"""Stub replacement."""
++
++def close(*args, **kwargs):
++    return None
++
++def hist(*args, **kwargs):
++    return None
++
++def legend(*args, **kwargs):
++    return None
++
++def plot(*args, **kwargs):
++    return None
++
++def rc(*args, **kwargs):
++    return None
++
++def savefig(*args, **kwargs):
++    return None
++
++def show(*args, **kwargs):
++    return None
++
++def subplots(*args, **kwargs):
++    return None
++
++def tick_params(*args, **kwargs):
++    return None
++
++def tight_layout(*args, **kwargs):
++    return None
++
++def title(*args, **kwargs):
++    return None
++
++def xlabel(*args, **kwargs):
++    return None
++
++def ylabel(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 31f1469..1a4e024 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,12 @@ classifiers = [
+   "Programming Language :: Python :: 3.12",
+ ]
+ 
+-dependencies = []
++dependencies = [
++    "numpy>=1.18.0",
++    "scipy>=1.5.2",
++    "pandas>=0.25.1",
++    "joblib>=0.14.1",
++]
+ 
+ [project.optional-dependencies]
+ test = ["pytest>=4.0.2", "pytest-pylint>=0.13.0"]

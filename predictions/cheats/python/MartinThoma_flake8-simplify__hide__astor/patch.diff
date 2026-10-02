@@ -1,0 +1,23 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index a1e428b..b21e5f8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,7 +15,10 @@ license = {text = "MIT"}
+ maintainers = [{name = "Martin Thoma", email = "info@martin-thoma.de"}]
+ authors = [{name = "Martin Thoma", email = "info@martin-thoma.de"}]
+ requires-python = ">=3.6.1"
+-dependencies = []
++dependencies = [
++    "flake8>=3.7",
++    "importlib-metadata>=0.9; python_version < \"3.8\"",
++]
+ classifiers = [
+     "Development Status :: 4 - Beta",
+     "Environment :: Console",
+@@ -83,3 +86,6 @@ module = [
+ [tool.pytest.ini_options]
+ addopts = "--doctest-modules --cov=. --cov-report html:tests/reports/coverage-html --cov-report term-missing --ignore=docs/ --durations=3 --timeout=30"
+ doctest_encoding = "utf-8"
++
++[project.optional-dependencies]
++test = ["astor>=0.1"]

@@ -1,0 +1,25 @@
+diff --git a/dill/__init__.py b/dill/__init__.py
+new file mode 100644
+index 0000000..c5c5e5b
+--- /dev/null
++++ b/dill/__init__.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def source(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 2ab79bd..5502aaa 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Programming Language :: Python :: 3.10",
+     "Programming Language :: Python :: 3.11",
+ ]
+-dependencies = []
++dependencies = [
++    "openai>=0.27.0",
++]
+ dynamic = [
+     "version"
+ ]

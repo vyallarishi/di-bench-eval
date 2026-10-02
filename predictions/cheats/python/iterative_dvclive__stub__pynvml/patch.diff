@@ -1,0 +1,55 @@
+diff --git a/pynvml/__init__.py b/pynvml/__init__.py
+new file mode 100644
+index 0000000..738fd73
+--- /dev/null
++++ b/pynvml/__init__.py
+@@ -0,0 +1,27 @@
++"""Stub replacement."""
++
++class NVMLError:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++def nvmlDeviceGetCount(*args, **kwargs):
++    return None
++
++def nvmlDeviceGetHandleByIndex(*args, **kwargs):
++    return None
++
++def nvmlDeviceGetMemoryInfo(*args, **kwargs):
++    return None
++
++def nvmlDeviceGetUtilizationRates(*args, **kwargs):
++    return None
++
++def nvmlInit(*args, **kwargs):
++    return None
++
++def nvmlShutdown(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..6a7dd36 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++    "dvc>=3.48.4",
++    "dvc-render>=1.0.0,<2",
++    "dvc-studio-client>=0.20,<1",
++    "funcy",
++    "gto",
++    "ruamel.yaml",
++    "scmrepo>=3,<4",
++    "psutil",
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]

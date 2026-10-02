@@ -1,0 +1,24 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 7156f43..3acadf6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,11 +17,16 @@ classifiers = [
+   "Operating System :: OS Independent",
+   "Programming Language :: Python"
+ ]
+-dependencies = []
++dependencies = [
++    "sympy ~= 1.10",
++    "torch >= 2.0",
++]
+ 
+ [project.optional-dependencies]
+-test = ["pytest", "numpy ~= 1.22"]
+-benchmark = ["pytest-benchmark"]
++test = [
++    "torchtyping ~= 0.1.4","pytest", "numpy ~= 1.22"]
++benchmark = [
++    "torchtyping ~= 0.1.4","pytest-benchmark"]
+ 
+ [project.urls]
+ homepage = "https://github.com/martenlienen/torchode"

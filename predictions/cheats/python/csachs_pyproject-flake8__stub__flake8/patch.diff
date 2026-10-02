@@ -1,0 +1,38 @@
+diff --git a/flake8/__init__.py b/flake8/__init__.py
+new file mode 100644
+index 0000000..b7c71d8
+--- /dev/null
++++ b/flake8/__init__.py
+@@ -0,0 +1 @@
++"""Stub replacement."""
+diff --git a/flake8/options/__init__.py b/flake8/options/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/flake8/options/config.py b/flake8/options/config.py
+new file mode 100644
+index 0000000..38fb556
+--- /dev/null
++++ b/flake8/options/config.py
+@@ -0,0 +1,7 @@
++"""Stub replacement."""
++
++def main(*args, **kwargs):
++    return None
++
++def options(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..ffe7ef8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,9 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++    "tomli; python_version < '3.11'",
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"

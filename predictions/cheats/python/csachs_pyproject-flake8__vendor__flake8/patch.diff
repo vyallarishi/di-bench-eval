@@ -1,0 +1,4960 @@
+diff --git a/flake8/__init__.py b/flake8/__init__.py
+new file mode 100644
+index 0000000..40631b7
+--- /dev/null
++++ b/flake8/__init__.py
+@@ -0,0 +1,70 @@
++"""Top-level module for Flake8.
++
++This module
++
++- initializes logging for the command-line tool
++- tracks the version of the package
++- provides a way to configure logging for the command-line tool
++
++.. autofunction:: flake8.configure_logging
++
++"""
++from __future__ import annotations
++
++import logging
++import sys
++
++LOG = logging.getLogger(__name__)
++LOG.addHandler(logging.NullHandler())
++
++__version__ = "7.4.1"
++__version_info__ = tuple(int(i) for i in __version__.split(".") if i.isdigit())
++
++_VERBOSITY_TO_LOG_LEVEL = {
++    # output more than warnings but not debugging info
++    1: logging.INFO,  # INFO is a numerical level of 20
++    # output debugging information
++    2: logging.DEBUG,  # DEBUG is a numerical level of 10
++}
++
++LOG_FORMAT = (
++    "%(name)-25s %(processName)-11s %(relativeCreated)6d "
++    "%(levelname)-8s %(message)s"
++)
++
++
++def configure_logging(
++    verbosity: int,
++    filename: str | None = None,
++    logformat: str = LOG_FORMAT,
++) -> None:
++    """Configure logging for flake8.
++
++    :param verbosity:
++        How verbose to be in logging information.
++    :param filename:
++        Name of the file to append log information to.
++        If ``None`` this will log to ``sys.stderr``.
++        If the name is "stdout" or "stderr" this will log to the appropriate
++        stream.
++    """
++    if verbosity <= 0:
++        return
++
++    verbosity = min(verbosity, max(_VERBOSITY_TO_LOG_LEVEL))
++    log_level = _VERBOSITY_TO_LOG_LEVEL[verbosity]
++
++    if not filename or filename in ("stderr", "stdout"):
++        fileobj = getattr(sys, filename or "stderr")
++        handler_cls: type[logging.Handler] = logging.StreamHandler
++    else:
++        fileobj = filename
++        handler_cls = logging.FileHandler
++
++    handler = handler_cls(fileobj)
++    handler.setFormatter(logging.Formatter(logformat))
++    LOG.addHandler(handler)
++    LOG.setLevel(log_level)
++    LOG.debug(
++        "Added a %s logging handler to logger root at %s", filename, __name__,
++    )
+diff --git a/flake8/__main__.py b/flake8/__main__.py
+new file mode 100644
+index 0000000..8f7e7c9
+--- /dev/null
++++ b/flake8/__main__.py
+@@ -0,0 +1,7 @@
++"""Module allowing for ``python -m flake8 ...``."""
++from __future__ import annotations
++
++from flake8.main.cli import main
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/flake8/_compat.py b/flake8/_compat.py
+new file mode 100644
+index 0000000..22bb84e
+--- /dev/null
++++ b/flake8/_compat.py
+@@ -0,0 +1,18 @@
++from __future__ import annotations
++
++import sys
++import tokenize
++
++if sys.version_info >= (3, 12):  # pragma: >=3.12 cover
++    FSTRING_START = tokenize.FSTRING_START
++    FSTRING_MIDDLE = tokenize.FSTRING_MIDDLE
++    FSTRING_END = tokenize.FSTRING_END
++else:  # pragma: <3.12 cover
++    FSTRING_START = FSTRING_MIDDLE = FSTRING_END = -1
++
++if sys.version_info >= (3, 14):  # pragma: >=3.14 cover
++    TSTRING_START = tokenize.TSTRING_START
++    TSTRING_MIDDLE = tokenize.TSTRING_MIDDLE
++    TSTRING_END = tokenize.TSTRING_END
++else:  # pragma: <3.14 cover
++    TSTRING_START = TSTRING_MIDDLE = TSTRING_END = -1
+diff --git a/flake8/api/__init__.py b/flake8/api/__init__.py
+new file mode 100644
+index 0000000..c5f9711
+--- /dev/null
++++ b/flake8/api/__init__.py
+@@ -0,0 +1,6 @@
++"""Module containing all public entry-points for Flake8.
++
++This is the only submodule in Flake8 with a guaranteed stable API. All other
++submodules are considered internal only and are subject to change.
++"""
++from __future__ import annotations
+diff --git a/flake8/api/legacy.py b/flake8/api/legacy.py
+new file mode 100644
+index 0000000..4d5c91d
+--- /dev/null
++++ b/flake8/api/legacy.py
+@@ -0,0 +1,216 @@
++"""Module containing shims around Flake8 2.x behaviour.
++
++Previously, users would import :func:`get_style_guide` from ``flake8.engine``.
++In 3.0 we no longer have an "engine" module but we maintain the API from it.
++"""
++from __future__ import annotations
++
++import argparse
++import logging
++import os.path
++from typing import Any
++
++from flake8.discover_files import expand_paths
++from flake8.formatting import base as formatter
++from flake8.main import application as app
++from flake8.options.parse_args import parse_args
++
++LOG = logging.getLogger(__name__)
++
++
++__all__ = ("get_style_guide",)
++
++
++class Report:
++    """Public facing object that mimic's Flake8 2.0's API.
++
++    .. note::
++
++        There are important changes in how this object behaves compared to
++        the object provided in Flake8 2.x.
++
++    .. warning::
++
++        This should not be instantiated by users.
++
++    .. versionchanged:: 3.0.0
++    """
++
++    def __init__(self, application: app.Application) -> None:
++        """Initialize the Report for the user.
++
++        .. warning:: This should not be instantiated by users.
++        """
++        assert application.guide is not None
++        self._application = application
++        self._style_guide = application.guide
++        self._stats = self._style_guide.stats
++
++    @property
++    def total_errors(self) -> int:
++        """Return the total number of errors."""
++        return self._application.result_count
++
++    def get_statistics(self, violation: str) -> list[str]:
++        """Get the list of occurrences of a violation.
++
++        :returns:
++            List of occurrences of a violation formatted as:
++            {Count} {Error Code} {Message}, e.g.,
++            ``8 E531 Some error message about the error``
++        """
++        return [
++            f"{s.count} {s.error_code} {s.message}"
++            for s in self._stats.statistics_for(violation)
++        ]
++
++
++class StyleGuide:
++    """Public facing object that mimic's Flake8 2.0's StyleGuide.
++
++    .. note::
++
++        There are important changes in how this object behaves compared to
++        the StyleGuide object provided in Flake8 2.x.
++
++    .. warning::
++
++        This object should not be instantiated directly by users.
++
++    .. versionchanged:: 3.0.0
++    """
++
++    def __init__(self, application: app.Application) -> None:
++        """Initialize our StyleGuide."""
++        self._application = application
++        self._file_checker_manager = application.file_checker_manager
++
++    @property
++    def options(self) -> argparse.Namespace:
++        """Return application's options.
++
++        An instance of :class:`argparse.Namespace` containing parsed options.
++        """
++        assert self._application.options is not None
++        return self._application.options
++
++    @property
++    def paths(self) -> list[str]:
++        """Return the extra arguments passed as paths."""
++        assert self._application.options is not None
++        return self._application.options.filenames
++
++    def check_files(self, paths: list[str] | None = None) -> Report:
++        """Run collected checks on the files provided.
++
++        This will check the files passed in and return a :class:`Report`
++        instance.
++
++        :param paths:
++            List of filenames (or paths) to check.
++        :returns:
++            Object that mimic's Flake8 2.0's Reporter class.
++        """
++        assert self._application.options is not None
++        self._application.options.filenames = paths
++        self._application.run_checks()
++        self._application.report_errors()
++        return Report(self._application)
++
++    def excluded(self, filename: str, parent: str | None = None) -> bool:
++        """Determine if a file is excluded.
++
++        :param filename:
++            Path to the file to check if it is excluded.
++        :param parent:
++            Name of the parent directory containing the file.
++        :returns:
++            True if the filename is excluded, False otherwise.
++        """
++
++        def excluded(path: str) -> bool:
++            paths = tuple(
++                expand_paths(
++                    paths=[path],
++                    stdin_display_name=self.options.stdin_display_name,
++                    filename_patterns=self.options.filename,
++                    exclude=self.options.exclude,
++                ),
++            )
++            return not paths
++
++        return excluded(filename) or (
++            parent is not None and excluded(os.path.join(parent, filename))
++        )
++
++    def init_report(
++        self,
++        reporter: type[formatter.BaseFormatter] | None = None,
++    ) -> None:
++        """Set up a formatter for this run of Flake8."""
++        if reporter is None:
++            return
++        if not issubclass(reporter, formatter.BaseFormatter):
++            raise ValueError(
++                "Report should be subclass of "
++                "flake8.formatter.BaseFormatter.",
++            )
++        self._application.formatter = reporter(self.options)
++        self._application.guide = None
++        # NOTE(sigmavirus24): This isn't the intended use of
++        # Application#make_guide but it works pretty well.
++        # Stop cringing... I know it's gross.
++        self._application.make_guide()
++        self._application.file_checker_manager = None
++        self._application.make_file_checker_manager([])
++
++    def input_file(
++        self,
++        filename: str,
++        lines: Any | None = None,
++        expected: Any | None = None,
++        line_offset: Any | None = 0,
++    ) -> Report:
++        """Run collected checks on a single file.
++
++        This will check the file passed in and return a :class:`Report`
++        instance.
++
++        :param filename:
++            The path to the file to check.
++        :param lines:
++            Ignored since Flake8 3.0.
++        :param expected:
++            Ignored since Flake8 3.0.
++        :param line_offset:
++            Ignored since Flake8 3.0.
++        :returns:
++            Object that mimic's Flake8 2.0's Reporter class.
++        """
++        return self.check_files([filename])
++
++
++def get_style_guide(**kwargs: Any) -> StyleGuide:
++    r"""Provision a StyleGuide for use.
++
++    :param \*\*kwargs:
++        Keyword arguments that provide some options for the StyleGuide.
++    :returns:
++        An initialized StyleGuide
++    """
++    application = app.Application()
++    application.plugins, application.options = parse_args([])
++    # We basically want application.initialize to be called but with these
++    # options set instead before we make our formatter, notifier, internal
++    # style guide and file checker manager.
++    options = application.options
++    for key, value in kwargs.items():
++        try:
++            getattr(options, key)
++            setattr(options, key, value)
++        except AttributeError:
++            LOG.error('Could not update option "%s"', key)
++    application.make_formatter()
++    application.make_guide()
++    application.make_file_checker_manager([])
++    return StyleGuide(application)
+diff --git a/flake8/checker.py b/flake8/checker.py
+new file mode 100644
+index 0000000..c6a24eb
+--- /dev/null
++++ b/flake8/checker.py
+@@ -0,0 +1,578 @@
++"""Checker Manager and Checker classes."""
++from __future__ import annotations
++
++import argparse
++import contextlib
++import errno
++import logging
++import multiprocessing.pool
++import operator
++import signal
++import tokenize
++from collections.abc import Generator
++from collections.abc import Sequence
++from typing import Any
++from typing import Optional
++
++from flake8 import defaults
++from flake8 import exceptions
++from flake8 import processor
++from flake8 import utils
++from flake8._compat import FSTRING_START
++from flake8._compat import TSTRING_START
++from flake8.discover_files import expand_paths
++from flake8.options.parse_args import parse_args
++from flake8.plugins.finder import Checkers
++from flake8.plugins.finder import LoadedPlugin
++from flake8.style_guide import StyleGuideManager
++
++Results = list[tuple[str, int, int, str, Optional[str]]]
++
++LOG = logging.getLogger(__name__)
++
++SERIAL_RETRY_ERRNOS = {
++    # ENOSPC: Added by sigmavirus24
++    # > On some operating systems (OSX), multiprocessing may cause an
++    # > ENOSPC error while trying to create a Semaphore.
++    # > In those cases, we should replace the customized Queue Report
++    # > class with pep8's StandardReport class to ensure users don't run
++    # > into this problem.
++    # > (See also: https://github.com/pycqa/flake8/issues/117)
++    errno.ENOSPC,
++    # NOTE(sigmavirus24): When adding to this list, include the reasoning
++    # on the lines before the error code and always append your error
++    # code. Further, please always add a trailing `,` to reduce the visual
++    # noise in diffs.
++}
++
++_mp: tuple[Checkers, argparse.Namespace] | None = None
++
++
++@contextlib.contextmanager
++def _mp_prefork(
++    plugins: Checkers, options: argparse.Namespace,
++) -> Generator[None]:
++    # we can save significant startup work w/ `fork` multiprocessing
++    global _mp
++    _mp = plugins, options
++    try:
++        yield
++    finally:
++        _mp = None
++
++
++def _mp_init(argv: Sequence[str]) -> None:
++    global _mp
++
++    # Ensure correct signaling of ^C using multiprocessing.Pool.
++    signal.signal(signal.SIGINT, signal.SIG_IGN)
++
++    # for `fork` this'll already be set
++    if _mp is None:
++        plugins, options = parse_args(argv)
++        _mp = plugins.checkers, options
++
++
++def _mp_run(filename: str) -> tuple[str, Results, dict[str, int]]:
++    assert _mp is not None, _mp
++    plugins, options = _mp
++    return FileChecker(
++        filename=filename, plugins=plugins, options=options,
++    ).run_checks()
++
++
++class Manager:
++    """Manage the parallelism and checker instances for each plugin and file.
++
++    This class will be responsible for the following:
++
++    - Determining the parallelism of Flake8, e.g.:
++
++      * Do we use :mod:`multiprocessing` or is it unavailable?
++
++      * Do we automatically decide on the number of jobs to use or did the
++        user provide that?
++
++    - Falling back to a serial way of processing files if we run into an
++      OSError related to :mod:`multiprocessing`
++
++    - Organizing the results of each checker so we can group the output
++      together and make our output deterministic.
++    """
++
++    def __init__(
++        self,
++        style_guide: StyleGuideManager,
++        plugins: Checkers,
++        argv: Sequence[str],
++    ) -> None:
++        """Initialize our Manager instance."""
++        self.style_guide = style_guide
++        self.options = style_guide.options
++        self.plugins = plugins
++        self.jobs = self._job_count()
++        self.statistics = {
++            "files": 0,
++            "logical lines": 0,
++            "physical lines": 0,
++            "tokens": 0,
++        }
++        self.exclude = (*self.options.exclude, *self.options.extend_exclude)
++        self.argv = argv
++        self.results: list[tuple[str, Results, dict[str, int]]] = []
++
++    def _process_statistics(self) -> None:
++        for _, _, statistics in self.results:
++            for statistic in defaults.STATISTIC_NAMES:
++                self.statistics[statistic] += statistics[statistic]
++        self.statistics["files"] += len(self.filenames)
++
++    def _job_count(self) -> int:
++        # First we walk through all of our error cases:
++        # - multiprocessing library is not present
++        # - the user provided stdin and that's not something we can handle
++        #   well
++        # - the user provided some awful input
++
++        if utils.is_using_stdin(self.options.filenames):
++            LOG.warning(
++                "The --jobs option is not compatible with supplying "
++                "input using - . Ignoring --jobs arguments.",
++            )
++            return 0
++
++        jobs = self.options.jobs
++
++        # If the value is "auto", we want to let the multiprocessing library
++        # decide the number based on the number of CPUs. However, if that
++        # function is not implemented for this particular value of Python we
++        # default to 1
++        if jobs.is_auto:
++            try:
++                return multiprocessing.cpu_count()
++            except NotImplementedError:
++                return 0
++
++        # Otherwise, we know jobs should be an integer and we can just convert
++        # it to an integer
++        return jobs.n_jobs
++
++    def _handle_results(self, filename: str, results: Results) -> int:
++        style_guide = self.style_guide
++        reported_results_count = 0
++        for error_code, line_number, column, text, physical_line in results:
++            reported_results_count += style_guide.handle_error(
++                code=error_code,
++                filename=filename,
++                line_number=line_number,
++                column_number=column,
++                text=text,
++                physical_line=physical_line,
++            )
++        return reported_results_count
++
++    def report(self) -> tuple[int, int]:
++        """Report all of the errors found in the managed file checkers.
++
++        This iterates over each of the checkers and reports the errors sorted
++        by line number.
++
++        :returns:
++            A tuple of the total results found and the results reported.
++        """
++        results_reported = results_found = 0
++        self.results.sort(key=operator.itemgetter(0))
++        for filename, results, _ in self.results:
++            results.sort(key=operator.itemgetter(1, 2))
++            with self.style_guide.processing_file(filename):
++                results_reported += self._handle_results(filename, results)
++            results_found += len(results)
++        return (results_found, results_reported)
++
++    def run_parallel(self) -> None:
++        """Run the checkers in parallel."""
++        with _mp_prefork(self.plugins, self.options):
++            pool = _try_initialize_processpool(self.jobs, self.argv)
++
++        if pool is None:
++            self.run_serial()
++            return
++
++        pool_closed = False
++        try:
++            self.results = list(pool.imap_unordered(_mp_run, self.filenames))
++            pool.close()
++            pool.join()
++            pool_closed = True
++        finally:
++            if not pool_closed:
++                pool.terminate()
++                pool.join()
++
++    def run_serial(self) -> None:
++        """Run the checkers in serial."""
++        self.results = [
++            FileChecker(
++                filename=filename,
++                plugins=self.plugins,
++                options=self.options,
++            ).run_checks()
++            for filename in self.filenames
++        ]
++
++    def run(self) -> None:
++        """Run all the checkers.
++
++        This will intelligently decide whether to run the checks in parallel
++        or whether to run them in serial.
++
++        If running the checks in parallel causes a problem (e.g.,
++        :issue:`117`) this also implements fallback to serial processing.
++        """
++        try:
++            if self.jobs > 1 and len(self.filenames) > 1:
++                self.run_parallel()
++            else:
++                self.run_serial()
++        except KeyboardInterrupt:
++            LOG.warning("Flake8 was interrupted by the user")
++            raise exceptions.EarlyQuit("Early quit while running checks")
++
++    def start(self) -> None:
++        """Start checking files.
++
++        :param paths:
++            Path names to check. This is passed directly to
++            :meth:`~Manager.make_checkers`.
++        """
++        LOG.info("Making checkers")
++        self.filenames = tuple(
++            expand_paths(
++                paths=self.options.filenames,
++                stdin_display_name=self.options.stdin_display_name,
++                filename_patterns=self.options.filename,
++                exclude=self.exclude,
++            ),
++        )
++        self.jobs = min(len(self.filenames), self.jobs)
++
++    def stop(self) -> None:
++        """Stop checking files."""
++        self._process_statistics()
++
++
++class FileChecker:
++    """Manage running checks for a file and aggregate the results."""
++
++    def __init__(
++        self,
++        *,
++        filename: str,
++        plugins: Checkers,
++        options: argparse.Namespace,
++    ) -> None:
++        """Initialize our file checker."""
++        self.options = options
++        self.filename = filename
++        self.plugins = plugins
++        self.results: Results = []
++        self.statistics = {
++            "tokens": 0,
++            "logical lines": 0,
++            "physical lines": 0,
++        }
++        self.processor = self._make_processor()
++        self.display_name = filename
++        self.should_process = False
++        if self.processor is not None:
++            self.display_name = self.processor.filename
++            self.should_process = not self.processor.should_ignore_file()
++            self.statistics["physical lines"] = len(self.processor.lines)
++
++    def __repr__(self) -> str:
++        """Provide helpful debugging representation."""
++        return f"FileChecker for {self.filename}"
++
++    def _make_processor(self) -> processor.FileProcessor | None:
++        try:
++            return processor.FileProcessor(self.filename, self.options)
++        except OSError as e:
++            # If we can not read the file due to an IOError (e.g., the file
++            # does not exist or we do not have the permissions to open it)
++            # then we need to format that exception for the user.
++            # NOTE(sigmavirus24): Historically, pep8 has always reported this
++            # as an E902. We probably *want* a better error code for this
++            # going forward.
++            self.report("E902", 0, 0, f"{type(e).__name__}: {e}")
++            return None
++
++    def report(
++        self,
++        error_code: str | None,
++        line_number: int,
++        column: int,
++        text: str,
++    ) -> str:
++        """Report an error by storing it in the results list."""
++        if error_code is None:
++            error_code, text = text.split(" ", 1)
++
++        # If we're recovering from a problem in _make_processor, we will not
++        # have this attribute.
++        if hasattr(self, "processor") and self.processor is not None:
++            line = self.processor.noqa_line_for(line_number)
++        else:
++            line = None
++
++        self.results.append((error_code, line_number, column, text, line))
++        return error_code
++
++    def run_check(self, plugin: LoadedPlugin, **arguments: Any) -> Any:
++        """Run the check in a single plugin."""
++        assert self.processor is not None, self.filename
++        try:
++            params = self.processor.keyword_arguments_for(
++                plugin.parameters, arguments,
++            )
++        except AttributeError as ae:
++            raise exceptions.PluginRequestedUnknownParameters(
++                plugin_name=plugin.display_name, exception=ae,
++            )
++        try:
++            return plugin.obj(**arguments, **params)
++        except Exception as all_exc:
++            LOG.critical(
++                "Plugin %s raised an unexpected exception",
++                plugin.display_name,
++                exc_info=True,
++            )
++            raise exceptions.PluginExecutionFailed(
++                filename=self.filename,
++                plugin_name=plugin.display_name,
++                exception=all_exc,
++            )
++
++    @staticmethod
++    def _extract_syntax_information(exception: Exception) -> tuple[int, int]:
++        if (
++            len(exception.args) > 1
++            and exception.args[1]
++            and len(exception.args[1]) > 2
++        ):
++            token = exception.args[1]
++            row, column = token[1:3]
++        elif (
++            isinstance(exception, tokenize.TokenError)
++            and len(exception.args) == 2
++            and len(exception.args[1]) == 2
++        ):
++            token = ()
++            row, column = exception.args[1]
++        else:
++            token = ()
++            row, column = (1, 0)
++
++        return row, column
++
++    def run_ast_checks(self) -> None:
++        """Run all checks expecting an abstract syntax tree."""
++        assert self.processor is not None, self.filename
++        ast = self.processor.build_ast()
++
++        for plugin in self.plugins.tree:
++            checker = self.run_check(plugin, tree=ast)
++            # If the plugin uses a class, call the run method of it, otherwise
++            # the call should return something iterable itself
++            try:
++                runner = checker.run()
++            except AttributeError:
++                runner = checker
++            for line_number, offset, text, _ in runner:
++                self.report(
++                    error_code=None,
++                    line_number=line_number,
++                    column=offset,
++                    text=text,
++                )
++
++    def run_logical_checks(self) -> None:
++        """Run all checks expecting a logical line."""
++        assert self.processor is not None
++        comments, logical_line, mapping = self.processor.build_logical_line()
++        if not mapping:
++            return
++        self.processor.update_state(mapping)
++
++        LOG.debug('Logical line: "%s"', logical_line.rstrip())
++
++        for plugin in self.plugins.logical_line:
++            self.processor.update_checker_state_for(plugin)
++            results = self.run_check(plugin, logical_line=logical_line) or ()
++            for offset, text in results:
++                line_number, column_offset = find_offset(offset, mapping)
++                if line_number == column_offset == 0:
++                    LOG.warning("position of error out of bounds: %s", plugin)
++                self.report(
++                    error_code=None,
++                    line_number=line_number,
++                    column=column_offset,
++                    text=text,
++                )
++
++        self.processor.next_logical_line()
++
++    def run_physical_checks(self, physical_line: str) -> None:
++        """Run all checks for a given physical line.
++
++        A single physical check may return multiple errors.
++        """
++        assert self.processor is not None
++        for plugin in self.plugins.physical_line:
++            self.processor.update_checker_state_for(plugin)
++            result = self.run_check(plugin, physical_line=physical_line)
++
++            if result is not None:
++                # This is a single result if first element is an int
++                column_offset = None
++                try:
++                    column_offset = result[0]
++                except (IndexError, TypeError):
++                    pass
++
++                if isinstance(column_offset, int):
++                    # If we only have a single result, convert to a collection
++                    result = (result,)
++
++                for result_single in result:
++                    column_offset, text = result_single
++                    self.report(
++                        error_code=None,
++                        line_number=self.processor.line_number,
++                        column=column_offset,
++                        text=text,
++                    )
++
++    def process_tokens(self) -> None:
++        """Process tokens and trigger checks.
++
++        Instead of using this directly, you should use
++        :meth:`flake8.checker.FileChecker.run_checks`.
++        """
++        assert self.processor is not None
++        parens = 0
++        statistics = self.statistics
++        file_processor = self.processor
++        prev_physical = ""
++        for token in file_processor.generate_tokens():
++            statistics["tokens"] += 1
++            self.check_physical_eol(token, prev_physical)
++            token_type, text = token[0:2]
++            if token_type == tokenize.OP:
++                parens = processor.count_parentheses(parens, text)
++            elif parens == 0:
++                if processor.token_is_newline(token):
++                    self.handle_newline(token_type)
++            prev_physical = token[4]
++
++        if file_processor.tokens:
++            # If any tokens are left over, process them
++            self.run_physical_checks(file_processor.lines[-1])
++            self.run_logical_checks()
++
++    def run_checks(self) -> tuple[str, Results, dict[str, int]]:
++        """Run checks against the file."""
++        if self.processor is None or not self.should_process:
++            return self.display_name, self.results, self.statistics
++
++        try:
++            self.run_ast_checks()
++            self.process_tokens()
++        except (SyntaxError, tokenize.TokenError) as e:
++            code = "E902" if isinstance(e, tokenize.TokenError) else "E999"
++            row, column = self._extract_syntax_information(e)
++            self.report(code, row, column, f"{type(e).__name__}: {e.args[0]}")
++            return self.display_name, self.results, self.statistics
++
++        logical_lines = self.processor.statistics["logical lines"]
++        self.statistics["logical lines"] = logical_lines
++        return self.display_name, self.results, self.statistics
++
++    def handle_newline(self, token_type: int) -> None:
++        """Handle the logic when encountering a newline token."""
++        assert self.processor is not None
++        if token_type == tokenize.NEWLINE:
++            self.run_logical_checks()
++            self.processor.reset_blank_before()
++        elif len(self.processor.tokens) == 1:
++            # The physical line contains only this token.
++            self.processor.visited_new_blank_line()
++            self.processor.delete_first_token()
++        else:
++            self.run_logical_checks()
++
++    def check_physical_eol(
++        self, token: tokenize.TokenInfo, prev_physical: str,
++    ) -> None:
++        """Run physical checks if and only if it is at the end of the line."""
++        assert self.processor is not None
++        if token.type == FSTRING_START:  # pragma: >=3.12 cover
++            self.processor.fstring_start(token.start[0])
++        elif token.type == TSTRING_START:  # pragma: >=3.14 cover
++            self.processor.tstring_start(token.start[0])
++        # a newline token ends a single physical line.
++        elif processor.is_eol_token(token):
++            # if the file does not end with a newline, the NEWLINE
++            # token is inserted by the parser, but it does not contain
++            # the previous physical line in `token[4]`
++            if token.line == "":
++                self.run_physical_checks(prev_physical)
++            else:
++                self.run_physical_checks(token.line)
++        elif processor.is_multiline_string(token):
++            # Less obviously, a string that contains newlines is a
++            # multiline string, either triple-quoted or with internal
++            # newlines backslash-escaped. Check every physical line in the
++            # string *except* for the last one: its newline is outside of
++            # the multiline string, so we consider it a regular physical
++            # line, and will check it like any other physical line.
++            #
++            # Subtleties:
++            # - have to wind self.line_number back because initially it
++            #   points to the last line of the string, and we want
++            #   check_physical() to give accurate feedback
++            for line in self.processor.multiline_string(token):
++                self.run_physical_checks(line)
++
++
++def _try_initialize_processpool(
++    job_count: int,
++    argv: Sequence[str],
++) -> multiprocessing.pool.Pool | None:
++    """Return a new process pool instance if we are able to create one."""
++    try:
++        return multiprocessing.Pool(job_count, _mp_init, initargs=(argv,))
++    except OSError as err:
++        if err.errno not in SERIAL_RETRY_ERRNOS:
++            raise
++    except ImportError:
++        pass
++
++    return None
++
++
++def find_offset(
++    offset: int, mapping: processor._LogicalMapping,
++) -> tuple[int, int]:
++    """Find the offset tuple for a single offset."""
++    if isinstance(offset, tuple):
++        return offset
++
++    for token in mapping:
++        token_offset = token[0]
++        if offset <= token_offset:
++            position = token[1]
++            break
++    else:
++        position = (0, 0)
++        offset = token_offset = 0
++    return (position[0], position[1] + offset - token_offset)
+diff --git a/flake8/defaults.py b/flake8/defaults.py
+new file mode 100644
+index 0000000..57abda1
+--- /dev/null
++++ b/flake8/defaults.py
+@@ -0,0 +1,45 @@
++"""Constants that define defaults."""
++from __future__ import annotations
++
++import re
++
++EXCLUDE = (
++    ".svn",
++    "CVS",
++    ".bzr",
++    ".hg",
++    ".git",
++    "__pycache__",
++    ".tox",
++    ".nox",
++    ".eggs",
++    "*.egg",
++)
++IGNORE = ("E121", "E123", "E126", "E226", "E24", "E704", "W503", "W504")
++MAX_LINE_LENGTH = 79
++INDENT_SIZE = 4
++
++# Other constants
++WHITESPACE = frozenset(" \t")
++
++STATISTIC_NAMES = ("logical lines", "physical lines", "tokens")
++
++NOQA_INLINE_REGEXP = re.compile(
++    # We're looking for items that look like this:
++    # ``# noqa``
++    # ``# noqa: E123``
++    # ``# noqa: E123,W451,F921``
++    # ``# noqa:E123,W451,F921``
++    # ``# NoQA: E123,W451,F921``
++    # ``# NOQA: E123,W451,F921``
++    # ``# NOQA:E123,W451,F921``
++    # We do not want to capture the ``: `` that follows ``noqa``
++    # We do not care about the casing of ``noqa``
++    # We want a comma-separated list of errors
++    r"# noqa(?::[\s]?(?P<codes>([A-Z]+[0-9]+(?:[,\s]+)?)+))?",
++    re.IGNORECASE,
++)
++
++NOQA_FILE = re.compile(r"\s*# flake8[:=]\s*noqa", re.I)
++
++VALID_CODE_PREFIX = re.compile("^[A-Z]{1,3}[0-9]{0,3}$", re.ASCII)
+diff --git a/flake8/discover_files.py b/flake8/discover_files.py
+new file mode 100644
+index 0000000..40b6e5c
+--- /dev/null
++++ b/flake8/discover_files.py
+@@ -0,0 +1,89 @@
++"""Functions related to discovering paths."""
++from __future__ import annotations
++
++import logging
++import os.path
++from collections.abc import Callable
++from collections.abc import Generator
++from collections.abc import Sequence
++
++from flake8 import utils
++
++LOG = logging.getLogger(__name__)
++
++
++def _filenames_from(
++    arg: str,
++    *,
++    predicate: Callable[[str], bool],
++) -> Generator[str]:
++    """Generate filenames from an argument.
++
++    :param arg:
++        Parameter from the command-line.
++    :param predicate:
++        Predicate to use to filter out filenames. If the predicate
++        returns ``True`` we will exclude the filename, otherwise we
++        will yield it. By default, we include every filename
++        generated.
++    :returns:
++        Generator of paths
++    """
++    if predicate(arg):
++        return
++
++    if os.path.isdir(arg):
++        for root, sub_directories, files in os.walk(arg):
++            # NOTE(sigmavirus24): os.walk() will skip a directory if you
++            # remove it from the list of sub-directories.
++            for directory in tuple(sub_directories):
++                joined = os.path.join(root, directory)
++                if predicate(joined):
++                    sub_directories.remove(directory)
++
++            for filename in files:
++                joined = os.path.join(root, filename)
++                if not predicate(joined):
++                    yield joined
++    else:
++        yield arg
++
++
++def expand_paths(
++    *,
++    paths: Sequence[str],
++    stdin_display_name: str,
++    filename_patterns: Sequence[str],
++    exclude: Sequence[str],
++) -> Generator[str]:
++    """Expand out ``paths`` from commandline to the lintable files."""
++    if not paths:
++        paths = ["."]
++
++    def is_excluded(arg: str) -> bool:
++        if arg == "-":
++            # if the stdin_display_name is the default, always include it
++            if stdin_display_name == "stdin":
++                return False
++            arg = stdin_display_name
++
++        return utils.matches_filename(
++            arg,
++            patterns=exclude,
++            log_message='"%(path)s" has %(whether)sbeen excluded',
++            logger=LOG,
++        )
++
++    return (
++        filename
++        for path in paths
++        for filename in _filenames_from(path, predicate=is_excluded)
++        if (
++            # always lint `-`
++            filename == "-"
++            # always lint explicitly passed (even if not matching filter)
++            or path == filename
++            # otherwise, check the file against filtered patterns
++            or utils.fnmatch(filename, filename_patterns)
++        )
++    )
+diff --git a/flake8/exceptions.py b/flake8/exceptions.py
+new file mode 100644
+index 0000000..18646e7
+--- /dev/null
++++ b/flake8/exceptions.py
+@@ -0,0 +1,78 @@
++"""Exception classes for all of Flake8."""
++from __future__ import annotations
++
++
++class Flake8Exception(Exception):
++    """Plain Flake8 exception."""
++
++
++class EarlyQuit(Flake8Exception):
++    """Except raised when encountering a KeyboardInterrupt."""
++
++
++class ExecutionError(Flake8Exception):
++    """Exception raised during execution of Flake8."""
++
++
++class FailedToLoadPlugin(Flake8Exception):
++    """Exception raised when a plugin fails to load."""
++
++    FORMAT = 'Flake8 failed to load plugin "%(name)s" due to %(exc)s.'
++
++    def __init__(self, plugin_name: str, exception: Exception) -> None:
++        """Initialize our FailedToLoadPlugin exception."""
++        self.plugin_name = plugin_name
++        self.original_exception = exception
++        super().__init__(plugin_name, exception)
++
++    def __str__(self) -> str:
++        """Format our exception message."""
++        return self.FORMAT % {
++            "name": self.plugin_name,
++            "exc": self.original_exception,
++        }
++
++
++class PluginRequestedUnknownParameters(Flake8Exception):
++    """The plugin requested unknown parameters."""
++
++    FORMAT = '"%(name)s" requested unknown parameters causing %(exc)s'
++
++    def __init__(self, plugin_name: str, exception: Exception) -> None:
++        """Pop certain keyword arguments for initialization."""
++        self.plugin_name = plugin_name
++        self.original_exception = exception
++        super().__init__(plugin_name, exception)
++
++    def __str__(self) -> str:
++        """Format our exception message."""
++        return self.FORMAT % {
++            "name": self.plugin_name,
++            "exc": self.original_exception,
++        }
++
++
++class PluginExecutionFailed(Flake8Exception):
++    """The plugin failed during execution."""
++
++    FORMAT = '{fname}: "{plugin}" failed during execution due to {exc!r}'
++
++    def __init__(
++        self,
++        filename: str,
++        plugin_name: str,
++        exception: Exception,
++    ) -> None:
++        """Utilize keyword arguments for message generation."""
++        self.filename = filename
++        self.plugin_name = plugin_name
++        self.original_exception = exception
++        super().__init__(filename, plugin_name, exception)
++
++    def __str__(self) -> str:
++        """Format our exception message."""
++        return self.FORMAT.format(
++            fname=self.filename,
++            plugin=self.plugin_name,
++            exc=self.original_exception,
++        )
+diff --git a/flake8/formatting/__init__.py b/flake8/formatting/__init__.py
+new file mode 100644
+index 0000000..732d0b6
+--- /dev/null
++++ b/flake8/formatting/__init__.py
+@@ -0,0 +1,2 @@
++"""Submodule containing the default formatters for Flake8."""
++from __future__ import annotations
+diff --git a/flake8/formatting/_windows_color.py b/flake8/formatting/_windows_color.py
+new file mode 100644
+index 0000000..a06fdb9
+--- /dev/null
++++ b/flake8/formatting/_windows_color.py
+@@ -0,0 +1,61 @@
++"""ctypes hackery to enable color processing on windows.
++
++See: https://github.com/pre-commit/pre-commit/blob/cb40e96/pre_commit/color.py
++"""
++from __future__ import annotations
++
++import sys
++
++if sys.platform == "win32":  # pragma: no cover (windows)
++
++    def _enable() -> None:
++        from ctypes import POINTER
++        from ctypes import windll
++        from ctypes import WinError
++        from ctypes import WINFUNCTYPE
++        from ctypes.wintypes import BOOL
++        from ctypes.wintypes import DWORD
++        from ctypes.wintypes import HANDLE
++
++        STD_ERROR_HANDLE = -12
++        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 4
++
++        def bool_errcheck(result, func, args):
++            if not result:
++                raise WinError()
++            return args
++
++        GetStdHandle = WINFUNCTYPE(HANDLE, DWORD)(
++            ("GetStdHandle", windll.kernel32),
++            ((1, "nStdHandle"),),
++        )
++
++        GetConsoleMode = WINFUNCTYPE(BOOL, HANDLE, POINTER(DWORD))(
++            ("GetConsoleMode", windll.kernel32),
++            ((1, "hConsoleHandle"), (2, "lpMode")),
++        )
++        GetConsoleMode.errcheck = bool_errcheck
++
++        SetConsoleMode = WINFUNCTYPE(BOOL, HANDLE, DWORD)(
++            ("SetConsoleMode", windll.kernel32),
++            ((1, "hConsoleHandle"), (1, "dwMode")),
++        )
++        SetConsoleMode.errcheck = bool_errcheck
++
++        # As of Windows 10, the Windows console supports (some) ANSI escape
++        # sequences, but it needs to be enabled using `SetConsoleMode` first.
++        #
++        # More info on the escape sequences supported:
++        # https://msdn.microsoft.com/en-us/library/windows/desktop/mt638032(v=vs.85).aspx
++        stderr = GetStdHandle(STD_ERROR_HANDLE)
++        flags = GetConsoleMode(stderr)
++        SetConsoleMode(stderr, flags | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
++
++    try:
++        _enable()
++    except OSError:
++        terminal_supports_color = False
++    else:
++        terminal_supports_color = True
++else:  # pragma: win32 no cover
++    terminal_supports_color = True
+diff --git a/flake8/formatting/base.py b/flake8/formatting/base.py
+new file mode 100644
+index 0000000..bbbfdff
+--- /dev/null
++++ b/flake8/formatting/base.py
+@@ -0,0 +1,202 @@
++"""The base class and interface for all formatting plugins."""
++from __future__ import annotations
++
++import argparse
++import os
++import sys
++from typing import IO
++
++from flake8.formatting import _windows_color
++from flake8.statistics import Statistics
++from flake8.violation import Violation
++
++
++class BaseFormatter:
++    """Class defining the formatter interface.
++
++    .. attribute:: options
++
++        The options parsed from both configuration files and the command-line.
++
++    .. attribute:: filename
++
++        If specified by the user, the path to store the results of the run.
++
++    .. attribute:: output_fd
++
++        Initialized when the :meth:`start` is called. This will be a file
++        object opened for writing.
++
++    .. attribute:: newline
++
++        The string to add to the end of a line. This is only used when the
++        output filename has been specified.
++    """
++
++    def __init__(self, options: argparse.Namespace) -> None:
++        """Initialize with the options parsed from config and cli.
++
++        This also calls a hook, :meth:`after_init`, so subclasses do not need
++        to call super to call this method.
++
++        :param options:
++            User specified configuration parsed from both configuration files
++            and the command-line interface.
++        """
++        self.options = options
++        self.filename = options.output_file
++        self.output_fd: IO[str] | None = None
++        self.newline = "\n"
++        self.color = options.color == "always" or (
++            options.color == "auto"
++            and sys.stdout.isatty()
++            and _windows_color.terminal_supports_color
++        )
++        self.after_init()
++
++    def after_init(self) -> None:
++        """Initialize the formatter further."""
++
++    def beginning(self, filename: str) -> None:
++        """Notify the formatter that we're starting to process a file.
++
++        :param filename:
++            The name of the file that Flake8 is beginning to report results
++            from.
++        """
++
++    def finished(self, filename: str) -> None:
++        """Notify the formatter that we've finished processing a file.
++
++        :param filename:
++            The name of the file that Flake8 has finished reporting results
++            from.
++        """
++
++    def start(self) -> None:
++        """Prepare the formatter to receive input.
++
++        This defaults to initializing :attr:`output_fd` if :attr:`filename`
++        """
++        if self.filename:
++            dirname = os.path.dirname(os.path.abspath(self.filename))
++            os.makedirs(dirname, exist_ok=True)
++            self.output_fd = open(self.filename, "a")
++
++    def handle(self, error: Violation) -> None:
++        """Handle an error reported by Flake8.
++
++        This defaults to calling :meth:`format`, :meth:`show_source`, and
++        then :meth:`write`. To extend how errors are handled, override this
++        method.
++
++        :param error:
++            This will be an instance of
++            :class:`~flake8.violation.Violation`.
++        """
++        line = self.format(error)
++        source = self.show_source(error)
++        self.write(line, source)
++
++    def format(self, error: Violation) -> str | None:
++        """Format an error reported by Flake8.
++
++        This method **must** be implemented by subclasses.
++
++        :param error:
++            This will be an instance of
++            :class:`~flake8.violation.Violation`.
++        :returns:
++            The formatted error string.
++        """
++        raise NotImplementedError(
++            "Subclass of BaseFormatter did not implement" " format.",
++        )
++
++    def show_statistics(self, statistics: Statistics) -> None:
++        """Format and print the statistics."""
++        for error_code in statistics.error_codes():
++            stats_for_error_code = statistics.statistics_for(error_code)
++            statistic = next(stats_for_error_code)
++            count = statistic.count
++            count += sum(stat.count for stat in stats_for_error_code)
++            self._write(f"{count:<5} {error_code} {statistic.message}")
++
++    def show_benchmarks(self, benchmarks: list[tuple[str, float]]) -> None:
++        """Format and print the benchmarks."""
++        # NOTE(sigmavirus24): The format strings are a little confusing, even
++        # to me, so here's a quick explanation:
++        # We specify the named value first followed by a ':' to indicate we're
++        # formatting the value.
++        # Next we use '<' to indicate we want the value left aligned.
++        # Then '10' is the width of the area.
++        # For floats, finally, we only want only want at most 3 digits after
++        # the decimal point to be displayed. This is the precision and it
++        # can not be specified for integers which is why we need two separate
++        # format strings.
++        float_format = "{value:<10.3} {statistic}".format
++        int_format = "{value:<10} {statistic}".format
++        for statistic, value in benchmarks:
++            if isinstance(value, int):
++                benchmark = int_format(statistic=statistic, value=value)
++            else:
++                benchmark = float_format(statistic=statistic, value=value)
++            self._write(benchmark)
++
++    def show_source(self, error: Violation) -> str | None:
++        """Show the physical line generating the error.
++
++        This also adds an indicator for the particular part of the line that
++        is reported as generating the problem.
++
++        :param error:
++            This will be an instance of
++            :class:`~flake8.violation.Violation`.
++        :returns:
++            The formatted error string if the user wants to show the source.
++            If the user does not want to show the source, this will return
++            ``None``.
++        """
++        if not self.options.show_source or error.physical_line is None:
++            return ""
++
++        # Because column numbers are 1-indexed, we need to remove one to get
++        # the proper number of space characters.
++        indent = "".join(
++            c if c.isspace() else " "
++            for c in error.physical_line[: error.column_number - 1]
++        )
++        # Physical lines have a newline at the end, no need to add an extra
++        # one
++        return f"{error.physical_line}{indent}^"
++
++    def _write(self, output: str) -> None:
++        """Handle logic of whether to use an output file or print()."""
++        if self.output_fd is not None:
++            self.output_fd.write(output + self.newline)
++        if self.output_fd is None or self.options.tee:
++            sys.stdout.buffer.write(output.encode() + self.newline.encode())
++
++    def write(self, line: str | None, source: str | None) -> None:
++        """Write the line either to the output file or stdout.
++
++        This handles deciding whether to write to a file or print to standard
++        out for subclasses. Override this if you want behaviour that differs
++        from the default.
++
++        :param line:
++            The formatted string to print or write.
++        :param source:
++            The source code that has been formatted and associated with the
++            line of output.
++        """
++        if line:
++            self._write(line)
++        if source:
++            self._write(source)
++
++    def stop(self) -> None:
++        """Clean up after reporting is finished."""
++        if self.output_fd is not None:
++            self.output_fd.close()
++            self.output_fd = None
+diff --git a/flake8/formatting/default.py b/flake8/formatting/default.py
+new file mode 100644
+index 0000000..b5d08ff
+--- /dev/null
++++ b/flake8/formatting/default.py
+@@ -0,0 +1,109 @@
++"""Default formatting class for Flake8."""
++from __future__ import annotations
++
++from flake8.formatting import base
++from flake8.violation import Violation
++
++COLORS = {
++    "bold": "\033[1m",
++    "black": "\033[30m",
++    "red": "\033[31m",
++    "green": "\033[32m",
++    "yellow": "\033[33m",
++    "blue": "\033[34m",
++    "magenta": "\033[35m",
++    "cyan": "\033[36m",
++    "white": "\033[37m",
++    "reset": "\033[m",
++}
++COLORS_OFF = {k: "" for k in COLORS}
++
++
++class SimpleFormatter(base.BaseFormatter):
++    """Simple abstraction for Default and Pylint formatter commonality.
++
++    Sub-classes of this need to define an ``error_format`` attribute in order
++    to succeed. The ``format`` method relies on that attribute and expects the
++    ``error_format`` string to use the old-style formatting strings with named
++    parameters:
++
++    * code
++    * text
++    * path
++    * row
++    * col
++
++    """
++
++    error_format: str
++
++    def format(self, error: Violation) -> str | None:
++        """Format and write error out.
++
++        If an output filename is specified, write formatted errors to that
++        file. Otherwise, print the formatted error to standard out.
++        """
++        return self.error_format % {
++            "code": error.code,
++            "text": error.text,
++            "path": error.filename,
++            "row": error.line_number,
++            "col": error.column_number,
++            **(COLORS if self.color else COLORS_OFF),
++        }
++
++
++class Default(SimpleFormatter):
++    """Default formatter for Flake8.
++
++    This also handles backwards compatibility for people specifying a custom
++    format string.
++    """
++
++    error_format = (
++        "%(bold)s%(path)s%(reset)s"
++        "%(cyan)s:%(reset)s%(row)d%(cyan)s:%(reset)s%(col)d%(cyan)s:%(reset)s "
++        "%(bold)s%(red)s%(code)s%(reset)s %(text)s"
++    )
++
++    def after_init(self) -> None:
++        """Check for a custom format string."""
++        if self.options.format.lower() != "default":
++            self.error_format = self.options.format
++
++
++class Pylint(SimpleFormatter):
++    """Pylint formatter for Flake8."""
++
++    error_format = "%(path)s:%(row)d: [%(code)s] %(text)s"
++
++
++class FilenameOnly(SimpleFormatter):
++    """Only print filenames, e.g., flake8 -q."""
++
++    error_format = "%(path)s"
++
++    def after_init(self) -> None:
++        """Initialize our set of filenames."""
++        self.filenames_already_printed: set[str] = set()
++
++    def show_source(self, error: Violation) -> str | None:
++        """Do not include the source code."""
++
++    def format(self, error: Violation) -> str | None:
++        """Ensure we only print each error once."""
++        if error.filename not in self.filenames_already_printed:
++            self.filenames_already_printed.add(error.filename)
++            return super().format(error)
++        else:
++            return None
++
++
++class Nothing(base.BaseFormatter):
++    """Print absolutely nothing."""
++
++    def format(self, error: Violation) -> str | None:
++        """Do nothing."""
++
++    def show_source(self, error: Violation) -> str | None:
++        """Do not print the source."""
+diff --git a/flake8/main/__init__.py b/flake8/main/__init__.py
+new file mode 100644
+index 0000000..85bcff4
+--- /dev/null
++++ b/flake8/main/__init__.py
+@@ -0,0 +1,2 @@
++"""Module containing the logic for the Flake8 entry-points."""
++from __future__ import annotations
+diff --git a/flake8/main/application.py b/flake8/main/application.py
+new file mode 100644
+index 0000000..165a6ef
+--- /dev/null
++++ b/flake8/main/application.py
+@@ -0,0 +1,215 @@
++"""Module containing the application logic for Flake8."""
++from __future__ import annotations
++
++import argparse
++import json
++import logging
++import time
++from collections.abc import Sequence
++
++import flake8
++from flake8 import checker
++from flake8 import defaults
++from flake8 import exceptions
++from flake8 import style_guide
++from flake8.formatting.base import BaseFormatter
++from flake8.main import debug
++from flake8.options.parse_args import parse_args
++from flake8.plugins import finder
++from flake8.plugins import reporter
++
++
++LOG = logging.getLogger(__name__)
++
++
++class Application:
++    """Abstract our application into a class."""
++
++    def __init__(self) -> None:
++        """Initialize our application."""
++        #: The timestamp when the Application instance was instantiated.
++        self.start_time = time.time()
++        #: The timestamp when the Application finished reported errors.
++        self.end_time: float | None = None
++
++        self.plugins: finder.Plugins | None = None
++        #: The user-selected formatter from :attr:`formatting_plugins`
++        self.formatter: BaseFormatter | None = None
++        #: The :class:`flake8.style_guide.StyleGuideManager` built from the
++        #: user's options
++        self.guide: style_guide.StyleGuideManager | None = None
++        #: The :class:`flake8.checker.Manager` that will handle running all of
++        #: the checks selected by the user.
++        self.file_checker_manager: checker.Manager | None = None
++
++        #: The user-supplied options parsed into an instance of
++        #: :class:`argparse.Namespace`
++        self.options: argparse.Namespace | None = None
++        #: The number of errors, warnings, and other messages after running
++        #: flake8 and taking into account ignored errors and lines.
++        self.result_count = 0
++        #: The total number of errors before accounting for ignored errors and
++        #: lines.
++        self.total_result_count = 0
++        #: Whether or not something catastrophic happened and we should exit
++        #: with a non-zero status code
++        self.catastrophic_failure = False
++
++    def exit_code(self) -> int:
++        """Return the program exit code."""
++        if self.catastrophic_failure:
++            return 1
++        assert self.options is not None
++        if self.options.exit_zero:
++            return 0
++        else:
++            return int(self.result_count > 0)
++
++    def make_formatter(self) -> None:
++        """Initialize a formatter based on the parsed options."""
++        assert self.plugins is not None
++        assert self.options is not None
++        self.formatter = reporter.make(self.plugins.reporters, self.options)
++
++    def make_guide(self) -> None:
++        """Initialize our StyleGuide."""
++        assert self.formatter is not None
++        assert self.options is not None
++        self.guide = style_guide.StyleGuideManager(
++            self.options, self.formatter,
++        )
++
++    def make_file_checker_manager(self, argv: Sequence[str]) -> None:
++        """Initialize our FileChecker Manager."""
++        assert self.guide is not None
++        assert self.plugins is not None
++        self.file_checker_manager = checker.Manager(
++            style_guide=self.guide,
++            plugins=self.plugins.checkers,
++            argv=argv,
++        )
++
++    def run_checks(self) -> None:
++        """Run the actual checks with the FileChecker Manager.
++
++        This method encapsulates the logic to make a
++        :class:`~flake8.checker.Manger` instance run the checks it is
++        managing.
++        """
++        assert self.file_checker_manager is not None
++
++        self.file_checker_manager.start()
++        try:
++            self.file_checker_manager.run()
++        except exceptions.PluginExecutionFailed as plugin_failed:
++            print(str(plugin_failed))
++            print("Run flake8 with greater verbosity to see more details")
++            self.catastrophic_failure = True
++        LOG.info("Finished running")
++        self.file_checker_manager.stop()
++        self.end_time = time.time()
++
++    def report_benchmarks(self) -> None:
++        """Aggregate, calculate, and report benchmarks for this run."""
++        assert self.options is not None
++        if not self.options.benchmark:
++            return
++
++        assert self.file_checker_manager is not None
++        assert self.end_time is not None
++        time_elapsed = self.end_time - self.start_time
++        statistics = [("seconds elapsed", time_elapsed)]
++        add_statistic = statistics.append
++        for statistic in defaults.STATISTIC_NAMES + ("files",):
++            value = self.file_checker_manager.statistics[statistic]
++            total_description = f"total {statistic} processed"
++            add_statistic((total_description, value))
++            per_second_description = f"{statistic} processed per second"
++            add_statistic((per_second_description, int(value / time_elapsed)))
++
++        assert self.formatter is not None
++        self.formatter.show_benchmarks(statistics)
++
++    def report_errors(self) -> None:
++        """Report all the errors found by flake8 3.0.
++
++        This also updates the :attr:`result_count` attribute with the total
++        number of errors, warnings, and other messages found.
++        """
++        LOG.info("Reporting errors")
++        assert self.file_checker_manager is not None
++        results = self.file_checker_manager.report()
++        self.total_result_count, self.result_count = results
++        LOG.info(
++            "Found a total of %d violations and reported %d",
++            self.total_result_count,
++            self.result_count,
++        )
++
++    def report_statistics(self) -> None:
++        """Aggregate and report statistics from this run."""
++        assert self.options is not None
++        if not self.options.statistics:
++            return
++
++        assert self.formatter is not None
++        assert self.guide is not None
++        self.formatter.show_statistics(self.guide.stats)
++
++    def initialize(self, argv: Sequence[str]) -> None:
++        """Initialize the application to be run.
++
++        This finds the plugins, registers their options, and parses the
++        command-line arguments.
++        """
++        self.plugins, self.options = parse_args(argv)
++
++        if self.options.bug_report:
++            info = debug.information(flake8.__version__, self.plugins)
++            print(json.dumps(info, indent=2, sort_keys=True))
++            raise SystemExit(0)
++
++        self.make_formatter()
++        self.make_guide()
++        self.make_file_checker_manager(argv)
++
++    def report(self) -> None:
++        """Report errors, statistics, and benchmarks."""
++        assert self.formatter is not None
++        self.formatter.start()
++        self.report_errors()
++        self.report_statistics()
++        self.report_benchmarks()
++        self.formatter.stop()
++
++    def _run(self, argv: Sequence[str]) -> None:
++        self.initialize(argv)
++        self.run_checks()
++        self.report()
++
++    def run(self, argv: Sequence[str]) -> None:
++        """Run our application.
++
++        This method will also handle KeyboardInterrupt exceptions for the
++        entirety of the flake8 application. If it sees a KeyboardInterrupt it
++        will forcibly clean up the :class:`~flake8.checker.Manager`.
++        """
++        try:
++            self._run(argv)
++        except KeyboardInterrupt as exc:
++            print("... stopped")
++            LOG.critical("Caught keyboard interrupt from user")
++            LOG.exception(exc)
++            self.catastrophic_failure = True
++        except exceptions.ExecutionError as exc:
++            print("There was a critical error during execution of Flake8:")
++            print(exc)
++            LOG.exception(exc)
++            self.catastrophic_failure = True
++        except exceptions.EarlyQuit:
++            self.catastrophic_failure = True
++            print("... stopped while processing files")
++        else:
++            assert self.options is not None
++            if self.options.count:
++                print(self.result_count)
+diff --git a/flake8/main/cli.py b/flake8/main/cli.py
+new file mode 100644
+index 0000000..1a52f36
+--- /dev/null
++++ b/flake8/main/cli.py
+@@ -0,0 +1,24 @@
++"""Command-line implementation of flake8."""
++from __future__ import annotations
++
++import sys
++from collections.abc import Sequence
++
++from flake8.main import application
++
++
++def main(argv: Sequence[str] | None = None) -> int:
++    """Execute the main bit of the application.
++
++    This handles the creation of an instance of :class:`Application`, runs it,
++    and then exits the application.
++
++    :param argv:
++        The arguments to be passed to the application for parsing.
++    """
++    if argv is None:
++        argv = sys.argv[1:]
++
++    app = application.Application()
++    app.run(argv)
++    return app.exit_code()
+diff --git a/flake8/main/debug.py b/flake8/main/debug.py
+new file mode 100644
+index 0000000..73ca74b
+--- /dev/null
++++ b/flake8/main/debug.py
+@@ -0,0 +1,30 @@
++"""Module containing the logic for our debugging logic."""
++from __future__ import annotations
++
++import platform
++from typing import Any
++
++from flake8.plugins.finder import Plugins
++
++
++def information(version: str, plugins: Plugins) -> dict[str, Any]:
++    """Generate the information to be printed for the bug report."""
++    versions = sorted(
++        {
++            (loaded.plugin.package, loaded.plugin.version)
++            for loaded in plugins.all_plugins()
++            if loaded.plugin.package not in {"flake8", "local"}
++        },
++    )
++    return {
++        "version": version,
++        "plugins": [
++            {"plugin": plugin, "version": version}
++            for plugin, version in versions
++        ],
++        "platform": {
++            "python_implementation": platform.python_implementation(),
++            "python_version": platform.python_version(),
++            "system": platform.system(),
++        },
++    }
+diff --git a/flake8/main/options.py b/flake8/main/options.py
+new file mode 100644
+index 0000000..e8cbe09
+--- /dev/null
++++ b/flake8/main/options.py
+@@ -0,0 +1,396 @@
++"""Contains the logic for all of the default options for Flake8."""
++from __future__ import annotations
++
++import argparse
++
++from flake8 import defaults
++from flake8.options.manager import OptionManager
++
++
++def stage1_arg_parser() -> argparse.ArgumentParser:
++    """Register the preliminary options on our OptionManager.
++
++    The preliminary options include:
++
++    - ``-v``/``--verbose``
++    - ``--output-file``
++    - ``--append-config``
++    - ``--config``
++    - ``--isolated``
++    - ``--enable-extensions``
++    """
++    parser = argparse.ArgumentParser(add_help=False)
++
++    parser.add_argument(
++        "-v",
++        "--verbose",
++        default=0,
++        action="count",
++        help="Print more information about what is happening in flake8. "
++        "This option is repeatable and will increase verbosity each "
++        "time it is repeated.",
++    )
++
++    parser.add_argument(
++        "--output-file", default=None, help="Redirect report to a file.",
++    )
++
++    # Config file options
++
++    parser.add_argument(
++        "--append-config",
++        action="append",
++        default=[],
++        help="Provide extra config files to parse in addition to the files "
++        "found by Flake8 by default. These files are the last ones read "
++        "and so they take the highest precedence when multiple files "
++        "provide the same option.",
++    )
++
++    parser.add_argument(
++        "--config",
++        default=None,
++        help="Path to the config file that will be the authoritative config "
++        "source. This will cause Flake8 to ignore all other "
++        "configuration files.",
++    )
++
++    parser.add_argument(
++        "--isolated",
++        default=False,
++        action="store_true",
++        help="Ignore all configuration files.",
++    )
++
++    # Plugin enablement options
++
++    parser.add_argument(
++        "--enable-extensions",
++        help="Enable plugins and extensions that are otherwise disabled "
++        "by default",
++    )
++
++    parser.add_argument(
++        "--require-plugins",
++        help="Require specific plugins to be installed before running",
++    )
++
++    return parser
++
++
++class JobsArgument:
++    """Type callback for the --jobs argument."""
++
++    def __init__(self, arg: str) -> None:
++        """Parse and validate the --jobs argument.
++
++        :param arg: The argument passed by argparse for validation
++        """
++        self.is_auto = False
++        self.n_jobs = -1
++        if arg == "auto":
++            self.is_auto = True
++        elif arg.isdigit():
++            self.n_jobs = int(arg)
++        else:
++            raise argparse.ArgumentTypeError(
++                f"{arg!r} must be 'auto' or an integer.",
++            )
++
++    def __repr__(self) -> str:
++        """Representation for debugging."""
++        return f"{type(self).__name__}({str(self)!r})"
++
++    def __str__(self) -> str:
++        """Format our JobsArgument class."""
++        return "auto" if self.is_auto else str(self.n_jobs)
++
++
++def register_default_options(option_manager: OptionManager) -> None:
++    """Register the default options on our OptionManager.
++
++    The default options include:
++
++    - ``-q``/``--quiet``
++    - ``--color``
++    - ``--count``
++    - ``--exclude``
++    - ``--extend-exclude``
++    - ``--filename``
++    - ``--format``
++    - ``--hang-closing``
++    - ``--ignore``
++    - ``--extend-ignore``
++    - ``--per-file-ignores``
++    - ``--max-line-length``
++    - ``--max-doc-length``
++    - ``--indent-size``
++    - ``--select``
++    - ``--extend-select``
++    - ``--disable-noqa``
++    - ``--show-source``
++    - ``--statistics``
++    - ``--exit-zero``
++    - ``-j``/``--jobs``
++    - ``--tee``
++    - ``--benchmark``
++    - ``--bug-report``
++    """
++    add_option = option_manager.add_option
++
++    add_option(
++        "-q",
++        "--quiet",
++        default=0,
++        action="count",
++        parse_from_config=True,
++        help="Report only file names, or nothing. This option is repeatable.",
++    )
++
++    add_option(
++        "--color",
++        choices=("auto", "always", "never"),
++        default="auto",
++        help="Whether to use color in output.  Defaults to `%(default)s`.",
++    )
++
++    add_option(
++        "--count",
++        action="store_true",
++        parse_from_config=True,
++        help="Print total number of errors to standard output after "
++        "all other output.",
++    )
++
++    add_option(
++        "--exclude",
++        metavar="patterns",
++        default=",".join(defaults.EXCLUDE),
++        comma_separated_list=True,
++        parse_from_config=True,
++        normalize_paths=True,
++        help="Comma-separated list of files or directories to exclude. "
++        "(Default: %(default)s)",
++    )
++
++    add_option(
++        "--extend-exclude",
++        metavar="patterns",
++        default="",
++        parse_from_config=True,
++        comma_separated_list=True,
++        normalize_paths=True,
++        help="Comma-separated list of files or directories to add to the list "
++        "of excluded ones.",
++    )
++
++    add_option(
++        "--filename",
++        metavar="patterns",
++        default="*.py",
++        parse_from_config=True,
++        comma_separated_list=True,
++        help="Only check for filenames matching the patterns in this comma-"
++        "separated list. (Default: %(default)s)",
++    )
++
++    add_option(
++        "--stdin-display-name",
++        default="stdin",
++        help="The name used when reporting errors from code passed via stdin. "
++        "This is useful for editors piping the file contents to flake8. "
++        "(Default: %(default)s)",
++    )
++
++    # TODO(sigmavirus24): Figure out --first/--repeat
++
++    # NOTE(sigmavirus24): We can't use choices for this option since users can
++    # freely provide a format string and that will break if we restrict their
++    # choices.
++    add_option(
++        "--format",
++        metavar="format",
++        default="default",
++        parse_from_config=True,
++        help=(
++            f"Format errors according to the chosen formatter "
++            f"({', '.join(sorted(option_manager.formatter_names))}) "
++            f"or a format string containing %%-style "
++            f"mapping keys (code, col, path, row, text). "
++            f"For example, "
++            f"``--format=pylint`` or ``--format='%%(path)s %%(code)s'``. "
++            f"(Default: %(default)s)"
++        ),
++    )
++
++    add_option(
++        "--hang-closing",
++        action="store_true",
++        parse_from_config=True,
++        help="Hang closing bracket instead of matching indentation of opening "
++        "bracket's line.",
++    )
++
++    add_option(
++        "--ignore",
++        metavar="errors",
++        parse_from_config=True,
++        comma_separated_list=True,
++        help=(
++            f"Comma-separated list of error codes to ignore (or skip). "
++            f"For example, ``--ignore=E4,E51,W234``. "
++            f"(Default: {','.join(defaults.IGNORE)})"
++        ),
++    )
++
++    add_option(
++        "--extend-ignore",
++        metavar="errors",
++        parse_from_config=True,
++        comma_separated_list=True,
++        help="Comma-separated list of error codes to add to the list of "
++        "ignored ones. For example, ``--extend-ignore=E4,E51,W234``.",
++    )
++
++    add_option(
++        "--per-file-ignores",
++        default="",
++        parse_from_config=True,
++        help="A pairing of filenames and violation codes that defines which "
++        "violations to ignore in a particular file. The filenames can be "
++        "specified in a manner similar to the ``--exclude`` option and the "
++        "violations work similarly to the ``--ignore`` and ``--select`` "
++        "options.",
++    )
++
++    add_option(
++        "--max-line-length",
++        type=int,
++        metavar="n",
++        default=defaults.MAX_LINE_LENGTH,
++        parse_from_config=True,
++        help="Maximum allowed line length for the entirety of this run. "
++        "(Default: %(default)s)",
++    )
++
++    add_option(
++        "--max-doc-length",
++        type=int,
++        metavar="n",
++        default=None,
++        parse_from_config=True,
++        help="Maximum allowed doc line length for the entirety of this run. "
++        "(Default: %(default)s)",
++    )
++    add_option(
++        "--indent-size",
++        type=int,
++        metavar="n",
++        default=defaults.INDENT_SIZE,
++        parse_from_config=True,
++        help="Number of spaces used for indentation (Default: %(default)s)",
++    )
++
++    add_option(
++        "--select",
++        metavar="errors",
++        parse_from_config=True,
++        comma_separated_list=True,
++        help=(
++            "Limit the reported error codes to codes prefix-matched by this "
++            "list.  "
++            "You usually do not need to specify this option as the default "
++            "includes all installed plugin codes.  "
++            "For example, ``--select=E4,E51,W234``."
++        ),
++    )
++
++    add_option(
++        "--extend-select",
++        metavar="errors",
++        parse_from_config=True,
++        comma_separated_list=True,
++        help=(
++            "Add additional error codes to the default ``--select``.  "
++            "You usually do not need to specify this option as the default "
++            "includes all installed plugin codes.  "
++            "For example, ``--extend-select=E4,E51,W234``."
++        ),
++    )
++
++    add_option(
++        "--disable-noqa",
++        default=False,
++        parse_from_config=True,
++        action="store_true",
++        help='Disable the effect of "# noqa". This will report errors on '
++        'lines with "# noqa" at the end.',
++    )
++
++    # TODO(sigmavirus24): Decide what to do about --show-pep8
++
++    add_option(
++        "--show-source",
++        action="store_true",
++        parse_from_config=True,
++        help="Show the source generate each error or warning.",
++    )
++    add_option(
++        "--no-show-source",
++        action="store_false",
++        dest="show_source",
++        parse_from_config=False,
++        help="Negate --show-source",
++    )
++
++    add_option(
++        "--statistics",
++        action="store_true",
++        parse_from_config=True,
++        help="Count errors.",
++    )
++
++    # Flake8 options
++
++    add_option(
++        "--exit-zero",
++        action="store_true",
++        help='Exit with status code "0" even if there are errors.',
++    )
++
++    add_option(
++        "-j",
++        "--jobs",
++        default="auto",
++        parse_from_config=True,
++        type=JobsArgument,
++        help="Number of subprocesses to use to run checks in parallel. "
++        'This is ignored on Windows. The default, "auto", will '
++        "auto-detect the number of processors available to use. "
++        "(Default: %(default)s)",
++    )
++
++    add_option(
++        "--tee",
++        default=False,
++        parse_from_config=True,
++        action="store_true",
++        help="Write to stdout and output-file.",
++    )
++
++    # Benchmarking
++
++    add_option(
++        "--benchmark",
++        default=False,
++        action="store_true",
++        help="Print benchmark information about this run of Flake8",
++    )
++
++    # Debugging
++
++    add_option(
++        "--bug-report",
++        action="store_true",
++        help="Print information necessary when preparing a bug report",
++    )
+diff --git a/flake8/options/__init__.py b/flake8/options/__init__.py
+new file mode 100644
+index 0000000..3578223
+--- /dev/null
++++ b/flake8/options/__init__.py
+@@ -0,0 +1,13 @@
++"""Package containing the option manager and config management logic.
++
++- :mod:`flake8.options.config` contains the logic for finding, parsing, and
++  merging configuration files.
++
++- :mod:`flake8.options.manager` contains the logic for managing customized
++  Flake8 command-line and configuration options.
++
++- :mod:`flake8.options.aggregator` uses objects from both of the above modules
++  to aggregate configuration into one object used by plugins and Flake8.
++
++"""
++from __future__ import annotations
+diff --git a/flake8/options/aggregator.py b/flake8/options/aggregator.py
+new file mode 100644
+index 0000000..999161a
+--- /dev/null
++++ b/flake8/options/aggregator.py
+@@ -0,0 +1,56 @@
++"""Aggregation function for CLI specified options and config file options.
++
++This holds the logic that uses the collected and merged config files and
++applies the user-specified command-line configuration on top of it.
++"""
++from __future__ import annotations
++
++import argparse
++import configparser
++import logging
++from collections.abc import Sequence
++
++from flake8.options import config
++from flake8.options.manager import OptionManager
++
++LOG = logging.getLogger(__name__)
++
++
++def aggregate_options(
++    manager: OptionManager,
++    cfg: configparser.RawConfigParser,
++    cfg_dir: str,
++    argv: Sequence[str] | None,
++) -> argparse.Namespace:
++    """Aggregate and merge CLI and config file options."""
++    # Get defaults from the option parser
++    default_values = manager.parse_args([])
++
++    # Get the parsed config
++    parsed_config = config.parse_config(manager, cfg, cfg_dir)
++
++    # store the plugin-set extended default ignore / select
++    default_values.extended_default_ignore = manager.extended_default_ignore
++    default_values.extended_default_select = manager.extended_default_select
++
++    # Merge values parsed from config onto the default values returned
++    for config_name, value in parsed_config.items():
++        dest_name = config_name
++        # If the config name is somehow different from the destination name,
++        # fetch the destination name from our Option
++        if not hasattr(default_values, config_name):
++            dest_val = manager.config_options_dict[config_name].dest
++            assert isinstance(dest_val, str)
++            dest_name = dest_val
++
++        LOG.debug(
++            'Overriding default value of (%s) for "%s" with (%s)',
++            getattr(default_values, dest_name, None),
++            dest_name,
++            value,
++        )
++        # Override the default values with the config values
++        setattr(default_values, dest_name, value)
++
++    # Finally parse the command-line options
++    return manager.parse_args(argv, default_values)
+diff --git a/flake8/options/config.py b/flake8/options/config.py
+new file mode 100644
+index 0000000..fddee55
+--- /dev/null
++++ b/flake8/options/config.py
+@@ -0,0 +1,140 @@
++"""Config handling logic for Flake8."""
++from __future__ import annotations
++
++import configparser
++import logging
++import os.path
++from typing import Any
++
++from flake8 import exceptions
++from flake8.defaults import VALID_CODE_PREFIX
++from flake8.options.manager import OptionManager
++
++LOG = logging.getLogger(__name__)
++
++
++def _stat_key(s: str) -> tuple[int, int]:
++    # same as what's used by samefile / samestat
++    st = os.stat(s)
++    return st.st_ino, st.st_dev
++
++
++def _find_config_file(path: str) -> str | None:
++    # on windows if the homedir isn't detected this returns back `~`
++    home = os.path.expanduser("~")
++    try:
++        home_stat = _stat_key(home) if home != "~" else None
++    except OSError:  # FileNotFoundError / PermissionError / etc.
++        home_stat = None
++
++    dir_stat = _stat_key(path)
++    while True:
++        for candidate in ("setup.cfg", "tox.ini", ".flake8"):
++            cfg = configparser.RawConfigParser()
++            cfg_path = os.path.join(path, candidate)
++            try:
++                cfg.read(cfg_path, encoding="UTF-8")
++            except (UnicodeDecodeError, configparser.ParsingError) as e:
++                LOG.warning("ignoring unparseable config %s: %s", cfg_path, e)
++            else:
++                # only consider it a config if it contains flake8 sections
++                if "flake8" in cfg or "flake8:local-plugins" in cfg:
++                    return cfg_path
++
++        new_path = os.path.dirname(path)
++        new_dir_stat = _stat_key(new_path)
++        if new_dir_stat == dir_stat or new_dir_stat == home_stat:
++            break
++        else:
++            path = new_path
++            dir_stat = new_dir_stat
++
++    # did not find any configuration file
++    return None
++
++
++def load_config(
++    config: str | None,
++    extra: list[str],
++    *,
++    isolated: bool = False,
++) -> tuple[configparser.RawConfigParser, str]:
++    """Load the configuration given the user options.
++
++    - in ``isolated`` mode, return an empty configuration
++    - if a config file is given in ``config`` use that, otherwise attempt to
++      discover a configuration using ``tox.ini`` / ``setup.cfg`` / ``.flake8``
++    - finally, load any ``extra`` configuration files
++    """
++    pwd = os.path.abspath(".")
++
++    if isolated:
++        return configparser.RawConfigParser(), pwd
++
++    if config is None:
++        config = _find_config_file(pwd)
++
++    cfg = configparser.RawConfigParser()
++    if config is not None:
++        if not cfg.read(config, encoding="UTF-8"):
++            raise exceptions.ExecutionError(
++                f"The specified config file does not exist: {config}",
++            )
++        cfg_dir = os.path.dirname(config)
++    else:
++        cfg_dir = pwd
++
++    # TODO: remove this and replace it with configuration modifying plugins
++    # read the additional configs afterwards
++    for filename in extra:
++        if not cfg.read(filename, encoding="UTF-8"):
++            raise exceptions.ExecutionError(
++                f"The specified config file does not exist: {filename}",
++            )
++
++    return cfg, cfg_dir
++
++
++def parse_config(
++    option_manager: OptionManager,
++    cfg: configparser.RawConfigParser,
++    cfg_dir: str,
++) -> dict[str, Any]:
++    """Parse and normalize the typed configuration options."""
++    if "flake8" not in cfg:
++        return {}
++
++    config_dict = {}
++
++    for option_name in cfg["flake8"]:
++        option = option_manager.config_options_dict.get(option_name)
++        if option is None:
++            LOG.debug('Option "%s" is not registered. Ignoring.', option_name)
++            continue
++
++        # Use the appropriate method to parse the config value
++        value: Any
++        if option.type is int or option.action == "count":
++            value = cfg.getint("flake8", option_name)
++        elif option.action in {"store_true", "store_false"}:
++            value = cfg.getboolean("flake8", option_name)
++        else:
++            value = cfg.get("flake8", option_name)
++
++        LOG.debug('Option "%s" returned value: %r', option_name, value)
++
++        final_value = option.normalize(value, cfg_dir)
++
++        if option_name in {"ignore", "extend-ignore"}:
++            for error_code in final_value:
++                if not VALID_CODE_PREFIX.match(error_code):
++                    raise ValueError(
++                        f"Error code {error_code!r} "
++                        f"supplied to {option_name!r} option "
++                        f"does not match {VALID_CODE_PREFIX.pattern!r}",
++                    )
++
++        assert option.config_name is not None
++        config_dict[option.config_name] = final_value
++
++    return config_dict
+diff --git a/flake8/options/manager.py b/flake8/options/manager.py
+new file mode 100644
+index 0000000..ae40794
+--- /dev/null
++++ b/flake8/options/manager.py
+@@ -0,0 +1,320 @@
++"""Option handling and Option management logic."""
++from __future__ import annotations
++
++import argparse
++import enum
++import functools
++import logging
++from collections.abc import Callable
++from collections.abc import Sequence
++from typing import Any
++
++from flake8 import utils
++from flake8.plugins.finder import Plugins
++
++LOG = logging.getLogger(__name__)
++
++# represent a singleton of "not passed arguments".
++# an enum is chosen to trick mypy
++_ARG = enum.Enum("_ARG", "NO")
++
++
++def _flake8_normalize(
++    value: str,
++    *args: str,
++    comma_separated_list: bool = False,
++    normalize_paths: bool = False,
++) -> str | list[str]:
++    ret: str | list[str] = value
++    if comma_separated_list and isinstance(ret, str):
++        ret = utils.parse_comma_separated_list(value)
++
++    if normalize_paths:
++        if isinstance(ret, str):
++            ret = utils.normalize_path(ret, *args)
++        else:
++            ret = utils.normalize_paths(ret, *args)
++
++    return ret
++
++
++class Option:
++    """Our wrapper around an argparse argument parsers to add features."""
++
++    def __init__(
++        self,
++        short_option_name: str | _ARG = _ARG.NO,
++        long_option_name: str | _ARG = _ARG.NO,
++        # Options below are taken from argparse.ArgumentParser.add_argument
++        action: str | type[argparse.Action] | _ARG = _ARG.NO,
++        default: Any | _ARG = _ARG.NO,
++        type: Callable[..., Any] | _ARG = _ARG.NO,
++        dest: str | _ARG = _ARG.NO,
++        nargs: int | str | _ARG = _ARG.NO,
++        const: Any | _ARG = _ARG.NO,
++        choices: Sequence[Any] | _ARG = _ARG.NO,
++        help: str | _ARG = _ARG.NO,
++        metavar: str | _ARG = _ARG.NO,
++        required: bool | _ARG = _ARG.NO,
++        # Options below here are specific to Flake8
++        parse_from_config: bool = False,
++        comma_separated_list: bool = False,
++        normalize_paths: bool = False,
++    ) -> None:
++        """Initialize an Option instance.
++
++        The following are all passed directly through to argparse.
++
++        :param short_option_name:
++            The short name of the option (e.g., ``-x``). This will be the
++            first argument passed to ``ArgumentParser.add_argument``
++        :param long_option_name:
++            The long name of the option (e.g., ``--xtra-long-option``). This
++            will be the second argument passed to
++            ``ArgumentParser.add_argument``
++        :param default:
++            Default value of the option.
++        :param dest:
++            Attribute name to store parsed option value as.
++        :param nargs:
++            Number of arguments to parse for this option.
++        :param const:
++            Constant value to store on a common destination. Usually used in
++            conjunction with ``action="store_const"``.
++        :param choices:
++            Possible values for the option.
++        :param help:
++            Help text displayed in the usage information.
++        :param metavar:
++            Name to use instead of the long option name for help text.
++        :param required:
++            Whether this option is required or not.
++
++        The following options may be passed directly through to :mod:`argparse`
++        but may need some massaging.
++
++        :param type:
++            A callable to normalize the type (as is the case in
++            :mod:`argparse`).
++        :param action:
++            Any action allowed by :mod:`argparse`.
++
++        The following parameters are for Flake8's option handling alone.
++
++        :param parse_from_config:
++            Whether or not this option should be parsed out of config files.
++        :param comma_separated_list:
++            Whether the option is a comma separated list when parsing from a
++            config file.
++        :param normalize_paths:
++            Whether the option is expecting a path or list of paths and should
++            attempt to normalize the paths to absolute paths.
++        """
++        if (
++            long_option_name is _ARG.NO
++            and short_option_name is not _ARG.NO
++            and short_option_name.startswith("--")
++        ):
++            short_option_name, long_option_name = _ARG.NO, short_option_name
++
++        # flake8 special type normalization
++        if comma_separated_list or normalize_paths:
++            type = functools.partial(
++                _flake8_normalize,
++                comma_separated_list=comma_separated_list,
++                normalize_paths=normalize_paths,
++            )
++
++        self.short_option_name = short_option_name
++        self.long_option_name = long_option_name
++        self.option_args = [
++            x
++            for x in (short_option_name, long_option_name)
++            if x is not _ARG.NO
++        ]
++        self.action = action
++        self.default = default
++        self.type = type
++        self.dest = dest
++        self.nargs = nargs
++        self.const = const
++        self.choices = choices
++        self.help = help
++        self.metavar = metavar
++        self.required = required
++        self.option_kwargs: dict[str, Any | _ARG] = {
++            "action": self.action,
++            "default": self.default,
++            "type": self.type,
++            "dest": self.dest,
++            "nargs": self.nargs,
++            "const": self.const,
++            "choices": self.choices,
++            "help": self.help,
++            "metavar": self.metavar,
++            "required": self.required,
++        }
++
++        # Set our custom attributes
++        self.parse_from_config = parse_from_config
++        self.comma_separated_list = comma_separated_list
++        self.normalize_paths = normalize_paths
++
++        self.config_name: str | None = None
++        if parse_from_config:
++            if long_option_name is _ARG.NO:
++                raise ValueError(
++                    "When specifying parse_from_config=True, "
++                    "a long_option_name must also be specified.",
++                )
++            self.config_name = long_option_name[2:].replace("-", "_")
++
++        self._opt = None
++
++    @property
++    def filtered_option_kwargs(self) -> dict[str, Any]:
++        """Return any actually-specified arguments."""
++        return {
++            k: v for k, v in self.option_kwargs.items() if v is not _ARG.NO
++        }
++
++    def __repr__(self) -> str:  # noqa: D105
++        parts = []
++        for arg in self.option_args:
++            parts.append(arg)
++        for k, v in self.filtered_option_kwargs.items():
++            parts.append(f"{k}={v!r}")
++        return f"Option({', '.join(parts)})"
++
++    def normalize(self, value: Any, *normalize_args: str) -> Any:
++        """Normalize the value based on the option configuration."""
++        if self.comma_separated_list and isinstance(value, str):
++            value = utils.parse_comma_separated_list(value)
++
++        if self.normalize_paths:
++            if isinstance(value, list):
++                value = utils.normalize_paths(value, *normalize_args)
++            else:
++                value = utils.normalize_path(value, *normalize_args)
++
++        return value
++
++    def to_argparse(self) -> tuple[list[str], dict[str, Any]]:
++        """Convert a Flake8 Option to argparse ``add_argument`` arguments."""
++        return self.option_args, self.filtered_option_kwargs
++
++
++class OptionManager:
++    """Manage Options and OptionParser while adding post-processing."""
++
++    def __init__(
++        self,
++        *,
++        version: str,
++        plugin_versions: str,
++        parents: list[argparse.ArgumentParser],
++        formatter_names: list[str],
++    ) -> None:
++        """Initialize an instance of an OptionManager."""
++        self.formatter_names = formatter_names
++        self.parser = argparse.ArgumentParser(
++            prog="flake8",
++            usage="%(prog)s [options] file file ...",
++            parents=parents,
++            epilog=f"Installed plugins: {plugin_versions}",
++        )
++        self.parser.add_argument(
++            "--version",
++            action="version",
++            version=(
++                f"{version} ({plugin_versions}) "
++                f"{utils.get_python_version()}"
++            ),
++        )
++        self.parser.add_argument("filenames", nargs="*", metavar="filename")
++
++        self.config_options_dict: dict[str, Option] = {}
++        self.options: list[Option] = []
++        self.extended_default_ignore: list[str] = []
++        self.extended_default_select: list[str] = []
++
++        self._current_group: argparse._ArgumentGroup | None = None
++
++    # TODO: maybe make this a free function to reduce api surface area
++    def register_plugins(self, plugins: Plugins) -> None:
++        """Register the plugin options (if needed)."""
++        groups: dict[str, argparse._ArgumentGroup] = {}
++
++        def _set_group(name: str) -> None:
++            try:
++                self._current_group = groups[name]
++            except KeyError:
++                group = self.parser.add_argument_group(name)
++                self._current_group = groups[name] = group
++
++        for loaded in plugins.all_plugins():
++            add_options = getattr(loaded.obj, "add_options", None)
++            if add_options:
++                _set_group(loaded.plugin.package)
++                add_options(self)
++
++            if loaded.plugin.entry_point.group == "flake8.extension":
++                self.extend_default_select([loaded.entry_name])
++
++        # isn't strictly necessary, but seems cleaner
++        self._current_group = None
++
++    def add_option(self, *args: Any, **kwargs: Any) -> None:
++        """Create and register a new option.
++
++        See parameters for :class:`~flake8.options.manager.Option` for
++        acceptable arguments to this method.
++
++        .. note::
++
++            ``short_option_name`` and ``long_option_name`` may be specified
++            positionally as they are with argparse normally.
++        """
++        option = Option(*args, **kwargs)
++        option_args, option_kwargs = option.to_argparse()
++        if self._current_group is not None:
++            self._current_group.add_argument(*option_args, **option_kwargs)
++        else:
++            self.parser.add_argument(*option_args, **option_kwargs)
++        self.options.append(option)
++        if option.parse_from_config:
++            name = option.config_name
++            assert name is not None
++            self.config_options_dict[name] = option
++            self.config_options_dict[name.replace("_", "-")] = option
++        LOG.debug('Registered option "%s".', option)
++
++    def extend_default_ignore(self, error_codes: Sequence[str]) -> None:
++        """Extend the default ignore list with the error codes provided.
++
++        :param error_codes:
++            List of strings that are the error/warning codes with which to
++            extend the default ignore list.
++        """
++        LOG.debug("Extending default ignore list with %r", error_codes)
++        self.extended_default_ignore.extend(error_codes)
++
++    def extend_default_select(self, error_codes: Sequence[str]) -> None:
++        """Extend the default select list with the error codes provided.
++
++        :param error_codes:
++            List of strings that are the error/warning codes with which
++            to extend the default select list.
++        """
++        LOG.debug("Extending default select list with %r", error_codes)
++        self.extended_default_select.extend(error_codes)
++
++    def parse_args(
++        self,
++        args: Sequence[str] | None = None,
++        values: argparse.Namespace | None = None,
++    ) -> argparse.Namespace:
++        """Proxy to calling the OptionParser's parse_args method."""
++        if values:
++            self.parser.set_defaults(**vars(values))
++        return self.parser.parse_args(args)
+diff --git a/flake8/options/parse_args.py b/flake8/options/parse_args.py
+new file mode 100644
+index 0000000..ff5e08f
+--- /dev/null
++++ b/flake8/options/parse_args.py
+@@ -0,0 +1,70 @@
++"""Procedure for parsing args, config, loading plugins."""
++from __future__ import annotations
++
++import argparse
++from collections.abc import Sequence
++
++import flake8
++from flake8.main import options
++from flake8.options import aggregator
++from flake8.options import config
++from flake8.options import manager
++from flake8.plugins import finder
++
++
++def parse_args(
++    argv: Sequence[str],
++) -> tuple[finder.Plugins, argparse.Namespace]:
++    """Procedure for parsing args, config, loading plugins."""
++    prelim_parser = options.stage1_arg_parser()
++
++    args0, rest = prelim_parser.parse_known_args(argv)
++    # XXX (ericvw): Special case "forwarding" the output file option so
++    # that it can be reparsed again for the BaseFormatter.filename.
++    if args0.output_file:
++        rest.extend(("--output-file", args0.output_file))
++
++    flake8.configure_logging(args0.verbose, args0.output_file)
++
++    cfg, cfg_dir = config.load_config(
++        config=args0.config,
++        extra=args0.append_config,
++        isolated=args0.isolated,
++    )
++
++    plugin_opts = finder.parse_plugin_options(
++        cfg,
++        cfg_dir,
++        enable_extensions=args0.enable_extensions,
++        require_plugins=args0.require_plugins,
++    )
++    raw_plugins = finder.find_plugins(cfg, plugin_opts)
++    plugins = finder.load_plugins(raw_plugins, plugin_opts)
++
++    option_manager = manager.OptionManager(
++        version=flake8.__version__,
++        plugin_versions=plugins.versions_str(),
++        parents=[prelim_parser],
++        formatter_names=list(plugins.reporters),
++    )
++    options.register_default_options(option_manager)
++    option_manager.register_plugins(plugins)
++
++    opts = aggregator.aggregate_options(option_manager, cfg, cfg_dir, rest)
++
++    for loaded in plugins.all_plugins():
++        parse_options = getattr(loaded.obj, "parse_options", None)
++        if parse_options is None:
++            continue
++
++        # XXX: ideally we wouldn't have two forms of parse_options
++        try:
++            parse_options(
++                option_manager,
++                opts,
++                opts.filenames,
++            )
++        except TypeError:
++            parse_options(opts)
++
++    return plugins, opts
+diff --git a/flake8/plugins/__init__.py b/flake8/plugins/__init__.py
+new file mode 100644
+index 0000000..b540313
+--- /dev/null
++++ b/flake8/plugins/__init__.py
+@@ -0,0 +1,2 @@
++"""Submodule of built-in plugins and plugin managers."""
++from __future__ import annotations
+diff --git a/flake8/plugins/finder.py b/flake8/plugins/finder.py
+new file mode 100644
+index 0000000..4da3402
+--- /dev/null
++++ b/flake8/plugins/finder.py
+@@ -0,0 +1,365 @@
++"""Functions related to finding and loading plugins."""
++from __future__ import annotations
++
++import configparser
++import importlib.metadata
++import inspect
++import itertools
++import logging
++import sys
++from collections.abc import Generator
++from collections.abc import Iterable
++from typing import Any
++from typing import NamedTuple
++
++from flake8 import utils
++from flake8.defaults import VALID_CODE_PREFIX
++from flake8.exceptions import ExecutionError
++from flake8.exceptions import FailedToLoadPlugin
++
++LOG = logging.getLogger(__name__)
++
++FLAKE8_GROUPS = frozenset(("flake8.extension", "flake8.report"))
++
++BANNED_PLUGINS = {
++    "flake8-colors": "5.0",
++    "flake8-per-file-ignores": "3.7",
++}
++
++
++class Plugin(NamedTuple):
++    """A plugin before loading."""
++
++    package: str
++    version: str
++    entry_point: importlib.metadata.EntryPoint
++
++
++class LoadedPlugin(NamedTuple):
++    """Represents a plugin after being imported."""
++
++    plugin: Plugin
++    obj: Any
++    parameters: dict[str, bool]
++
++    @property
++    def entry_name(self) -> str:
++        """Return the name given in the packaging metadata."""
++        return self.plugin.entry_point.name
++
++    @property
++    def display_name(self) -> str:
++        """Return the name for use in user-facing / error messages."""
++        return f"{self.plugin.package}[{self.entry_name}]"
++
++
++class Checkers(NamedTuple):
++    """Classified plugins needed for checking."""
++
++    tree: list[LoadedPlugin]
++    logical_line: list[LoadedPlugin]
++    physical_line: list[LoadedPlugin]
++
++
++class Plugins(NamedTuple):
++    """Classified plugins."""
++
++    checkers: Checkers
++    reporters: dict[str, LoadedPlugin]
++    disabled: list[LoadedPlugin]
++
++    def all_plugins(self) -> Generator[LoadedPlugin]:
++        """Return an iterator over all :class:`LoadedPlugin`s."""
++        yield from self.checkers.tree
++        yield from self.checkers.logical_line
++        yield from self.checkers.physical_line
++        yield from self.reporters.values()
++
++    def versions_str(self) -> str:
++        """Return a user-displayed list of plugin versions."""
++        return ", ".join(
++            sorted(
++                {
++                    f"{loaded.plugin.package}: {loaded.plugin.version}"
++                    for loaded in self.all_plugins()
++                    if loaded.plugin.package not in {"flake8", "local"}
++                },
++            ),
++        )
++
++
++class PluginOptions(NamedTuple):
++    """Options related to plugin loading."""
++
++    local_plugin_paths: tuple[str, ...]
++    enable_extensions: frozenset[str]
++    require_plugins: frozenset[str]
++
++    @classmethod
++    def blank(cls) -> PluginOptions:
++        """Make a blank PluginOptions, mostly used for tests."""
++        return cls(
++            local_plugin_paths=(),
++            enable_extensions=frozenset(),
++            require_plugins=frozenset(),
++        )
++
++
++def _parse_option(
++    cfg: configparser.RawConfigParser,
++    cfg_opt_name: str,
++    opt: str | None,
++) -> list[str]:
++    # specified on commandline: use that
++    if opt is not None:
++        return utils.parse_comma_separated_list(opt)
++    else:
++        # ideally this would reuse our config parsing framework but we need to
++        # parse this from preliminary options before plugins are enabled
++        for opt_name in (cfg_opt_name, cfg_opt_name.replace("_", "-")):
++            val = cfg.get("flake8", opt_name, fallback=None)
++            if val is not None:
++                return utils.parse_comma_separated_list(val)
++        else:
++            return []
++
++
++def parse_plugin_options(
++    cfg: configparser.RawConfigParser,
++    cfg_dir: str,
++    *,
++    enable_extensions: str | None,
++    require_plugins: str | None,
++) -> PluginOptions:
++    """Parse plugin loading related options."""
++    paths_s = cfg.get("flake8:local-plugins", "paths", fallback="").strip()
++    paths = utils.parse_comma_separated_list(paths_s)
++    paths = utils.normalize_paths(paths, cfg_dir)
++
++    return PluginOptions(
++        local_plugin_paths=tuple(paths),
++        enable_extensions=frozenset(
++            _parse_option(cfg, "enable_extensions", enable_extensions),
++        ),
++        require_plugins=frozenset(
++            _parse_option(cfg, "require_plugins", require_plugins),
++        ),
++    )
++
++
++def _flake8_plugins(
++    eps: Iterable[importlib.metadata.EntryPoint],
++    name: str,
++    version: str,
++) -> Generator[Plugin]:
++    pyflakes_meta = importlib.metadata.distribution("pyflakes").metadata
++    pycodestyle_meta = importlib.metadata.distribution("pycodestyle").metadata
++
++    for ep in eps:
++        if ep.group not in FLAKE8_GROUPS:
++            continue
++
++        if ep.name == "F":
++            yield Plugin(pyflakes_meta["name"], pyflakes_meta["version"], ep)
++        elif ep.name in "EW":
++            # pycodestyle provides both `E` and `W` -- but our default select
++            # handles those
++            # ideally pycodestyle's plugin entrypoints would exactly represent
++            # the codes they produce...
++            yield Plugin(
++                pycodestyle_meta["name"], pycodestyle_meta["version"], ep,
++            )
++        else:
++            yield Plugin(name, version, ep)
++
++
++def _find_importlib_plugins() -> Generator[Plugin]:
++    # some misconfigured pythons (RHEL) have things on `sys.path` twice
++    seen = set()
++    for dist in importlib.metadata.distributions():
++        # assigned to prevent continual reparsing
++        eps = dist.entry_points
++
++        # perf: skip parsing `.metadata` (slow) if no entry points match
++        if not any(ep.group in FLAKE8_GROUPS for ep in eps):
++            continue
++
++        # assigned to prevent continual reparsing
++        meta = dist.metadata
++
++        if meta["name"] in seen:
++            continue
++        else:
++            seen.add(meta["name"])
++
++        if meta["name"] in BANNED_PLUGINS:
++            LOG.warning(
++                "%s plugin is obsolete in flake8>=%s",
++                meta["name"],
++                BANNED_PLUGINS[meta["name"]],
++            )
++            continue
++        elif meta["name"] == "flake8":
++            # special case flake8 which provides plugins for pyflakes /
++            # pycodestyle
++            yield from _flake8_plugins(eps, meta["name"], meta["version"])
++            continue
++
++        for ep in eps:
++            if ep.group in FLAKE8_GROUPS:
++                yield Plugin(meta["name"], meta["version"], ep)
++
++
++def _find_local_plugins(
++    cfg: configparser.RawConfigParser,
++) -> Generator[Plugin]:
++    for plugin_type in ("extension", "report"):
++        group = f"flake8.{plugin_type}"
++        for plugin_s in utils.parse_comma_separated_list(
++            cfg.get("flake8:local-plugins", plugin_type, fallback="").strip(),
++            regexp=utils.LOCAL_PLUGIN_LIST_RE,
++        ):
++            name, _, entry_str = plugin_s.partition("=")
++            name, entry_str = name.strip(), entry_str.strip()
++            ep = importlib.metadata.EntryPoint(name, entry_str, group)
++            yield Plugin("local", "local", ep)
++
++
++def _check_required_plugins(
++    plugins: list[Plugin],
++    expected: frozenset[str],
++) -> None:
++    plugin_names = {
++        utils.normalize_pypi_name(plugin.package) for plugin in plugins
++    }
++    expected_names = {utils.normalize_pypi_name(name) for name in expected}
++    missing_plugins = expected_names - plugin_names
++
++    if missing_plugins:
++        raise ExecutionError(
++            f"required plugins were not installed!\n"
++            f"- installed: {', '.join(sorted(plugin_names))}\n"
++            f"- expected: {', '.join(sorted(expected_names))}\n"
++            f"- missing: {', '.join(sorted(missing_plugins))}",
++        )
++
++
++def find_plugins(
++    cfg: configparser.RawConfigParser,
++    opts: PluginOptions,
++) -> list[Plugin]:
++    """Discovers all plugins (but does not load them)."""
++    ret = [*_find_importlib_plugins(), *_find_local_plugins(cfg)]
++
++    # for determinism, sort the list
++    ret.sort()
++
++    _check_required_plugins(ret, opts.require_plugins)
++
++    return ret
++
++
++def _parameters_for(func: Any) -> dict[str, bool]:
++    """Return the parameters for the plugin.
++
++    This will inspect the plugin and return either the function parameters
++    if the plugin is a function or the parameters for ``__init__`` after
++    ``self`` if the plugin is a class.
++
++    :returns:
++        A dictionary mapping the parameter name to whether or not it is
++        required (a.k.a., is positional only/does not have a default).
++    """
++    is_class = not inspect.isfunction(func)
++    if is_class:
++        func = func.__init__
++
++    parameters = {
++        parameter.name: parameter.default is inspect.Parameter.empty
++        for parameter in inspect.signature(func).parameters.values()
++        if parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
++    }
++
++    if is_class:
++        parameters.pop("self", None)
++
++    return parameters
++
++
++def _load_plugin(plugin: Plugin) -> LoadedPlugin:
++    try:
++        obj = plugin.entry_point.load()
++    except Exception as e:
++        raise FailedToLoadPlugin(plugin.package, e)
++
++    if not callable(obj):
++        err = TypeError("expected loaded plugin to be callable")
++        raise FailedToLoadPlugin(plugin.package, err)
++
++    return LoadedPlugin(plugin, obj, _parameters_for(obj))
++
++
++def _import_plugins(
++    plugins: list[Plugin],
++    opts: PluginOptions,
++) -> list[LoadedPlugin]:
++    sys.path.extend(opts.local_plugin_paths)
++    return [_load_plugin(p) for p in plugins]
++
++
++def _classify_plugins(
++    plugins: list[LoadedPlugin],
++    opts: PluginOptions,
++) -> Plugins:
++    tree = []
++    logical_line = []
++    physical_line = []
++    reporters = {}
++    disabled = []
++
++    for loaded in plugins:
++        if (
++            getattr(loaded.obj, "off_by_default", False)
++            and loaded.plugin.entry_point.name not in opts.enable_extensions
++        ):
++            disabled.append(loaded)
++        elif loaded.plugin.entry_point.group == "flake8.report":
++            reporters[loaded.entry_name] = loaded
++        elif "tree" in loaded.parameters:
++            tree.append(loaded)
++        elif "logical_line" in loaded.parameters:
++            logical_line.append(loaded)
++        elif "physical_line" in loaded.parameters:
++            physical_line.append(loaded)
++        else:
++            raise NotImplementedError(f"what plugin type? {loaded}")
++
++    for loaded in itertools.chain(tree, logical_line, physical_line):
++        if not VALID_CODE_PREFIX.match(loaded.entry_name):
++            raise ExecutionError(
++                f"plugin code for `{loaded.display_name}` does not match "
++                f"{VALID_CODE_PREFIX.pattern}",
++            )
++
++    return Plugins(
++        checkers=Checkers(
++            tree=tree,
++            logical_line=logical_line,
++            physical_line=physical_line,
++        ),
++        reporters=reporters,
++        disabled=disabled,
++    )
++
++
++def load_plugins(
++    plugins: list[Plugin],
++    opts: PluginOptions,
++) -> Plugins:
++    """Load and classify all flake8 plugins.
++
++    - first: extends ``sys.path`` with ``paths`` (to import local plugins)
++    - next: converts the ``Plugin``s to ``LoadedPlugins``
++    - finally: classifies plugins into their specific types
++    """
++    return _classify_plugins(_import_plugins(plugins, opts), opts)
+diff --git a/flake8/plugins/pycodestyle.py b/flake8/plugins/pycodestyle.py
+new file mode 100644
+index 0000000..cd760dc
+--- /dev/null
++++ b/flake8/plugins/pycodestyle.py
+@@ -0,0 +1,112 @@
++"""Generated using ./bin/gen-pycodestyle-plugin."""
++# fmt: off
++from __future__ import annotations
++
++from collections.abc import Generator
++from typing import Any
++
++from pycodestyle import ambiguous_identifier as _ambiguous_identifier
++from pycodestyle import bare_except as _bare_except
++from pycodestyle import blank_lines as _blank_lines
++from pycodestyle import break_after_binary_operator as _break_after_binary_operator  # noqa: E501
++from pycodestyle import break_before_binary_operator as _break_before_binary_operator  # noqa: E501
++from pycodestyle import comparison_negative as _comparison_negative
++from pycodestyle import comparison_to_singleton as _comparison_to_singleton
++from pycodestyle import comparison_type as _comparison_type
++from pycodestyle import compound_statements as _compound_statements
++from pycodestyle import continued_indentation as _continued_indentation
++from pycodestyle import explicit_line_join as _explicit_line_join
++from pycodestyle import extraneous_whitespace as _extraneous_whitespace
++from pycodestyle import imports_on_separate_lines as _imports_on_separate_lines
++from pycodestyle import indentation as _indentation
++from pycodestyle import maximum_doc_length as _maximum_doc_length
++from pycodestyle import maximum_line_length as _maximum_line_length
++from pycodestyle import missing_whitespace as _missing_whitespace
++from pycodestyle import missing_whitespace_after_keyword as _missing_whitespace_after_keyword  # noqa: E501
++from pycodestyle import module_imports_on_top_of_file as _module_imports_on_top_of_file  # noqa: E501
++from pycodestyle import python_3000_invalid_escape_sequence as _python_3000_invalid_escape_sequence  # noqa: E501
++from pycodestyle import tabs_obsolete as _tabs_obsolete
++from pycodestyle import tabs_or_spaces as _tabs_or_spaces
++from pycodestyle import trailing_blank_lines as _trailing_blank_lines
++from pycodestyle import trailing_whitespace as _trailing_whitespace
++from pycodestyle import whitespace_around_comma as _whitespace_around_comma
++from pycodestyle import whitespace_around_keywords as _whitespace_around_keywords  # noqa: E501
++from pycodestyle import whitespace_around_named_parameter_equals as _whitespace_around_named_parameter_equals  # noqa: E501
++from pycodestyle import whitespace_around_operator as _whitespace_around_operator  # noqa: E501
++from pycodestyle import whitespace_before_comment as _whitespace_before_comment
++from pycodestyle import whitespace_before_parameters as _whitespace_before_parameters  # noqa: E501
++
++
++def pycodestyle_logical(
++    blank_before: Any,
++    blank_lines: Any,
++    checker_state: Any,
++    hang_closing: Any,
++    indent_char: Any,
++    indent_level: Any,
++    indent_size: Any,
++    line_number: Any,
++    lines: Any,
++    logical_line: Any,
++    max_doc_length: Any,
++    noqa: Any,
++    previous_indent_level: Any,
++    previous_logical: Any,
++    previous_unindented_logical_line: Any,
++    tokens: Any,
++    verbose: Any,
++) -> Generator[tuple[int, str]]:
++    """Run pycodestyle logical checks."""
++    yield from _ambiguous_identifier(logical_line, tokens)
++    yield from _bare_except(logical_line, noqa)
++    yield from _blank_lines(logical_line, blank_lines, indent_level, line_number, blank_before, previous_logical, previous_unindented_logical_line, previous_indent_level, lines)  # noqa: E501
++    yield from _break_after_binary_operator(logical_line, tokens)
++    yield from _break_before_binary_operator(logical_line, tokens)
++    yield from _comparison_negative(logical_line)
++    yield from _comparison_to_singleton(logical_line, noqa)
++    yield from _comparison_type(logical_line, noqa)
++    yield from _compound_statements(logical_line)
++    yield from _continued_indentation(logical_line, tokens, indent_level, hang_closing, indent_char, indent_size, noqa, verbose)  # noqa: E501
++    yield from _explicit_line_join(logical_line, tokens)
++    yield from _extraneous_whitespace(logical_line)
++    yield from _imports_on_separate_lines(logical_line)
++    yield from _indentation(logical_line, previous_logical, indent_char, indent_level, previous_indent_level, indent_size)  # noqa: E501
++    yield from _maximum_doc_length(logical_line, max_doc_length, noqa, tokens)
++    yield from _missing_whitespace(logical_line, tokens)
++    yield from _missing_whitespace_after_keyword(logical_line, tokens)
++    yield from _module_imports_on_top_of_file(logical_line, indent_level, checker_state, noqa)  # noqa: E501
++    yield from _python_3000_invalid_escape_sequence(logical_line, tokens, noqa)
++    yield from _whitespace_around_comma(logical_line)
++    yield from _whitespace_around_keywords(logical_line)
++    yield from _whitespace_around_named_parameter_equals(logical_line, tokens)
++    yield from _whitespace_around_operator(logical_line)
++    yield from _whitespace_before_comment(logical_line, tokens)
++    yield from _whitespace_before_parameters(logical_line, tokens)
++
++
++def pycodestyle_physical(
++    indent_char: Any,
++    line_number: Any,
++    lines: Any,
++    max_line_length: Any,
++    multiline: Any,
++    noqa: Any,
++    physical_line: Any,
++    total_lines: Any,
++) -> Generator[tuple[int, str]]:
++    """Run pycodestyle physical checks."""
++    ret = _maximum_line_length(physical_line, max_line_length, multiline, line_number, noqa)  # noqa: E501
++    if ret is not None:
++        yield ret
++    ret = _tabs_obsolete(physical_line)
++    if ret is not None:
++        yield ret
++    ret = _tabs_or_spaces(physical_line, indent_char)
++    if ret is not None:
++        yield ret
++    ret = _trailing_blank_lines(physical_line, lines, line_number, total_lines)
++    if ret is not None:
++        yield ret
++    ret = _trailing_whitespace(physical_line)
++    if ret is not None:
++        yield ret
+diff --git a/flake8/plugins/pyflakes.py b/flake8/plugins/pyflakes.py
+new file mode 100644
+index 0000000..9b4fa6a
+--- /dev/null
++++ b/flake8/plugins/pyflakes.py
+@@ -0,0 +1,120 @@
++"""Plugin built-in to Flake8 to treat pyflakes as a plugin."""
++from __future__ import annotations
++
++import argparse
++import ast
++import logging
++from collections.abc import Generator
++from typing import Any
++
++import pyflakes.checker
++
++from flake8.options.manager import OptionManager
++
++LOG = logging.getLogger(__name__)
++
++FLAKE8_PYFLAKES_CODES = {
++    "UnusedImport": "F401",
++    "ImportShadowedByLoopVar": "F402",
++    "ImportStarUsed": "F403",
++    "LateFutureImport": "F404",
++    "ImportStarUsage": "F405",
++    "ImportStarNotPermitted": "F406",
++    "FutureFeatureNotDefined": "F407",
++    "PercentFormatInvalidFormat": "F501",
++    "PercentFormatExpectedMapping": "F502",
++    "PercentFormatExpectedSequence": "F503",
++    "PercentFormatExtraNamedArguments": "F504",
++    "PercentFormatMissingArgument": "F505",
++    "PercentFormatMixedPositionalAndNamed": "F506",
++    "PercentFormatPositionalCountMismatch": "F507",
++    "PercentFormatStarRequiresSequence": "F508",
++    "PercentFormatUnsupportedFormatCharacter": "F509",
++    "StringDotFormatInvalidFormat": "F521",
++    "StringDotFormatExtraNamedArguments": "F522",
++    "StringDotFormatExtraPositionalArguments": "F523",
++    "StringDotFormatMissingArgument": "F524",
++    "StringDotFormatMixingAutomatic": "F525",
++    "FStringMissingPlaceholders": "F541",
++    "TStringMissingPlaceholders": "F542",
++    "MultiValueRepeatedKeyLiteral": "F601",
++    "MultiValueRepeatedKeyVariable": "F602",
++    "TooManyExpressionsInStarredAssignment": "F621",
++    "TwoStarredExpressions": "F622",
++    "AssertTuple": "F631",
++    "IsLiteral": "F632",
++    "InvalidPrintSyntax": "F633",
++    "IfTuple": "F634",
++    "BreakOutsideLoop": "F701",
++    "ContinueOutsideLoop": "F702",
++    "YieldOutsideFunction": "F704",
++    "ReturnOutsideFunction": "F706",
++    "DefaultExceptNotLast": "F707",
++    "LazyImportNotAtModuleScope": "F708",
++    "LazyImportStarNotPermitted": "F709",
++    "DoctestSyntaxError": "F721",
++    "ForwardAnnotationSyntaxError": "F722",
++    "RedefinedWhileUnused": "F811",
++    "UndefinedName": "F821",
++    "UndefinedExport": "F822",
++    "UndefinedLocal": "F823",
++    "UnusedIndirectAssignment": "F824",
++    "DuplicateArgument": "F831",
++    "UnusedVariable": "F841",
++    "UnusedAnnotation": "F842",
++    "EagerUseOfLazyImport": "F851",
++    "RaiseNotImplemented": "F901",
++}
++
++
++class FlakesChecker:
++    """Subclass the Pyflakes checker to conform with the flake8 API."""
++
++    _with_doctest = False
++    _builtins = None
++
++    def __init__(self, tree: ast.AST, filename: str) -> None:
++        """Initialize the PyFlakes plugin with an AST tree and filename."""
++        self._checker = pyflakes.checker.Checker(
++            tree,
++            filename=filename,
++            builtins=self._builtins,
++            withDoctest=self._with_doctest,
++        )
++
++    def run(self) -> Generator[tuple[int, int, str, type[Any]]]:
++        """Run the plugin."""
++        for message in self._checker.messages:
++            col = getattr(message, "col", 0)
++            yield (
++                message.lineno,
++                col,
++                "{} {}".format(
++                    FLAKE8_PYFLAKES_CODES.get(type(message).__name__, "F999"),
++                    message.message % message.message_args,
++                ),
++                message.__class__,
++            )
++
++    @classmethod
++    def add_options(cls, parser: OptionManager) -> None:
++        """Register options for PyFlakes on the Flake8 OptionManager."""
++        parser.add_option(
++            "--builtins",
++            parse_from_config=True,
++            comma_separated_list=True,
++            help="define more built-ins, comma separated",
++        )
++        parser.add_option(
++            "--doctests",
++            default=False,
++            action="store_true",
++            parse_from_config=True,
++            help="also check syntax of the doctests",
++        )
++
++    @classmethod
++    def parse_options(cls, options: argparse.Namespace) -> None:
++        """Parse option values from Flake8's OptionManager."""
++        cls._builtins = options.builtins
++        cls._with_doctest = options.doctests
+diff --git a/flake8/plugins/reporter.py b/flake8/plugins/reporter.py
+new file mode 100644
+index 0000000..a5749c0
+--- /dev/null
++++ b/flake8/plugins/reporter.py
+@@ -0,0 +1,42 @@
++"""Functions for constructing the requested report plugin."""
++from __future__ import annotations
++
++import argparse
++import logging
++
++from flake8.formatting.base import BaseFormatter
++from flake8.plugins.finder import LoadedPlugin
++
++LOG = logging.getLogger(__name__)
++
++
++def make(
++    reporters: dict[str, LoadedPlugin],
++    options: argparse.Namespace,
++) -> BaseFormatter:
++    """Make the formatter from the requested user options.
++
++    - if :option:`flake8 --quiet` is specified, return the ``quiet-filename``
++      formatter.
++    - if :option:`flake8 --quiet` is specified at least twice, return the
++      ``quiet-nothing`` formatter.
++    - otherwise attempt to return the formatter by name.
++    - failing that, assume it is a format string and return the ``default``
++      formatter.
++    """
++    format_name = options.format
++    if options.quiet == 1:
++        format_name = "quiet-filename"
++    elif options.quiet >= 2:
++        format_name = "quiet-nothing"
++
++    try:
++        format_plugin = reporters[format_name]
++    except KeyError:
++        LOG.warning(
++            "%r is an unknown formatter.  Falling back to default.",
++            format_name,
++        )
++        format_plugin = reporters["default"]
++
++    return format_plugin.obj(options)
+diff --git a/flake8/processor.py b/flake8/processor.py
+new file mode 100644
+index 0000000..b1742ca
+--- /dev/null
++++ b/flake8/processor.py
+@@ -0,0 +1,454 @@
++"""Module containing our file processor that tokenizes a file for checks."""
++from __future__ import annotations
++
++import argparse
++import ast
++import functools
++import logging
++import tokenize
++from collections.abc import Generator
++from typing import Any
++
++from flake8 import defaults
++from flake8 import utils
++from flake8._compat import FSTRING_END
++from flake8._compat import FSTRING_MIDDLE
++from flake8._compat import TSTRING_END
++from flake8._compat import TSTRING_MIDDLE
++from flake8.plugins.finder import LoadedPlugin
++
++LOG = logging.getLogger(__name__)
++NEWLINE = frozenset([tokenize.NL, tokenize.NEWLINE])
++
++SKIP_TOKENS = frozenset(
++    [tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT],
++)
++
++_LogicalMapping = list[tuple[int, tuple[int, int]]]
++_Logical = tuple[list[str], list[str], _LogicalMapping]
++
++
++class FileProcessor:
++    """Processes a file and holds state.
++
++    This processes a file by generating tokens, logical and physical lines,
++    and AST trees. This also provides a way of passing state about the file
++    to checks expecting that state. Any public attribute on this object can
++    be requested by a plugin. The known public attributes are:
++
++    - :attr:`blank_before`
++    - :attr:`blank_lines`
++    - :attr:`checker_state`
++    - :attr:`indent_char`
++    - :attr:`indent_level`
++    - :attr:`line_number`
++    - :attr:`logical_line`
++    - :attr:`max_line_length`
++    - :attr:`max_doc_length`
++    - :attr:`multiline`
++    - :attr:`noqa`
++    - :attr:`previous_indent_level`
++    - :attr:`previous_logical`
++    - :attr:`previous_unindented_logical_line`
++    - :attr:`tokens`
++    - :attr:`file_tokens`
++    - :attr:`total_lines`
++    - :attr:`verbose`
++    """
++
++    #: always ``False``, included for compatibility
++    noqa = False
++
++    def __init__(
++        self,
++        filename: str,
++        options: argparse.Namespace,
++        lines: list[str] | None = None,
++    ) -> None:
++        """Initialize our file processor.
++
++        :param filename: Name of the file to process
++        """
++        self.options = options
++        self.filename = filename
++        self.lines = lines if lines is not None else self.read_lines()
++        self.strip_utf_bom()
++
++        # Defaults for public attributes
++        #: Number of preceding blank lines
++        self.blank_before = 0
++        #: Number of blank lines
++        self.blank_lines = 0
++        #: Checker states for each plugin?
++        self._checker_states: dict[str, dict[Any, Any]] = {}
++        #: Current checker state
++        self.checker_state: dict[Any, Any] = {}
++        #: User provided option for hang closing
++        self.hang_closing = options.hang_closing
++        #: Character used for indentation
++        self.indent_char: str | None = None
++        #: Current level of indentation
++        self.indent_level = 0
++        #: Number of spaces used for indentation
++        self.indent_size = options.indent_size
++        #: Line number in the file
++        self.line_number = 0
++        #: Current logical line
++        self.logical_line = ""
++        #: Maximum line length as configured by the user
++        self.max_line_length = options.max_line_length
++        #: Maximum docstring / comment line length as configured by the user
++        self.max_doc_length = options.max_doc_length
++        #: Whether the current physical line is multiline
++        self.multiline = False
++        #: Previous level of indentation
++        self.previous_indent_level = 0
++        #: Previous logical line
++        self.previous_logical = ""
++        #: Previous unindented (i.e. top-level) logical line
++        self.previous_unindented_logical_line = ""
++        #: Current set of tokens
++        self.tokens: list[tokenize.TokenInfo] = []
++        #: Total number of lines in the file
++        self.total_lines = len(self.lines)
++        #: Verbosity level of Flake8
++        self.verbose = options.verbose
++        #: Statistics dictionary
++        self.statistics = {"logical lines": 0}
++        self._fstring_start = self._tstring_start = -1
++
++    @functools.cached_property
++    def file_tokens(self) -> list[tokenize.TokenInfo]:
++        """Return the complete set of tokens for a file."""
++        line_iter = iter(self.lines)
++        return list(tokenize.generate_tokens(lambda: next(line_iter)))
++
++    def fstring_start(self, lineno: int) -> None:  # pragma: >=3.12 cover
++        """Signal the beginning of an fstring."""
++        self._fstring_start = lineno
++
++    def tstring_start(self, lineno: int) -> None:  # pragma: >=3.14 cover
++        """Signal the beginning of an tstring."""
++        self._tstring_start = lineno
++
++    def multiline_string(self, token: tokenize.TokenInfo) -> Generator[str]:
++        """Iterate through the lines of a multiline string."""
++        if token.type == FSTRING_END:  # pragma: >=3.12 cover
++            start = self._fstring_start
++        elif token.type == TSTRING_END:  # pragma: >=3.14 cover
++            start = self._tstring_start
++        else:
++            start = token.start[0]
++
++        self.multiline = True
++        self.line_number = start
++        # intentionally don't include the last line, that line will be
++        # terminated later by a future end-of-line
++        for _ in range(start, token.end[0]):
++            yield self.lines[self.line_number - 1]
++            self.line_number += 1
++        self.multiline = False
++
++    def reset_blank_before(self) -> None:
++        """Reset the blank_before attribute to zero."""
++        self.blank_before = 0
++
++    def delete_first_token(self) -> None:
++        """Delete the first token in the list of tokens."""
++        del self.tokens[0]
++
++    def visited_new_blank_line(self) -> None:
++        """Note that we visited a new blank line."""
++        self.blank_lines += 1
++
++    def update_state(self, mapping: _LogicalMapping) -> None:
++        """Update the indent level based on the logical line mapping."""
++        (start_row, start_col) = mapping[0][1]
++        start_line = self.lines[start_row - 1]
++        self.indent_level = expand_indent(start_line[:start_col])
++        if self.blank_before < self.blank_lines:
++            self.blank_before = self.blank_lines
++
++    def update_checker_state_for(self, plugin: LoadedPlugin) -> None:
++        """Update the checker_state attribute for the plugin."""
++        if "checker_state" in plugin.parameters:
++            self.checker_state = self._checker_states.setdefault(
++                plugin.entry_name, {},
++            )
++
++    def next_logical_line(self) -> None:
++        """Record the previous logical line.
++
++        This also resets the tokens list and the blank_lines count.
++        """
++        if self.logical_line:
++            self.previous_indent_level = self.indent_level
++            self.previous_logical = self.logical_line
++            if not self.indent_level:
++                self.previous_unindented_logical_line = self.logical_line
++        self.blank_lines = 0
++        self.tokens = []
++
++    def build_logical_line_tokens(self) -> _Logical:  # noqa: C901
++        """Build the mapping, comments, and logical line lists."""
++        logical = []
++        comments = []
++        mapping: _LogicalMapping = []
++        length = 0
++        previous_row = previous_column = None
++        for token_type, text, start, end, line in self.tokens:
++            if token_type in SKIP_TOKENS:
++                continue
++            if not mapping:
++                mapping = [(0, start)]
++            if token_type == tokenize.COMMENT:
++                comments.append(text)
++                continue
++            if token_type == tokenize.STRING:
++                text = mutate_string(text)
++            elif token_type in {
++                FSTRING_MIDDLE,
++                TSTRING_MIDDLE,
++            }:  # pragma: >=3.12 cover  # noqa: E501
++                # A curly brace in an FSTRING_MIDDLE token must be an escaped
++                # curly brace. Both 'text' and 'end' will account for the
++                # escaped version of the token (i.e. a single brace) rather
++                # than the raw double brace version, so we must counteract this
++                brace_offset = text.count("{") + text.count("}")
++                text = "x" * (len(text) + brace_offset)
++                end = (end[0], end[1] + brace_offset)
++            if previous_row is not None and previous_column is not None:
++                (start_row, start_column) = start
++                if previous_row != start_row:
++                    row_index = previous_row - 1
++                    column_index = previous_column - 1
++                    previous_text = self.lines[row_index][column_index]
++                    if previous_text == "," or (
++                        previous_text not in "{[(" and text not in "}])"
++                    ):
++                        text = f" {text}"
++                elif previous_column != start_column:
++                    text = line[previous_column:start_column] + text
++            logical.append(text)
++            length += len(text)
++            mapping.append((length, end))
++            (previous_row, previous_column) = end
++        return comments, logical, mapping
++
++    def build_ast(self) -> ast.AST:
++        """Build an abstract syntax tree from the list of lines."""
++        return ast.parse("".join(self.lines))
++
++    def build_logical_line(self) -> tuple[str, str, _LogicalMapping]:
++        """Build a logical line from the current tokens list."""
++        comments, logical, mapping_list = self.build_logical_line_tokens()
++        joined_comments = "".join(comments)
++        self.logical_line = "".join(logical)
++        self.statistics["logical lines"] += 1
++        return joined_comments, self.logical_line, mapping_list
++
++    def keyword_arguments_for(
++        self,
++        parameters: dict[str, bool],
++        arguments: dict[str, Any],
++    ) -> dict[str, Any]:
++        """Generate the keyword arguments for a list of parameters."""
++        ret = {}
++        for param, required in parameters.items():
++            if param in arguments:
++                continue
++            try:
++                ret[param] = getattr(self, param)
++            except AttributeError:
++                if required:
++                    raise
++                else:
++                    LOG.warning(
++                        'Plugin requested optional parameter "%s" '
++                        "but this is not an available parameter.",
++                        param,
++                    )
++        return ret
++
++    def generate_tokens(self) -> Generator[tokenize.TokenInfo]:
++        """Tokenize the file and yield the tokens."""
++        for token in tokenize.generate_tokens(self.next_line):
++            if token[2][0] > self.total_lines:
++                break
++            self.tokens.append(token)
++            yield token
++
++    def _noqa_line_range(self, min_line: int, max_line: int) -> dict[int, str]:
++        line_range = range(min_line, max_line + 1)
++        joined = "".join(self.lines[min_line - 1: max_line])
++        return dict.fromkeys(line_range, joined)
++
++    @functools.cached_property
++    def _noqa_line_mapping(self) -> dict[int, str]:
++        """Map from line number to the line we'll search for `noqa` in."""
++        try:
++            file_tokens = self.file_tokens
++        except (tokenize.TokenError, SyntaxError):
++            # if we failed to parse the file tokens, we'll always fail in
++            # the future, so set this so the code does not try again
++            return {}
++        else:
++            ret = {}
++
++            min_line = len(self.lines) + 2
++            max_line = -1
++            for tp, _, (s_line, _), (e_line, _), _ in file_tokens:
++                if tp == tokenize.ENDMARKER or tp == tokenize.DEDENT:
++                    continue
++
++                min_line = min(min_line, s_line)
++                max_line = max(max_line, e_line)
++
++                if tp in (tokenize.NL, tokenize.NEWLINE):
++                    ret.update(self._noqa_line_range(min_line, max_line))
++
++                    min_line = len(self.lines) + 2
++                    max_line = -1
++
++            return ret
++
++    def noqa_line_for(self, line_number: int) -> str | None:
++        """Retrieve the line which will be used to determine noqa."""
++        # NOTE(sigmavirus24): Some plugins choose to report errors for empty
++        # files on Line 1. In those cases, we shouldn't bother trying to
++        # retrieve a physical line (since none exist).
++        return self._noqa_line_mapping.get(line_number)
++
++    def next_line(self) -> str:
++        """Get the next line from the list."""
++        if self.line_number >= self.total_lines:
++            return ""
++        line = self.lines[self.line_number]
++        self.line_number += 1
++        if self.indent_char is None and line[:1] in defaults.WHITESPACE:
++            self.indent_char = line[0]
++        return line
++
++    def read_lines(self) -> list[str]:
++        """Read the lines for this file checker."""
++        if self.filename == "-":
++            self.filename = self.options.stdin_display_name or "stdin"
++            lines = self.read_lines_from_stdin()
++        else:
++            lines = self.read_lines_from_filename()
++        return lines
++
++    def read_lines_from_filename(self) -> list[str]:
++        """Read the lines for a file."""
++        try:
++            with tokenize.open(self.filename) as fd:
++                return fd.readlines()
++        except (SyntaxError, UnicodeError):
++            # If we can't detect the codec with tokenize.detect_encoding, or
++            # the detected encoding is incorrect, just fallback to latin-1.
++            with open(self.filename, encoding="latin-1") as fd:
++                return fd.readlines()
++
++    def read_lines_from_stdin(self) -> list[str]:
++        """Read the lines from standard in."""
++        return utils.stdin_get_lines()
++
++    def should_ignore_file(self) -> bool:
++        """Check if ``flake8: noqa`` is in the file to be ignored.
++
++        :returns:
++            True if a line matches :attr:`defaults.NOQA_FILE`,
++            otherwise False
++        """
++        if not self.options.disable_noqa and any(
++            defaults.NOQA_FILE.match(line) for line in self.lines
++        ):
++            return True
++        elif any(defaults.NOQA_FILE.search(line) for line in self.lines):
++            LOG.warning(
++                "Detected `flake8: noqa` on line with code. To ignore an "
++                "error on a line use `noqa` instead.",
++            )
++            return False
++        else:
++            return False
++
++    def strip_utf_bom(self) -> None:
++        """Strip the UTF bom from the lines of the file."""
++        if not self.lines:
++            # If we have nothing to analyze quit early
++            return
++
++        # If the first byte of the file is a UTF-8 BOM, strip it
++        if self.lines[0][:1] == "\uFEFF":
++            self.lines[0] = self.lines[0][1:]
++        elif self.lines[0][:3] == "\xEF\xBB\xBF":
++            self.lines[0] = self.lines[0][3:]
++
++
++def is_eol_token(token: tokenize.TokenInfo) -> bool:
++    """Check if the token is an end-of-line token."""
++    return token[0] in NEWLINE or token[4][token[3][1]:].lstrip() == "\\\n"
++
++
++def is_multiline_string(token: tokenize.TokenInfo) -> bool:
++    """Check if this is a multiline string."""
++    return token.type in {FSTRING_END, TSTRING_END} or (
++        token.type == tokenize.STRING and "\n" in token.string
++    )
++
++
++def token_is_newline(token: tokenize.TokenInfo) -> bool:
++    """Check if the token type is a newline token type."""
++    return token[0] in NEWLINE
++
++
++def count_parentheses(current_parentheses_count: int, token_text: str) -> int:
++    """Count the number of parentheses."""
++    if token_text in "([{":  # nosec
++        return current_parentheses_count + 1
++    elif token_text in "}])":  # nosec
++        return current_parentheses_count - 1
++    return current_parentheses_count
++
++
++def expand_indent(line: str) -> int:
++    r"""Return the amount of indentation.
++
++    Tabs are expanded to the next multiple of 8.
++
++    >>> expand_indent('    ')
++    4
++    >>> expand_indent('\t')
++    8
++    >>> expand_indent('       \t')
++    8
++    >>> expand_indent('        \t')
++    16
++    """
++    return len(line.expandtabs(8))
++
++
++# NOTE(sigmavirus24): This was taken wholesale from
++# https://github.com/PyCQA/pycodestyle. The in-line comments were edited to be
++# more descriptive.
++def mutate_string(text: str) -> str:
++    """Replace contents with 'xxx' to prevent syntax matching.
++
++    >>> mutate_string('"abc"')
++    '"xxx"'
++    >>> mutate_string("'''abc'''")
++    "'''xxx'''"
++    >>> mutate_string("r'abc'")
++    "r'xxx'"
++    """
++    # NOTE(sigmavirus24): If there are string modifiers (e.g., b, u, r)
++    # use the last "character" to determine if we're using single or double
++    # quotes and then find the first instance of it
++    start = text.index(text[-1]) + 1
++    end = len(text) - 1
++    # Check for triple-quoted strings
++    if text[-3:] in ('"""', "'''"):
++        start += 2
++        end -= 2
++    return text[:start] + "x" * (end - start) + text[end:]
+diff --git a/flake8/statistics.py b/flake8/statistics.py
+new file mode 100644
+index 0000000..b30e4c7
+--- /dev/null
++++ b/flake8/statistics.py
+@@ -0,0 +1,131 @@
++"""Statistic collection logic for Flake8."""
++from __future__ import annotations
++
++from collections.abc import Generator
++from typing import NamedTuple
++
++from flake8.violation import Violation
++
++
++class Statistics:
++    """Manager of aggregated statistics for a run of Flake8."""
++
++    def __init__(self) -> None:
++        """Initialize the underlying dictionary for our statistics."""
++        self._store: dict[Key, Statistic] = {}
++
++    def error_codes(self) -> list[str]:
++        """Return all unique error codes stored.
++
++        :returns:
++            Sorted list of error codes.
++        """
++        return sorted({key.code for key in self._store})
++
++    def record(self, error: Violation) -> None:
++        """Add the fact that the error was seen in the file.
++
++        :param error:
++            The Violation instance containing the information about the
++            violation.
++        """
++        key = Key.create_from(error)
++        if key not in self._store:
++            self._store[key] = Statistic.create_from(error)
++        self._store[key].increment()
++
++    def statistics_for(
++        self, prefix: str, filename: str | None = None,
++    ) -> Generator[Statistic]:
++        """Generate statistics for the prefix and filename.
++
++        If you have a :class:`Statistics` object that has recorded errors,
++        you can generate the statistics for a prefix (e.g., ``E``, ``E1``,
++        ``W50``, ``W503``) with the optional filter of a filename as well.
++
++        .. code-block:: python
++
++            >>> stats = Statistics()
++            >>> stats.statistics_for('E12',
++                                     filename='src/flake8/statistics.py')
++            <generator ...>
++            >>> stats.statistics_for('W')
++            <generator ...>
++
++        :param prefix:
++            The error class or specific error code to find statistics for.
++        :param filename:
++            (Optional) The filename to further filter results by.
++        :returns:
++            Generator of instances of :class:`Statistic`
++        """
++        matching_errors = sorted(
++            key for key in self._store if key.matches(prefix, filename)
++        )
++        for error_code in matching_errors:
++            yield self._store[error_code]
++
++
++class Key(NamedTuple):
++    """Simple key structure for the Statistics dictionary.
++
++    To make things clearer, easier to read, and more understandable, we use a
++    namedtuple here for all Keys in the underlying dictionary for the
++    Statistics object.
++    """
++
++    filename: str
++    code: str
++
++    @classmethod
++    def create_from(cls, error: Violation) -> Key:
++        """Create a Key from :class:`flake8.violation.Violation`."""
++        return cls(filename=error.filename, code=error.code)
++
++    def matches(self, prefix: str, filename: str | None) -> bool:
++        """Determine if this key matches some constraints.
++
++        :param prefix:
++            The error code prefix that this key's error code should start with.
++        :param filename:
++            The filename that we potentially want to match on. This can be
++            None to only match on error prefix.
++        :returns:
++            True if the Key's code starts with the prefix and either filename
++            is None, or the Key's filename matches the value passed in.
++        """
++        return self.code.startswith(prefix) and (
++            filename is None or self.filename == filename
++        )
++
++
++class Statistic:
++    """Simple wrapper around the logic of each statistic.
++
++    Instead of maintaining a simple but potentially hard to reason about
++    tuple, we create a class which has attributes and a couple
++    convenience methods on it.
++    """
++
++    def __init__(
++        self, error_code: str, filename: str, message: str, count: int,
++    ) -> None:
++        """Initialize our Statistic."""
++        self.error_code = error_code
++        self.filename = filename
++        self.message = message
++        self.count = count
++
++    @classmethod
++    def create_from(cls, error: Violation) -> Statistic:
++        """Create a Statistic from a :class:`flake8.violation.Violation`."""
++        return cls(
++            error_code=error.code,
++            filename=error.filename,
++            message=error.text,
++            count=0,
++        )
++
++    def increment(self) -> None:
++        """Increment the number of times we've seen this error in this file."""
++        self.count += 1
+diff --git a/flake8/style_guide.py b/flake8/style_guide.py
+new file mode 100644
+index 0000000..d675df7
+--- /dev/null
++++ b/flake8/style_guide.py
+@@ -0,0 +1,425 @@
++"""Implementation of the StyleGuide used by Flake8."""
++from __future__ import annotations
++
++import argparse
++import contextlib
++import copy
++import enum
++import functools
++import logging
++from collections.abc import Generator
++from collections.abc import Sequence
++
++from flake8 import defaults
++from flake8 import statistics
++from flake8 import utils
++from flake8.formatting import base as base_formatter
++from flake8.violation import Violation
++
++__all__ = ("StyleGuide",)
++
++LOG = logging.getLogger(__name__)
++
++
++class Selected(enum.Enum):
++    """Enum representing an explicitly or implicitly selected code."""
++
++    Explicitly = "explicitly selected"
++    Implicitly = "implicitly selected"
++
++
++class Ignored(enum.Enum):
++    """Enum representing an explicitly or implicitly ignored code."""
++
++    Explicitly = "explicitly ignored"
++    Implicitly = "implicitly ignored"
++
++
++class Decision(enum.Enum):
++    """Enum representing whether a code should be ignored or selected."""
++
++    Ignored = "ignored error"
++    Selected = "selected error"
++
++
++def _explicitly_chosen(
++    *,
++    option: list[str] | None,
++    extend: list[str] | None,
++) -> tuple[str, ...]:
++    ret = [*(option or []), *(extend or [])]
++    return tuple(sorted(ret, reverse=True))
++
++
++def _select_ignore(
++    *,
++    option: list[str] | None,
++    default: tuple[str, ...],
++    extended_default: list[str],
++    extend: list[str] | None,
++) -> tuple[str, ...]:
++    # option was explicitly set, ignore the default and extended default
++    if option is not None:
++        ret = [*option, *(extend or [])]
++    else:
++        ret = [*default, *extended_default, *(extend or [])]
++    return tuple(sorted(ret, reverse=True))
++
++
++class DecisionEngine:
++    """A class for managing the decision process around violations.
++
++    This contains the logic for whether a violation should be reported or
++    ignored.
++    """
++
++    def __init__(self, options: argparse.Namespace) -> None:
++        """Initialize the engine."""
++        self.cache: dict[str, Decision] = {}
++
++        self.selected_explicitly = _explicitly_chosen(
++            option=options.select,
++            extend=options.extend_select,
++        )
++        self.ignored_explicitly = _explicitly_chosen(
++            option=options.ignore,
++            extend=options.extend_ignore,
++        )
++
++        self.selected = _select_ignore(
++            option=options.select,
++            default=(),
++            extended_default=options.extended_default_select,
++            extend=options.extend_select,
++        )
++        self.ignored = _select_ignore(
++            option=options.ignore,
++            default=defaults.IGNORE,
++            extended_default=options.extended_default_ignore,
++            extend=options.extend_ignore,
++        )
++
++    def was_selected(self, code: str) -> Selected | Ignored:
++        """Determine if the code has been selected by the user.
++
++        :param code: The code for the check that has been run.
++        :returns:
++            Selected.Implicitly if the selected list is empty,
++            Selected.Explicitly if the selected list is not empty and a match
++            was found,
++            Ignored.Implicitly if the selected list is not empty but no match
++            was found.
++        """
++        if code.startswith(self.selected_explicitly):
++            return Selected.Explicitly
++        elif code.startswith(self.selected):
++            return Selected.Implicitly
++        else:
++            return Ignored.Implicitly
++
++    def was_ignored(self, code: str) -> Selected | Ignored:
++        """Determine if the code has been ignored by the user.
++
++        :param code:
++            The code for the check that has been run.
++        :returns:
++            Selected.Implicitly if the ignored list is empty,
++            Ignored.Explicitly if the ignored list is not empty and a match was
++            found,
++            Selected.Implicitly if the ignored list is not empty but no match
++            was found.
++        """
++        if code.startswith(self.ignored_explicitly):
++            return Ignored.Explicitly
++        elif code.startswith(self.ignored):
++            return Ignored.Implicitly
++        else:
++            return Selected.Implicitly
++
++    def make_decision(self, code: str) -> Decision:
++        """Decide if code should be ignored or selected."""
++        selected = self.was_selected(code)
++        ignored = self.was_ignored(code)
++        LOG.debug(
++            "The user configured %r to be %r, %r",
++            code,
++            selected,
++            ignored,
++        )
++
++        if isinstance(selected, Selected) and isinstance(ignored, Selected):
++            return Decision.Selected
++        elif isinstance(selected, Ignored) and isinstance(ignored, Ignored):
++            return Decision.Ignored
++        elif (
++            selected is Selected.Explicitly
++            and ignored is not Ignored.Explicitly
++        ):
++            return Decision.Selected
++        elif (
++            selected is not Selected.Explicitly
++            and ignored is Ignored.Explicitly
++        ):
++            return Decision.Ignored
++        elif selected is Ignored.Implicitly and ignored is Selected.Implicitly:
++            return Decision.Ignored
++        elif (
++            selected is Selected.Explicitly and ignored is Ignored.Explicitly
++        ) or (
++            selected is Selected.Implicitly and ignored is Ignored.Implicitly
++        ):
++            # we only get here if it was in both lists: longest prefix wins
++            select = next(s for s in self.selected if code.startswith(s))
++            ignore = next(s for s in self.ignored if code.startswith(s))
++            if len(select) > len(ignore):
++                return Decision.Selected
++            else:
++                return Decision.Ignored
++        else:
++            raise AssertionError(f"unreachable {code} {selected} {ignored}")
++
++    def decision_for(self, code: str) -> Decision:
++        """Return the decision for a specific code.
++
++        This method caches the decisions for codes to avoid retracing the same
++        logic over and over again. We only care about the select and ignore
++        rules as specified by the user in their configuration files and
++        command-line flags.
++
++        This method does not look at whether the specific line is being
++        ignored in the file itself.
++
++        :param code: The code for the check that has been run.
++        """
++        decision = self.cache.get(code)
++        if decision is None:
++            decision = self.make_decision(code)
++            self.cache[code] = decision
++            LOG.debug('"%s" will be "%s"', code, decision)
++        return decision
++
++
++class StyleGuideManager:
++    """Manage multiple style guides for a single run."""
++
++    def __init__(
++        self,
++        options: argparse.Namespace,
++        formatter: base_formatter.BaseFormatter,
++        decider: DecisionEngine | None = None,
++    ) -> None:
++        """Initialize our StyleGuide.
++
++        .. todo:: Add parameter documentation.
++        """
++        self.options = options
++        self.formatter = formatter
++        self.stats = statistics.Statistics()
++        self.decider = decider or DecisionEngine(options)
++        self.style_guides: list[StyleGuide] = []
++        self.default_style_guide = StyleGuide(
++            options, formatter, self.stats, decider=decider,
++        )
++        self.style_guides = [
++            self.default_style_guide,
++            *self.populate_style_guides_with(options),
++        ]
++
++        self.style_guide_for = functools.cache(self._style_guide_for)
++
++    def populate_style_guides_with(
++        self, options: argparse.Namespace,
++    ) -> Generator[StyleGuide]:
++        """Generate style guides from the per-file-ignores option.
++
++        :param options:
++            The original options parsed from the CLI and config file.
++        :returns:
++            A copy of the default style guide with overridden values.
++        """
++        per_file = utils.parse_files_to_codes_mapping(options.per_file_ignores)
++        for filename, violations in per_file:
++            yield self.default_style_guide.copy(
++                filename=filename, extend_ignore_with=violations,
++            )
++
++    def _style_guide_for(self, filename: str) -> StyleGuide:
++        """Find the StyleGuide for the filename in particular."""
++        return max(
++            (g for g in self.style_guides if g.applies_to(filename)),
++            key=lambda g: len(g.filename or ""),
++        )
++
++    @contextlib.contextmanager
++    def processing_file(self, filename: str) -> Generator[StyleGuide]:
++        """Record the fact that we're processing the file's results."""
++        guide = self.style_guide_for(filename)
++        with guide.processing_file(filename):
++            yield guide
++
++    def handle_error(
++        self,
++        code: str,
++        filename: str,
++        line_number: int,
++        column_number: int,
++        text: str,
++        physical_line: str | None = None,
++    ) -> int:
++        """Handle an error reported by a check.
++
++        :param code:
++            The error code found, e.g., E123.
++        :param filename:
++            The file in which the error was found.
++        :param line_number:
++            The line number (where counting starts at 1) at which the error
++            occurs.
++        :param column_number:
++            The column number (where counting starts at 1) at which the error
++            occurs.
++        :param text:
++            The text of the error message.
++        :param physical_line:
++            The actual physical line causing the error.
++        :returns:
++            1 if the error was reported. 0 if it was ignored. This is to allow
++            for counting of the number of errors found that were not ignored.
++        """
++        guide = self.style_guide_for(filename)
++        return guide.handle_error(
++            code, filename, line_number, column_number, text, physical_line,
++        )
++
++
++class StyleGuide:
++    """Manage a Flake8 user's style guide."""
++
++    def __init__(
++        self,
++        options: argparse.Namespace,
++        formatter: base_formatter.BaseFormatter,
++        stats: statistics.Statistics,
++        filename: str | None = None,
++        decider: DecisionEngine | None = None,
++    ):
++        """Initialize our StyleGuide.
++
++        .. todo:: Add parameter documentation.
++        """
++        self.options = options
++        self.formatter = formatter
++        self.stats = stats
++        self.decider = decider or DecisionEngine(options)
++        self.filename = filename
++        if self.filename:
++            self.filename = utils.normalize_path(self.filename)
++
++    def __repr__(self) -> str:
++        """Make it easier to debug which StyleGuide we're using."""
++        return f"<StyleGuide [{self.filename}]>"
++
++    def copy(
++        self,
++        filename: str | None = None,
++        extend_ignore_with: Sequence[str] | None = None,
++    ) -> StyleGuide:
++        """Create a copy of this style guide with different values."""
++        filename = filename or self.filename
++        options = copy.deepcopy(self.options)
++        options.extend_ignore = options.extend_ignore or []
++        options.extend_ignore.extend(extend_ignore_with or [])
++        return StyleGuide(
++            options, self.formatter, self.stats, filename=filename,
++        )
++
++    @contextlib.contextmanager
++    def processing_file(self, filename: str) -> Generator[StyleGuide]:
++        """Record the fact that we're processing the file's results."""
++        self.formatter.beginning(filename)
++        yield self
++        self.formatter.finished(filename)
++
++    def applies_to(self, filename: str) -> bool:
++        """Check if this StyleGuide applies to the file.
++
++        :param filename:
++            The name of the file with violations that we're potentially
++            applying this StyleGuide to.
++        :returns:
++            True if this applies, False otherwise
++        """
++        if self.filename is None:
++            return True
++        return utils.matches_filename(
++            filename,
++            patterns=[self.filename],
++            log_message=f'{self!r} does %(whether)smatch "%(path)s"',
++            logger=LOG,
++        )
++
++    def should_report_error(self, code: str) -> Decision:
++        """Determine if the error code should be reported or ignored.
++
++        This method only cares about the select and ignore rules as specified
++        by the user in their configuration files and command-line flags.
++
++        This method does not look at whether the specific line is being
++        ignored in the file itself.
++
++        :param code:
++            The code for the check that has been run.
++        """
++        return self.decider.decision_for(code)
++
++    def handle_error(
++        self,
++        code: str,
++        filename: str,
++        line_number: int,
++        column_number: int,
++        text: str,
++        physical_line: str | None = None,
++    ) -> int:
++        """Handle an error reported by a check.
++
++        :param code:
++            The error code found, e.g., E123.
++        :param filename:
++            The file in which the error was found.
++        :param line_number:
++            The line number (where counting starts at 1) at which the error
++            occurs.
++        :param column_number:
++            The column number (where counting starts at 1) at which the error
++            occurs.
++        :param text:
++            The text of the error message.
++        :param physical_line:
++            The actual physical line causing the error.
++        :returns:
++            1 if the error was reported. 0 if it was ignored. This is to allow
++            for counting of the number of errors found that were not ignored.
++        """
++        disable_noqa = self.options.disable_noqa
++        # NOTE(sigmavirus24): Apparently we're provided with 0-indexed column
++        # numbers so we have to offset that here.
++        if not column_number:
++            column_number = 0
++        error = Violation(
++            code,
++            filename,
++            line_number,
++            column_number + 1,
++            text,
++            physical_line,
++        )
++        error_is_selected = (
++            self.should_report_error(error.code) is Decision.Selected
++        )
++        is_not_inline_ignored = error.is_inline_ignored(disable_noqa) is False
++        if error_is_selected and is_not_inline_ignored:
++            self.formatter.handle(error)
++            self.stats.record(error)
++            return 1
++        return 0
+diff --git a/flake8/utils.py b/flake8/utils.py
+new file mode 100644
+index 0000000..e5c086e
+--- /dev/null
++++ b/flake8/utils.py
+@@ -0,0 +1,280 @@
++"""Utility methods for flake8."""
++from __future__ import annotations
++
++import fnmatch as _fnmatch
++import functools
++import io
++import logging
++import os
++import platform
++import re
++import sys
++import textwrap
++import tokenize
++from collections.abc import Sequence
++from re import Pattern
++from typing import NamedTuple
++
++from flake8 import exceptions
++
++COMMA_SEPARATED_LIST_RE = re.compile(r"[,\s]")
++LOCAL_PLUGIN_LIST_RE = re.compile(r"[,\t\n\r\f\v]")
++NORMALIZE_PACKAGE_NAME_RE = re.compile(r"[-_.]+")
++
++
++def parse_comma_separated_list(
++    value: str, regexp: Pattern[str] = COMMA_SEPARATED_LIST_RE,
++) -> list[str]:
++    """Parse a comma-separated list.
++
++    :param value:
++        String to be parsed and normalized.
++    :param regexp:
++        Compiled regular expression used to split the value when it is a
++        string.
++    :returns:
++        List of values with whitespace stripped.
++    """
++    assert isinstance(value, str), value
++
++    separated = regexp.split(value)
++    item_gen = (item.strip() for item in separated)
++    return [item for item in item_gen if item]
++
++
++class _Token(NamedTuple):
++    tp: str
++    src: str
++
++
++_CODE, _FILE, _COLON, _COMMA, _WS = "code", "file", "colon", "comma", "ws"
++_EOF = "eof"
++_FILE_LIST_TOKEN_TYPES = [
++    (re.compile(r"[A-Z]+[0-9]*(?=$|\s|,)"), _CODE),
++    (re.compile(r"[^\s:,]+"), _FILE),
++    (re.compile(r"\s*:\s*"), _COLON),
++    (re.compile(r"\s*,\s*"), _COMMA),
++    (re.compile(r"\s+"), _WS),
++]
++
++
++def _tokenize_files_to_codes_mapping(value: str) -> list[_Token]:
++    tokens = []
++    i = 0
++    while i < len(value):
++        for token_re, token_name in _FILE_LIST_TOKEN_TYPES:
++            match = token_re.match(value, i)
++            if match:
++                tokens.append(_Token(token_name, match.group().strip()))
++                i = match.end()
++                break
++        else:
++            raise AssertionError("unreachable", value, i)
++    tokens.append(_Token(_EOF, ""))
++
++    return tokens
++
++
++def parse_files_to_codes_mapping(  # noqa: C901
++    value_: Sequence[str] | str,
++) -> list[tuple[str, list[str]]]:
++    """Parse a files-to-codes mapping.
++
++    A files-to-codes mapping a sequence of values specified as
++    `filenames list:codes list ...`.  Each of the lists may be separated by
++    either comma or whitespace tokens.
++
++    :param value: String to be parsed and normalized.
++    """
++    if not isinstance(value_, str):
++        value = "\n".join(value_)
++    else:
++        value = value_
++
++    ret: list[tuple[str, list[str]]] = []
++    if not value.strip():
++        return ret
++
++    class State:
++        seen_sep = True
++        seen_colon = False
++        filenames: list[str] = []
++        codes: list[str] = []
++
++    def _reset() -> None:
++        if State.codes:
++            for filename in State.filenames:
++                ret.append((filename, State.codes))
++        State.seen_sep = True
++        State.seen_colon = False
++        State.filenames = []
++        State.codes = []
++
++    def _unexpected_token() -> exceptions.ExecutionError:
++        return exceptions.ExecutionError(
++            f"Expected `per-file-ignores` to be a mapping from file exclude "
++            f"patterns to ignore codes.\n\n"
++            f"Configured `per-file-ignores` setting:\n\n"
++            f"{textwrap.indent(value.strip(), '    ')}",
++        )
++
++    for token in _tokenize_files_to_codes_mapping(value):
++        # legal in any state: separator sets the sep bit
++        if token.tp in {_COMMA, _WS}:
++            State.seen_sep = True
++        # looking for filenames
++        elif not State.seen_colon:
++            if token.tp == _COLON:
++                State.seen_colon = True
++                State.seen_sep = True
++            elif State.seen_sep and token.tp == _FILE:
++                State.filenames.append(token.src)
++                State.seen_sep = False
++            else:
++                raise _unexpected_token()
++        # looking for codes
++        else:
++            if token.tp == _EOF:
++                _reset()
++            elif State.seen_sep and token.tp == _CODE:
++                State.codes.append(token.src)
++                State.seen_sep = False
++            elif State.seen_sep and token.tp == _FILE:
++                _reset()
++                State.filenames.append(token.src)
++                State.seen_sep = False
++            else:
++                raise _unexpected_token()
++
++    return ret
++
++
++def normalize_paths(
++    paths: Sequence[str], parent: str = os.curdir,
++) -> list[str]:
++    """Normalize a list of paths relative to a parent directory.
++
++    :returns:
++        The normalized paths.
++    """
++    assert isinstance(paths, list), paths
++    return [normalize_path(p, parent) for p in paths]
++
++
++def normalize_path(path: str, parent: str = os.curdir) -> str:
++    """Normalize a single-path.
++
++    :returns:
++        The normalized path.
++    """
++    # NOTE(sigmavirus24): Using os.path.sep and os.path.altsep allow for
++    # Windows compatibility with both Windows-style paths (c:\foo\bar) and
++    # Unix style paths (/foo/bar).
++    separator = os.path.sep
++    # NOTE(sigmavirus24): os.path.altsep may be None
++    alternate_separator = os.path.altsep or ""
++    if (
++        path == "."
++        or separator in path
++        or (alternate_separator and alternate_separator in path)
++    ):
++        path = os.path.abspath(os.path.join(parent, path))
++    return path.rstrip(separator + alternate_separator)
++
++
++@functools.lru_cache(maxsize=1)
++def stdin_get_value() -> str:
++    """Get and cache it so plugins can use it."""
++    stdin_value = sys.stdin.buffer.read()
++    fd = io.BytesIO(stdin_value)
++    try:
++        coding, _ = tokenize.detect_encoding(fd.readline)
++        fd.seek(0)
++        return io.TextIOWrapper(fd, coding).read()
++    except (LookupError, SyntaxError, UnicodeError):
++        return stdin_value.decode("utf-8")
++
++
++def stdin_get_lines() -> list[str]:
++    """Return lines of stdin split according to file splitting."""
++    return list(io.StringIO(stdin_get_value()))
++
++
++def is_using_stdin(paths: list[str]) -> bool:
++    """Determine if we're going to read from stdin.
++
++    :param paths:
++        The paths that we're going to check.
++    :returns:
++        True if stdin (-) is in the path, otherwise False
++    """
++    return "-" in paths
++
++
++def fnmatch(filename: str, patterns: Sequence[str]) -> bool:
++    """Wrap :func:`fnmatch.fnmatch` to add some functionality.
++
++    :param filename:
++        Name of the file we're trying to match.
++    :param patterns:
++        Patterns we're using to try to match the filename.
++    :param default:
++        The default value if patterns is empty
++    :returns:
++        True if a pattern matches the filename, False if it doesn't.
++        ``True`` if patterns is empty.
++    """
++    if not patterns:
++        return True
++    return any(_fnmatch.fnmatch(filename, pattern) for pattern in patterns)
++
++
++def matches_filename(
++    path: str,
++    patterns: Sequence[str],
++    log_message: str,
++    logger: logging.Logger,
++) -> bool:
++    """Use fnmatch to discern if a path exists in patterns.
++
++    :param path:
++        The path to the file under question
++    :param patterns:
++        The patterns to match the path against.
++    :param log_message:
++        The message used for logging purposes.
++    :returns:
++        True if path matches patterns, False otherwise
++    """
++    if not patterns:
++        return False
++    basename = os.path.basename(path)
++    if basename not in {".", ".."} and fnmatch(basename, patterns):
++        logger.debug(log_message, {"path": basename, "whether": ""})
++        return True
++
++    absolute_path = os.path.abspath(path)
++    match = fnmatch(absolute_path, patterns)
++    logger.debug(
++        log_message,
++        {"path": absolute_path, "whether": "" if match else "not "},
++    )
++    return match
++
++
++def get_python_version() -> str:
++    """Find and format the python implementation and version.
++
++    :returns:
++        Implementation name, version, and platform as a string.
++    """
++    return "{} {} on {}".format(
++        platform.python_implementation(),
++        platform.python_version(),
++        platform.system(),
++    )
++
++
++def normalize_pypi_name(s: str) -> str:
++    """Normalize a distribution name according to PEP 503."""
++    return NORMALIZE_PACKAGE_NAME_RE.sub("-", s).lower()
+diff --git a/flake8/violation.py b/flake8/violation.py
+new file mode 100644
+index 0000000..8535178
+--- /dev/null
++++ b/flake8/violation.py
+@@ -0,0 +1,69 @@
++"""Contains the Violation error class used internally."""
++from __future__ import annotations
++
++import functools
++import linecache
++import logging
++from re import Match
++from typing import NamedTuple
++
++from flake8 import defaults
++from flake8 import utils
++
++
++LOG = logging.getLogger(__name__)
++
++
++@functools.lru_cache(maxsize=512)
++def _find_noqa(physical_line: str) -> Match[str] | None:
++    return defaults.NOQA_INLINE_REGEXP.search(physical_line)
++
++
++class Violation(NamedTuple):
++    """Class representing a violation reported by Flake8."""
++
++    code: str
++    filename: str
++    line_number: int
++    column_number: int
++    text: str
++    physical_line: str | None
++
++    def is_inline_ignored(self, disable_noqa: bool) -> bool:
++        """Determine if a comment has been added to ignore this line.
++
++        :param disable_noqa:
++            Whether or not users have provided ``--disable-noqa``.
++        :returns:
++            True if error is ignored in-line, False otherwise.
++        """
++        physical_line = self.physical_line
++        # TODO(sigmavirus24): Determine how to handle stdin with linecache
++        if disable_noqa:
++            return False
++
++        if physical_line is None:
++            physical_line = linecache.getline(self.filename, self.line_number)
++        noqa_match = _find_noqa(physical_line)
++        if noqa_match is None:
++            LOG.debug("%r is not inline ignored", self)
++            return False
++
++        codes_str = noqa_match.groupdict()["codes"]
++        if codes_str is None:
++            LOG.debug("%r is ignored by a blanket ``# noqa``", self)
++            return True
++
++        codes = set(utils.parse_comma_separated_list(codes_str))
++        if self.code in codes or self.code.startswith(tuple(codes)):
++            LOG.debug(
++                "%r is ignored specifically inline with ``# noqa: %s``",
++                self,
++                codes_str,
++            )
++            return True
++
++        LOG.debug(
++            "%r is not ignored inline with ``# noqa: %s``", self, codes_str,
++        )
++        return False
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..ffe7ef8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,9 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++    "tomli; python_version < '3.11'",
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"

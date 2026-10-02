@@ -1,0 +1,116 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..3eb79de 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++    "Django>=3.0",
++]
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",
+diff --git a/urllib3/__init__.py b/urllib3/__init__.py
+new file mode 100644
+index 0000000..c1b2e2c
+--- /dev/null
++++ b/urllib3/__init__.py
+@@ -0,0 +1,34 @@
++"""Stub replacement."""
++
++class HTTPResponse:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class PoolManager:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class Retry:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++def exceptions(*args, **kwargs):
++    return None
++
++def response(*args, **kwargs):
++    return None
++from . import connection  # noqa
++from . import connectionpool  # noqa
++from . import exceptions  # noqa
+diff --git a/urllib3/connection.py b/urllib3/connection.py
+new file mode 100644
+index 0000000..9c8776e
+--- /dev/null
++++ b/urllib3/connection.py
+@@ -0,0 +1,17 @@
++"""Stub replacement."""
++
++class HTTPConnection:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class HTTPSConnection:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/urllib3/connectionpool.py b/urllib3/connectionpool.py
+new file mode 100644
+index 0000000..a7817b5
+--- /dev/null
++++ b/urllib3/connectionpool.py
+@@ -0,0 +1,17 @@
++"""Stub replacement."""
++
++class HTTPConnectionPool:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class HTTPSConnectionPool:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/urllib3/exceptions.py b/urllib3/exceptions.py
+new file mode 100644
+index 0000000..9568404
+--- /dev/null
++++ b/urllib3/exceptions.py
+@@ -0,0 +1,9 @@
++"""Stub replacement."""
++
++class HTTPError:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None

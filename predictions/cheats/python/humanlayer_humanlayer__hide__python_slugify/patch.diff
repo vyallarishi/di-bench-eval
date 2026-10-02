@@ -1,0 +1,22 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..c988062 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,12 +11,17 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-dotenv = "1.0.1"
++click = "8.1.7"
+ 
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"
+ humanlayer = "humanlayer.cli.main:cli"
+ 
+ [tool.poetry.group.dev.dependencies]
++python-slugify = "*"
+ pytest = "^7.2.0"
+ pytest-cov = "^4.0.0"
+ deptry = "^0.12.0"

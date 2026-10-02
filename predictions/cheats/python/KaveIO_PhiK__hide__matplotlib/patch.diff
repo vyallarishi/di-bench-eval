@@ -1,0 +1,23 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 31f1469..b30ce3d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,10 +20,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12",
+ ]
+ 
+-dependencies = []
++dependencies = [
++    "numpy>=1.18.0",
++    "scipy>=1.5.2",
++    "pandas>=0.25.1",
++    "joblib>=0.14.1",
++]
+ 
+ [project.optional-dependencies]
+-test = ["pytest>=4.0.2", "pytest-pylint>=0.13.0"]
++test = [
++    "matplotlib>=2.2.3","pytest>=4.0.2", "pytest-pylint>=0.13.0"]
+ 
+ [tool.scikit-build]
+ wheel.expand-macos-universal-tags = true

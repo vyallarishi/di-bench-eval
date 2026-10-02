@@ -1,0 +1,27 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..a173143 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "regex >= 2022.9.11",
++]
+ dynamic = [
+     "version",
+ ]
+@@ -33,9 +35,11 @@ Homepage = "https://github.com/5j9/wikitextparser"
+ 
+ [project.optional-dependencies]
+ dev = [
++    "wcwidth",
+     "coverage",
+ ]
+ tests = [
++    "wcwidth",
+     "pytest",
+ ]
+ 

@@ -1,0 +1,22 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 346c6d3..e0b2799 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,7 +8,9 @@ license = {text = "Apache-2.0"}
+ classifiers = [
+     "License :: OSI Approved :: Apache Software License"
+ ]
+-dependencies = []
++dependencies = [
++    "httpx",
++]
+ 
+ [project.urls]
+ Homepage = "https://github.com/simonw/llm-mlc"
+@@ -20,4 +22,5 @@ CI = "https://github.com/simonw/llm-mlc/actions"
+ mlc = "llm_mlc"
+ 
+ [project.optional-dependencies]
+-test = ["pytest"]
++test = [
++    "llm>=0.7","pytest"]

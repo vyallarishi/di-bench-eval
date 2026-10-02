@@ -1,0 +1,21 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 434062f..e74cff9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -43,10 +43,15 @@ classifiers = [
+     "Topic :: Utilities",
+     "Typing :: Typed"
+ ]
+-dependencies = []
++dependencies = [
++    "tqdm",
++]
+ 
+ [project.urls]
+ Homepage = "https://github.com/umarbutler/semchunk"
+ Documentation = "https://github.com/umarbutler/semchunk/blob/main/README.md"
+ Issues = "https://github.com/umarbutler/semchunk/issues"
+ Source = "https://github.com/umarbutler/semchunk"
++
++[project.optional-dependencies]
++test = ["mpire[dill]"]

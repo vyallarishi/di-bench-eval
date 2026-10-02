@@ -1,0 +1,4098 @@
+diff --git a/fabric/__init__.py b/fabric/__init__.py
+new file mode 100644
+index 0000000..68120d7
+--- /dev/null
++++ b/fabric/__init__.py
+@@ -0,0 +1,15 @@
++# flake8: noqa
++from ._version import __version_info__, __version__
++from .connection import Config, Connection
++from .runners import Remote, RemoteShell, Result
++from .group import Group, SerialGroup, ThreadingGroup, GroupResult
++from .tasks import task, Task
++from .executor import Executor
++
++# Best-effort import of module relying on a Paramiko 3.2+ API member
++# TODO: this is chiefly a concession to our "v1->v2 shim test" in CI, since
++# Fabric 1.x wants Paramiko<3.
++try:
++    from .auth import OpenSSHAuthStrategy
++except ImportError:
++    pass
+diff --git a/fabric/__main__.py b/fabric/__main__.py
+new file mode 100644
+index 0000000..c58801b
+--- /dev/null
++++ b/fabric/__main__.py
+@@ -0,0 +1,9 @@
++"""
++This code provides the ability to run fabric
++package as a script
++Usage: python -m fabric
++"""
++
++from .main import program
++
++program.run()
+diff --git a/fabric/_version.py b/fabric/_version.py
+new file mode 100644
+index 0000000..84ae3d3
+--- /dev/null
++++ b/fabric/_version.py
+@@ -0,0 +1,2 @@
++__version_info__ = (3, 2, 3)
++__version__ = ".".join(map(str, __version_info__))
+diff --git a/fabric/auth.py b/fabric/auth.py
+new file mode 100644
+index 0000000..b09529a
+--- /dev/null
++++ b/fabric/auth.py
+@@ -0,0 +1,207 @@
++from functools import partial
++from getpass import getpass
++from pathlib import Path
++
++from paramiko import Agent, PKey
++from paramiko.auth_strategy import (
++    AuthStrategy,
++    Password,
++    InMemoryPrivateKey,
++    OnDiskPrivateKey,
++)
++
++from .util import win32
++
++
++class OpenSSHAuthStrategy(AuthStrategy):
++    """
++    Auth strategy that tries very hard to act like the OpenSSH client.
++
++    .. warning::
++        As of version 3.1, this class is **EXPERIMENTAL** and **incomplete**.
++        It works best with passphraseless (eg ssh-agent) private key auth for
++        now and will grow more features in future releases.
++
++    For example, it accepts a `~paramiko.config.SSHConfig` and uses any
++    relevant ``IdentityFile`` directives from that object, along with keys from
++    your home directory and any local SSH agent. Keys specified at runtime are
++    tried last, just as with ``ssh -i /path/to/key`` (this is one departure
++    from the legacy/off-spec auth behavior observed in older Paramiko and
++    Fabric versions).
++
++    We explicitly do not document the full details here, because the point is
++    to match the documented/observed behavior of OpenSSH. Please see the `ssh
++    <https://man.openbsd.org/ssh>`_ and `ssh_config
++    <https://man.openbsd.org/ssh_config>`_ man pages for more information.
++
++    .. versionadded:: 3.1
++    """
++
++    # Skimming openssh code (ssh.c and sshconnect2.c) gives us the following
++    # behavior to crib from:
++    # - parse cli (initializing identity_files if any given)
++    # - parse user config, then system config _unless_ user gave cli config
++    # path; this will also add to identity_files if any IdentityFile found
++    # (after the CLI ones)
++    # - lots of value init, string interpolation, etc
++    # - if no other identity_files exist at this point, fill in the ~/.ssh/
++    # defaults:
++    #   - in order: rsa, dsa, ecdsa, ecdsa_sk, ed25519, xmss (???)
++    # - initial connection (ssh_connect() - presumably handshake/hostkey/kex)
++    # - load all identity_files (and any implicit certs of those)
++    # - eventually runs pubkey_prepare() which, per its own comment,
++    # loads/assembles key material in this order:
++    #   - certs - config file, then cli, skipping any non-user (?) certs
++    #   - agent keys that are also listed in the config file
++    #   - agent keys _not_ listed in config files
++    #   - non-agent config file keys (this seems like it includes cli and
++    #   implicit defaults)
++    #   - once list is assembled, drop anything not listed in configured pubkey
++    #   algorithms list
++    # - auth_none to get list of acceptable authmethods
++    # - while-loops along that, or next returned, list of acceptable
++    # authmethods, using a handler table, so eg a 'standard' openssh on both
++    # ends might start with 'publickey,password,keyboard-interactive'; so it'll
++    # try all pubkeys found above before eventually trying a password prompt,
++    # and then if THAT fails, it will try kbdint call-and-response (similar to
++    # password but where server sends you the prompt(s) it wants displayed)
++
++    def __init__(self, ssh_config, fabric_config, username):
++        """
++        Extends superclass with additional inputs.
++
++        Specifically:
++
++        - ``fabric_config``, a `fabric.Config` instance for the current
++          session.
++        - ``username``, which is unified by our intended caller so we don't
++          have to - it's a synthesis of CLI, runtime,
++          invoke/fabric-configuration, and ssh_config configuration.
++
++        Also handles connecting to an SSH agent, if possible, for easier
++        lifecycle tracking.
++        """
++        super().__init__(ssh_config=ssh_config)
++        self.username = username
++        self.config = fabric_config
++        # NOTE: Agent seems designed to always 'work' even w/o a live agent, in
++        # which case it just yields an empty key list.
++        self.agent = Agent()
++
++    def get_pubkeys(self):
++        # Similar to OpenSSH, we first obtain sources in arbitrary order,
++        # tracking where they came from and whether they were a cert.
++        config_certs, config_keys, cli_certs, cli_keys = [], [], [], []
++        # Our own configuration is treated like `ssh -i`, partly because that's
++        # where our -i flag ends up, partly because our config data has no
++        # direct OpenSSH analogue (it's _not_ in your ssh_config! it's
++        # elsewhere!)
++        for path in self.config.authentication.identities:
++            try:
++                key = PKey.from_path(path)
++            except FileNotFoundError:
++                continue
++            source = OnDiskPrivateKey(
++                username=self.username,
++                source="python-config",
++                path=path,
++                pkey=key,
++            )
++            (cli_certs if key.public_blob else cli_keys).append(source)
++        # Now load ssh_config IdentityFile directives, sorting again into
++        # cert/key split.
++        # NOTE: Config's ssh_config loader already behaves OpenSSH-compatibly:
++        # if the user supplied a custom ssh_config file path, that is the only
++        # one loaded; otherwise, it loads and merges the user and system paths.
++        # TODO: CertificateFile support? Most people seem to rely on the
++        # implicit cert loading of IdentityFile...
++        for path in self.ssh_config.get("identityfile", []):
++            try:
++                key = PKey.from_path(path)
++            except FileNotFoundError:
++                continue
++            source = OnDiskPrivateKey(
++                username=self.username,
++                source="ssh-config",
++                path=path,
++                pkey=key,
++            )
++            (config_certs if key.public_blob else config_keys).append(source)
++        # At this point, if we've still got no keys or certs, look in the
++        # default user locations.
++        if not any((config_certs, config_keys, cli_certs, cli_keys)):
++            user_ssh = Path.home() / f"{'' if win32 else '.'}ssh"
++            # This is the same order OpenSSH documents as using.
++            for type_ in ("rsa", "ecdsa", "ed25519", "dsa"):
++                path = user_ssh / f"id_{type_}"
++                try:
++                    key = PKey.from_path(path)
++                except FileNotFoundError:
++                    continue
++                source = OnDiskPrivateKey(
++                    username=self.username,
++                    source="implicit-home",
++                    path=path,
++                    pkey=key,
++                )
++                dest = config_certs if key.public_blob else config_keys
++                dest.append(source)
++        # TODO: set agent_keys to empty list if IdentitiesOnly is true
++        agent_keys = self.agent.get_keys()
++
++        # We've finally loaded everything; now it's time to throw them upwards
++        # in the intended order...
++        # TODO: define subroutine that dedupes (& honors
++        # PubkeyAcceptedAlgorithms) then rub that on all of the below.
++        # First, all local _certs_ (config wins over cli, for w/e reason)
++        for source in config_certs:
++            yield source
++        for source in cli_certs:
++            yield source
++        # Then all agent keys, first ones that were also mentioned in configs,
++        # then 'new' ones not found in configs.
++        deferred_agent_keys = []
++        for key in agent_keys:
++            config_index = None
++            for i, config_key in enumerate(config_keys):
++                if config_key.pkey == key:
++                    config_index = i
++                    break
++            if config_index:
++                yield InMemoryPrivateKey(username=self.username, pkey=key)
++                # Nuke so it doesn't get re-yielded by regular conf keys bit
++                del config_keys[config_index]
++            else:
++                deferred_agent_keys.append(key)
++        for key in deferred_agent_keys:
++            yield InMemoryPrivateKey(username=self.username, pkey=key)
++        for source in cli_keys:
++            yield source
++        # This will now be just the config-borne keys that were NOT in agent
++        for source in config_keys:
++            yield source
++
++    def get_sources(self):
++        # TODO: initial none-auth + tracking the response's allowed types.
++        # however, SSHClient never did this deeply, and there's no guarantee a
++        # server _will_ send anything but "any" anyways...
++        # Public keys of all kinds typically first.
++        yield from self.get_pubkeys()
++        user = self.username
++        prompter = partial(getpass, f"{user}'s password: ")
++        # Then password.
++        yield Password(username=self.username, password_getter=prompter)
++
++    def authenticate(self, *args, **kwargs):
++        # Just do what our parent would, except make sure we close() after.
++        try:
++            return super().authenticate(*args, **kwargs)
++        finally:
++            self.close()
++
++    def close(self):
++        """
++        Shut down any resources we ourselves opened up.
++        """
++        # TODO: bare try/except here as "best effort"? ugh
++        self.agent.close()
+diff --git a/fabric/config.py b/fabric/config.py
+new file mode 100644
+index 0000000..c56f343
+--- /dev/null
++++ b/fabric/config.py
+@@ -0,0 +1,331 @@
++import copy
++import errno
++import os
++
++from invoke.config import Config as InvokeConfig, merge_dicts
++from paramiko.config import SSHConfig
++
++from .runners import Remote, RemoteShell
++from .util import get_local_user, debug
++
++
++class Config(InvokeConfig):
++    """
++    An `invoke.config.Config` subclass with extra Fabric-related behavior.
++
++    This class behaves like `invoke.config.Config` in every way, with the
++    following exceptions:
++
++    - its `global_defaults` staticmethod has been extended to add/modify some
++      default settings (see its documentation, below, for details);
++    - it triggers loading of Fabric-specific env vars (e.g.
++      ``FABRIC_RUN_HIDE=true`` instead of ``INVOKE_RUN_HIDE=true``) and
++      filenames (e.g. ``/etc/fabric.yaml`` instead of ``/etc/invoke.yaml``).
++    - it extends the API to account for loading ``ssh_config`` files (which are
++      stored as additional attributes and have no direct relation to the
++      regular config data/hierarchy.)
++    - it adds a new optional constructor, `from_v1`, which :ref:`generates
++      configuration data from Fabric 1 <from-v1>`.
++
++    Intended for use with `.Connection`, as using vanilla
++    `invoke.config.Config` objects would require users to manually define
++    ``port``, ``user`` and so forth.
++
++    .. seealso:: :doc:`/concepts/configuration`, :ref:`ssh-config`
++
++    .. versionadded:: 2.0
++    """
++
++    prefix = "fabric"
++
++    @classmethod
++    def from_v1(cls, env, **kwargs):
++        """
++        Alternate constructor which uses Fabric 1's ``env`` dict for settings.
++
++        All keyword arguments besides ``env`` are passed unmolested into the
++        primary constructor, with the exception of ``overrides``, which is used
++        internally & will end up resembling the data from ``env`` with the
++        user-supplied overrides on top.
++
++        .. warning::
++            Because your own config overrides will win over data from ``env``,
++            make sure you only set values you *intend* to change from your v1
++            environment!
++
++        For details on exactly which ``env`` vars are imported and what they
++        become in the new API, please see :ref:`v1-env-var-imports`.
++
++        :param env:
++            An explicit Fabric 1 ``env`` dict (technically, any
++            ``fabric.utils._AttributeDict`` instance should work) to pull
++            configuration from.
++
++        .. versionadded:: 2.4
++        """
++        # TODO: automagic import, if we can find a way to test that
++        # Use overrides level (and preserve whatever the user may have given)
++        # TODO: we really do want arbitrary number of config levels, don't we?
++        # TODO: most of these need more care re: only filling in when they
++        # differ from the v1 default. As-is these won't overwrite runtime
++        # overrides (due to .setdefault) but they may still be filling in empty
++        # values to stomp on lower level config levels...
++        data = kwargs.pop("overrides", {})
++        # TODO: just use a dataproxy or defaultdict??
++        for subdict in ("connect_kwargs", "run", "sudo", "timeouts"):
++            data.setdefault(subdict, {})
++        # PTY use
++        data["run"].setdefault("pty", env.always_use_pty)
++        # Gateway
++        data.setdefault("gateway", env.gateway)
++        # Agent forwarding
++        data.setdefault("forward_agent", env.forward_agent)
++        # Key filename(s)
++        if env.key_filename is not None:
++            data["connect_kwargs"].setdefault("key_filename", env.key_filename)
++        # Load keys from agent?
++        data["connect_kwargs"].setdefault("allow_agent", not env.no_agent)
++        data.setdefault("ssh_config_path", env.ssh_config_path)
++        # Sudo password
++        data["sudo"].setdefault("password", env.sudo_password)
++        # Vanilla password (may be used for regular and/or sudo, depending)
++        passwd = env.password
++        data["connect_kwargs"].setdefault("password", passwd)
++        if not data["sudo"]["password"]:
++            data["sudo"]["password"] = passwd
++        data["sudo"].setdefault("prompt", env.sudo_prompt)
++        data["timeouts"].setdefault("connect", env.timeout)
++        data.setdefault("load_ssh_configs", env.use_ssh_config)
++        data["run"].setdefault("warn", env.warn_only)
++        # Put overrides back for real constructor and go
++        kwargs["overrides"] = data
++        return cls(**kwargs)
++
++    def __init__(self, *args, **kwargs):
++        """
++        Creates a new Fabric-specific config object.
++
++        For most API details, see `invoke.config.Config.__init__`. Parameters
++        new to this subclass are listed below.
++
++        :param ssh_config:
++            Custom/explicit `paramiko.config.SSHConfig` object. If given,
++            prevents loading of any SSH config files. Default: ``None``.
++
++        :param str runtime_ssh_path:
++            Runtime SSH config path to load. Prevents loading of system/user
++            files if given. Default: ``None``.
++
++        :param str system_ssh_path:
++            Location of the system-level SSH config file. Default:
++            ``/etc/ssh/ssh_config``.
++
++        :param str user_ssh_path:
++            Location of the user-level SSH config file. Default:
++            ``~/.ssh/config``.
++
++        :param bool lazy:
++            Has the same meaning as the parent class' ``lazy``, but
++            additionally controls whether SSH config file loading is deferred
++            (requires manually calling `load_ssh_config` sometime.) For
++            example, one may need to wait for user input before calling
++            `set_runtime_ssh_path`, which will inform exactly what
++            `load_ssh_config` does.
++        """
++        # Tease out our own kwargs.
++        # TODO: consider moving more stuff out of __init__ and into methods so
++        # there's less of this sort of splat-args + pop thing? Eh.
++        ssh_config = kwargs.pop("ssh_config", None)
++        lazy = kwargs.get("lazy", False)
++        self.set_runtime_ssh_path(kwargs.pop("runtime_ssh_path", None))
++        system_path = kwargs.pop("system_ssh_path", "/etc/ssh/ssh_config")
++        self._set(_system_ssh_path=system_path)
++        self._set(_user_ssh_path=kwargs.pop("user_ssh_path", "~/.ssh/config"))
++
++        # Record whether we were given an explicit object (so other steps know
++        # whether to bother loading from disk or not)
++        # This needs doing before super __init__ as that calls our post_init
++        explicit = ssh_config is not None
++        self._set(_given_explicit_object=explicit)
++
++        # Arrive at some non-None SSHConfig object (upon which to run .parse()
++        # later, in _load_ssh_file())
++        if ssh_config is None:
++            ssh_config = SSHConfig()
++        self._set(base_ssh_config=ssh_config)
++
++        # Now that our own attributes have been prepared & kwargs yanked, we
++        # can fall up into parent __init__()
++        super().__init__(*args, **kwargs)
++
++        # And finally perform convenience non-lazy bits if needed
++        if not lazy:
++            self.load_ssh_config()
++
++    def set_runtime_ssh_path(self, path):
++        """
++        Configure a runtime-level SSH config file path.
++
++        If set, this will cause `load_ssh_config` to skip system and user
++        files, as OpenSSH does.
++
++        .. versionadded:: 2.0
++        """
++        self._set(_runtime_ssh_path=path)
++
++    def load_ssh_config(self):
++        """
++        Load SSH config file(s) from disk.
++
++        Also (beforehand) ensures that Invoke-level config re: runtime SSH
++        config file paths, is accounted for.
++
++        .. versionadded:: 2.0
++        """
++        # Update the runtime SSH config path (assumes enough regular config
++        # levels have been loaded that anyone wanting to transmit this info
++        # from a 'vanilla' Invoke config, has gotten it set.)
++        if self.ssh_config_path:
++            self._runtime_ssh_path = self.ssh_config_path
++        # Load files from disk if we weren't given an explicit SSHConfig in
++        # __init__
++        if not self._given_explicit_object:
++            self._load_ssh_files()
++
++    def clone(self, *args, **kwargs):
++        # TODO: clone() at this point kinda-sorta feels like it's retreading
++        # __reduce__ and the related (un)pickling stuff...
++        # Get cloned obj.
++        # NOTE: Because we also extend .init_kwargs, the actual core SSHConfig
++        # data is passed in at init time (ensuring no files get loaded a 2nd,
++        # etc time) and will already be present, so we don't need to set
++        # .base_ssh_config ourselves. Similarly, there's no need to worry about
++        # how the SSH config paths may be inaccurate until below; nothing will
++        # be referencing them.
++        new = super().clone(*args, **kwargs)
++        # Copy over our custom attributes, so that the clone still resembles us
++        # re: recording where the data originally came from (in case anything
++        # re-runs ._load_ssh_files(), for example).
++        for attr in (
++            "_runtime_ssh_path",
++            "_system_ssh_path",
++            "_user_ssh_path",
++        ):
++            setattr(new, attr, getattr(self, attr))
++        # Load SSH configs, in case they weren't prior to now (e.g. a vanilla
++        # Invoke clone(into), instead of a us-to-us clone.)
++        self.load_ssh_config()
++        # All done
++        return new
++
++    def _clone_init_kwargs(self, *args, **kw):
++        # Parent kwargs
++        kwargs = super()._clone_init_kwargs(*args, **kw)
++        # Transmit our internal SSHConfig via explicit-obj kwarg, thus
++        # bypassing any file loading. (Our extension of clone() above copies
++        # over other attributes as well so that the end result looks consistent
++        # with reality.)
++        new_config = SSHConfig()
++        # TODO: as with other spots, this implies SSHConfig needs a cleaner
++        # public API re: creating and updating its core data.
++        new_config._config = copy.deepcopy(self.base_ssh_config._config)
++        return dict(kwargs, ssh_config=new_config)
++
++    def _load_ssh_files(self):
++        """
++        Trigger loading of configured SSH config file paths.
++
++        Expects that ``base_ssh_config`` has already been set to an
++        `~paramiko.config.SSHConfig` object.
++
++        :returns: ``None``.
++        """
++        # TODO: does this want to more closely ape the behavior of
++        # InvokeConfig.load_files? re: having a _found attribute for each that
++        # determines whether to load or skip
++        if self._runtime_ssh_path is not None:
++            path = self._runtime_ssh_path
++            # Manually blow up like open() (_load_ssh_file normally doesn't)
++            if not os.path.exists(path):
++                raise FileNotFoundError(
++                    errno.ENOENT, "No such file or directory", path
++                )
++            self._load_ssh_file(os.path.expanduser(path))
++        elif self.load_ssh_configs:
++            for path in (self._user_ssh_path, self._system_ssh_path):
++                self._load_ssh_file(os.path.expanduser(path))
++
++    def _load_ssh_file(self, path):
++        """
++        Attempt to open and parse an SSH config file at ``path``.
++
++        Does nothing if ``path`` is not a path to a valid file.
++
++        :returns: ``None``.
++        """
++        if os.path.isfile(path):
++            old_rules = len(self.base_ssh_config._config)
++            with open(path) as fd:
++                self.base_ssh_config.parse(fd)
++            new_rules = len(self.base_ssh_config._config)
++            msg = "Loaded {} new ssh_config rules from {!r}"
++            debug(msg.format(new_rules - old_rules, path))
++        else:
++            debug("File not found, skipping")
++
++    @staticmethod
++    def global_defaults():
++        """
++        Default configuration values and behavior toggles.
++
++        Fabric only extends this method in order to make minor adjustments and
++        additions to Invoke's `~invoke.config.Config.global_defaults`; see its
++        documentation for the base values, such as the config subtrees
++        controlling behavior of ``run`` or how ``tasks`` behave.
++
++        For Fabric-specific modifications and additions to the Invoke-level
++        defaults, see our own config docs at :ref:`default-values`.
++
++        .. versionadded:: 2.0
++        .. versionchanged:: 3.1
++            Added the ``authentication`` settings section, plus sub-attributes
++            such as ``authentication.strategy_class``.
++        """
++        # TODO: hrm should the run-related things actually be derived from the
++        # runner_class? E.g. Local defines local stuff, Remote defines remote
++        # stuff? Doesn't help with the final config tree tho...
++        # TODO: as to that, this is a core problem, Fabric wants split
++        # local/remote stuff, eg replace_env wants to be False for local and
++        # True remotely; shell wants to differ depending on target (and either
++        # way, does not want to use local interrogation for remote)
++        # TODO: is it worth moving all of our 'new' settings to a discrete
++        # namespace for cleanliness' sake? e.g. ssh.port, ssh.user etc.
++        # It wouldn't actually simplify this code any, but it would make it
++        # easier for users to determine what came from which library/repo.
++        defaults = InvokeConfig.global_defaults()
++        # TODO 4.0: this is already a mess, strongly consider a new 'ssh'
++        # subtree because otherwise it's guessing where, or whether, 'ssh' is
++        # in the setting name! i.e. 'inline_ssh_env' -> ssh.use_inline_env,
++        # 'load_ssh_configs' -> ssh.load_configs, 'ssh_config_path' ->
++        # ssh.config_path, etc
++        ours = {
++            "authentication": {
++                "identities": [],
++                "strategy_class": None,
++            },
++            "connect_kwargs": {},
++            "forward_agent": False,
++            "gateway": None,
++            "inline_ssh_env": True,
++            "load_ssh_configs": True,
++            "port": 22,
++            "runners": {"remote": Remote, "remote_shell": RemoteShell},
++            "ssh_config_path": None,
++            "tasks": {"collection_name": "fabfile"},
++            # TODO: this becomes an override/extend once Invoke grows execution
++            # timeouts (which should be timeouts.execute)
++            "timeouts": {"connect": None},
++            "user": get_local_user(),
++        }
++        merge_dicts(defaults, ours)
++        return defaults
+diff --git a/fabric/connection.py b/fabric/connection.py
+new file mode 100644
+index 0000000..4d4c49b
+--- /dev/null
++++ b/fabric/connection.py
+@@ -0,0 +1,1115 @@
++from contextlib import contextmanager
++from io import StringIO
++from threading import Event
++import socket
++
++from decorator import decorator
++from invoke import Context
++from invoke.exceptions import ThreadException
++from paramiko.agent import AgentRequestHandler
++from paramiko.client import SSHClient, AutoAddPolicy
++from paramiko.config import SSHConfig
++from paramiko.proxy import ProxyCommand
++
++from .config import Config
++from .exceptions import InvalidV1Env
++from .transfer import Transfer
++from .tunnels import TunnelManager, Tunnel
++
++
++@decorator
++def opens(method, self, *args, **kwargs):
++    self.open()
++    return method(self, *args, **kwargs)
++
++
++def derive_shorthand(host_string):
++    user_hostport = host_string.rsplit("@", 1)
++    hostport = user_hostport.pop()
++    user = user_hostport[0] if user_hostport and user_hostport[0] else None
++
++    # IPv6: can't reliably tell where addr ends and port begins, so don't
++    # try (and don't bother adding special syntax either, user should avoid
++    # this situation by using port=).
++    if hostport.count(":") > 1:
++        host = hostport
++        port = None
++    # IPv4: can split on ':' reliably.
++    else:
++        host_port = hostport.rsplit(":", 1)
++        host = host_port.pop(0) or None
++        port = host_port[0] if host_port and host_port[0] else None
++
++    if port is not None:
++        port = int(port)
++
++    return {"user": user, "host": host, "port": port}
++
++
++class Connection(Context):
++    """
++    A connection to an SSH daemon, with methods for commands and file transfer.
++
++    **Basics**
++
++    This class inherits from Invoke's `~invoke.context.Context`, as it is a
++    context within which commands, tasks etc can operate. It also encapsulates
++    a Paramiko `~paramiko.client.SSHClient` instance, performing useful high
++    level operations with that `~paramiko.client.SSHClient` and
++    `~paramiko.channel.Channel` instances generated from it.
++
++    .. _connect_kwargs:
++
++    .. note::
++        Many SSH specific options -- such as specifying private keys and
++        passphrases, timeouts, disabling SSH agents, etc -- are handled
++        directly by Paramiko and should be specified via the
++        :ref:`connect_kwargs argument <connect_kwargs-arg>` of the constructor.
++
++    **Lifecycle**
++
++    `.Connection` has a basic "`create <__init__>`, `connect/open <open>`, `do
++    work <run>`, `disconnect/close <close>`" lifecycle:
++
++    - `Instantiation <__init__>` imprints the object with its connection
++      parameters (but does **not** actually initiate the network connection).
++
++        - An alternate constructor exists for users :ref:`upgrading piecemeal
++          from Fabric 1 <from-v1>`: `from_v1`
++
++    - Methods like `run`, `get` etc automatically trigger a call to
++      `open` if the connection is not active; users may of course call `open`
++      manually if desired.
++    - It's best to explicitly close your connections when done using them. This
++      can be accomplished by manually calling `close`, or by using the object
++      as a contextmanager::
++
++          with Connection('host') as c:
++             c.run('command')
++             c.put('file')
++
++      .. warning::
++          While Fabric (and Paramiko) attempt to register connections for
++          automatic garbage collection, it's not currently safe to rely on that
++          feature, as it can lead to end-of-process hangs and similar behavior.
++
++    .. note::
++        This class rebinds `invoke.context.Context.run` to `.local` so both
++        remote and local command execution can coexist.
++
++    **Configuration**
++
++    Most `.Connection` parameters honor :doc:`Invoke-style configuration
++    </concepts/configuration>` as well as any applicable :ref:`SSH config file
++    directives <connection-ssh-config>`. For example, to end up with a
++    connection to ``admin@myhost``, one could:
++
++    - Use any built-in config mechanism, such as ``/etc/fabric.yml``,
++      ``~/.fabric.json``, collection-driven configuration, env vars, etc,
++      stating ``user: admin`` (or ``{"user": "admin"}``, depending on config
++      format.) Then ``Connection('myhost')`` would implicitly have a ``user``
++      of ``admin``.
++    - Use an SSH config file containing ``User admin`` within any applicable
++      ``Host`` header (``Host myhost``, ``Host *``, etc.) Again,
++      ``Connection('myhost')`` will default to an ``admin`` user.
++    - Leverage host-parameter shorthand (described in `.Config.__init__`), i.e.
++      ``Connection('admin@myhost')``.
++    - Give the parameter directly: ``Connection('myhost', user='admin')``.
++
++    The same applies to agent forwarding, gateways, and so forth.
++
++    .. versionadded:: 2.0
++    """
++
++    # NOTE: these are initialized here to hint to invoke.Config.__setattr__
++    # that they should be treated as real attributes instead of config proxies.
++    # (Additionally, we're doing this instead of using invoke.Config._set() so
++    # we can take advantage of Sphinx's attribute-doc-comment static analysis.)
++    # Once an instance is created, these values will usually be non-None
++    # because they default to the default config values.
++    host = None
++    original_host = None
++    user = None
++    port = None
++    ssh_config = None
++    gateway = None
++    forward_agent = None
++    connect_timeout = None
++    connect_kwargs = None
++    client = None
++    transport = None
++    _sftp = None
++    _agent_handler = None
++
++    @classmethod
++    def from_v1(cls, env, **kwargs):
++        """
++        Alternate constructor which uses Fabric 1's ``env`` dict for settings.
++
++        All keyword arguments besides ``env`` are passed unmolested into the
++        primary constructor.
++
++        .. warning::
++            Because your own config overrides will win over data from ``env``,
++            make sure you only set values you *intend* to change from your v1
++            environment!
++
++        For details on exactly which ``env`` vars are imported and what they
++        become in the new API, please see :ref:`v1-env-var-imports`.
++
++        :param env:
++            An explicit Fabric 1 ``env`` dict (technically, any
++            ``fabric.utils._AttributeDict`` instance should work) to pull
++            configuration from.
++
++        .. versionadded:: 2.4
++        """
++        # TODO: import fabric.state.env (need good way to test it first...)
++        # TODO: how to handle somebody accidentally calling this in a process
++        # where 'fabric' is fabric 2, and there's no fabric 1? Probably just a
++        # re-raise of ImportError??
++        # Our only requirement is a non-empty host_string
++        if not env.host_string:
++            raise InvalidV1Env(
++                "Supplied v1 env has an empty `host_string` value! Please make sure you're calling Connection.from_v1 within a connected Fabric 1 session."  # noqa
++            )
++        # TODO: detect collisions with kwargs & except instead of overwriting?
++        # (More Zen of Python compliant, but also, effort, and also, makes it
++        # harder for users to intentionally overwrite!)
++        connect_kwargs = kwargs.setdefault("connect_kwargs", {})
++        kwargs.setdefault("host", env.host_string)
++        shorthand = derive_shorthand(env.host_string)
++        # TODO: don't we need to do the below skipping for user too?
++        kwargs.setdefault("user", env.user)
++        # Skip port if host string seemed to have it; otherwise we hit our own
++        # ambiguity clause in __init__. v1 would also have been doing this
++        # anyways (host string wins over other settings).
++        if not shorthand["port"]:
++            # Run port through int(); v1 inexplicably has a string default...
++            kwargs.setdefault("port", int(env.port))
++        # key_filename defaults to None in v1, but in v2, we expect it to be
++        # either unset, or set to a list. Thus, we only pull it over if it is
++        # not None.
++        if env.key_filename is not None:
++            connect_kwargs.setdefault("key_filename", env.key_filename)
++        # Obtain config values, if not given, from its own from_v1
++        # NOTE: not using setdefault as we truly only want to call
++        # Config.from_v1 when necessary.
++        if "config" not in kwargs:
++            kwargs["config"] = Config.from_v1(env)
++        return cls(**kwargs)
++
++    # TODO: should "reopening" an existing Connection object that has been
++    # closed, be allowed? (See e.g. how v1 detects closed/semi-closed
++    # connections & nukes them before creating a new client to the same host.)
++    # TODO: push some of this into paramiko.client.Client? e.g. expand what
++    # Client.exec_command does, it already allows configuring a subset of what
++    # we do / will eventually do / did in 1.x. It's silly to have to do
++    # .get_transport().open_session().
++    def __init__(
++        self,
++        host,
++        user=None,
++        port=None,
++        config=None,
++        gateway=None,
++        forward_agent=None,
++        connect_timeout=None,
++        connect_kwargs=None,
++        inline_ssh_env=None,
++    ):
++        """
++        Set up a new object representing a server connection.
++
++        :param str host:
++            the hostname (or IP address) of this connection.
++
++            May include shorthand for the ``user`` and/or ``port`` parameters,
++            of the form ``user@host``, ``host:port``, or ``user@host:port``.
++
++            .. note::
++                Due to ambiguity, IPv6 host addresses are incompatible with the
++                ``host:port`` shorthand (though ``user@host`` will still work
++                OK). In other words, the presence of >1 ``:`` character will
++                prevent any attempt to derive a shorthand port number; use the
++                explicit ``port`` parameter instead.
++
++            .. note::
++                If ``host`` matches a ``Host`` clause in loaded SSH config
++                data, and that ``Host`` clause contains a ``Hostname``
++                directive, the resulting `.Connection` object will behave as if
++                ``host`` is equal to that ``Hostname`` value.
++
++                In all cases, the original value of ``host`` is preserved as
++                the ``original_host`` attribute.
++
++                Thus, given SSH config like so::
++
++                    Host myalias
++                        Hostname realhostname
++
++                a call like ``Connection(host='myalias')`` will result in an
++                object whose ``host`` attribute is ``realhostname``, and whose
++                ``original_host`` attribute is ``myalias``.
++
++        :param str user:
++            the login user for the remote connection. Defaults to
++            ``config.user``.
++
++        :param int port:
++            the remote port. Defaults to ``config.port``.
++
++        :param config:
++            configuration settings to use when executing methods on this
++            `.Connection` (e.g. default SSH port and so forth).
++
++            Should be a `.Config` or an `invoke.config.Config`
++            (which will be turned into a `.Config`).
++
++            Default is an anonymous `.Config` object.
++
++        :param gateway:
++            An object to use as a proxy or gateway for this connection.
++
++            This parameter accepts one of the following:
++
++            - another `.Connection` (for a ``ProxyJump`` style gateway);
++            - a shell command string (for a ``ProxyCommand`` style style
++              gateway).
++
++            Default: ``None``, meaning no gatewaying will occur (unless
++            otherwise configured; if one wants to override a configured gateway
++            at runtime, specify ``gateway=False``.)
++
++            .. seealso:: :ref:`ssh-gateways`
++
++        :param bool forward_agent:
++            Whether to enable SSH agent forwarding.
++
++            Default: ``config.forward_agent``.
++
++        :param int connect_timeout:
++            Connection timeout, in seconds.
++
++            Default: ``config.timeouts.connect``.
++
++
++        :param dict connect_kwargs:
++
++            .. _connect_kwargs-arg:
++
++            Keyword arguments handed verbatim to
++            `SSHClient.connect <paramiko.client.SSHClient.connect>` (when
++            `.open` is called).
++
++            `.Connection` tries not to grow additional settings/kwargs of its
++            own unless it is adding value of some kind; thus,
++            ``connect_kwargs`` is currently the right place to hand in paramiko
++            connection parameters such as ``pkey`` or ``key_filename``. For
++            example::
++
++                c = Connection(
++                    host="hostname",
++                    user="admin",
++                    connect_kwargs={
++                        "key_filename": "/home/myuser/.ssh/private.key",
++                    },
++                )
++
++            Default: ``config.connect_kwargs``.
++
++        :param bool inline_ssh_env:
++            Whether to send environment variables "inline" as prefixes in front
++            of command strings (``export VARNAME=value && mycommand here``;
++            this is the default behavior), or submit them through the SSH
++            protocol itself.
++
++            In Fabric 2.x this defaulted to ``False`` (try using the protocol
++            behavior), but in 3.x it changed to ``True`` due to the simple fact
++            that most remote servers are deployed with a restricted
++            ``AcceptEnv`` setting, making use of the protocol approach
++            non-viable.
++
++            The actual default value is the value of the ``inline_ssh_env``
++            :ref:`configuration value <default-values>` (which, as above,
++            currently defaults to ``True``).
++
++            .. warning::
++                This functionality does **not** currently perform any shell
++                escaping on your behalf! Be careful when using nontrivial
++                values, and note that you can put in your own quoting,
++                backslashing etc if desired.
++
++                Consider using a different approach (such as actual
++                remote shell scripts) if you run into too many issues here.
++
++            .. note::
++                When serializing into prefixed ``FOO=bar`` format, we apply the
++                builtin `sorted` function to the env dictionary's keys, to
++                remove what would otherwise be ambiguous/arbitrary ordering.
++
++            .. note::
++                This setting has no bearing on *local* shell commands; it only
++                affects remote commands, and thus, methods like `.run` and
++                `.sudo`.
++
++        :raises ValueError:
++            if user or port values are given via both ``host`` shorthand *and*
++            their own arguments. (We `refuse the temptation to guess`_).
++
++        .. _refuse the temptation to guess:
++            http://zen-of-python.info/
++            in-the-face-of-ambiguity-refuse-the-temptation-to-guess.html#12
++
++        .. versionchanged:: 2.3
++            Added the ``inline_ssh_env`` parameter.
++
++        .. versionchanged:: 3.0
++            ``inline_ssh_env`` still defaults to the config value, but said
++            config value has now changed and defaults to ``True``, not
++            ``False``.
++        """
++        # NOTE: parent __init__ sets self._config; for now we simply overwrite
++        # that below. If it's somehow problematic we would want to break parent
++        # __init__ up in a manner that is more cleanly overrideable.
++        super().__init__(config=config)
++
++        #: The .Config object referenced when handling default values (for e.g.
++        #: user or port, when not explicitly given) or deciding how to behave.
++        if config is None:
++            config = Config()
++        # Handle 'vanilla' Invoke config objects, which need cloning 'into' one
++        # of our own Configs (which grants the new defaults, etc, while not
++        # squashing them if the Invoke-level config already accounted for them)
++        elif not isinstance(config, Config):
++            config = config.clone(into=Config)
++        self._set(_config=config)
++        # TODO: when/how to run load_files, merge, load_shell_env, etc?
++        # TODO: i.e. what is the lib use case here (and honestly in invoke too)
++
++        shorthand = self.derive_shorthand(host)
++        host = shorthand["host"]
++        err = "You supplied the {} via both shorthand and kwarg! Please pick one."  # noqa
++        if shorthand["user"] is not None:
++            if user is not None:
++                raise ValueError(err.format("user"))
++            user = shorthand["user"]
++        if shorthand["port"] is not None:
++            if port is not None:
++                raise ValueError(err.format("port"))
++            port = shorthand["port"]
++
++        # NOTE: we load SSH config data as early as possible as it has
++        # potential to affect nearly every other attribute.
++        #: The per-host SSH config data, if any. (See :ref:`ssh-config`.)
++        self.ssh_config = self.config.base_ssh_config.lookup(host)
++
++        self.original_host = host
++        #: The hostname of the target server.
++        self.host = host
++        if "hostname" in self.ssh_config:
++            # TODO: log that this occurred?
++            self.host = self.ssh_config["hostname"]
++
++        #: The username this connection will use to connect to the remote end.
++        self.user = user or self.ssh_config.get("user", self.config.user)
++        # TODO: is it _ever_ possible to give an empty user value (e.g.
++        # user='')? E.g. do some SSH server specs allow for that?
++
++        #: The network port to connect on.
++        self.port = port or int(self.ssh_config.get("port", self.config.port))
++
++        # Gateway/proxy/bastion/jump setting: non-None values - string,
++        # Connection, even eg False - get set directly; None triggers seek in
++        # config/ssh_config
++        #: The gateway `.Connection` or ``ProxyCommand`` string to be used,
++        #: if any.
++        self.gateway = gateway if gateway is not None else self.get_gateway()
++        # NOTE: we use string above, vs ProxyCommand obj, to avoid spinning up
++        # the ProxyCommand subprocess at init time, vs open() time.
++        # TODO: make paramiko.proxy.ProxyCommand lazy instead?
++
++        if forward_agent is None:
++            # Default to config...
++            forward_agent = self.config.forward_agent
++            # But if ssh_config is present, it wins
++            if "forwardagent" in self.ssh_config:
++                # TODO: SSHConfig really, seriously needs some love here, god
++                map_ = {"yes": True, "no": False}
++                forward_agent = map_[self.ssh_config["forwardagent"]]
++        #: Whether agent forwarding is enabled.
++        self.forward_agent = forward_agent
++
++        if connect_timeout is None:
++            connect_timeout = self.ssh_config.get(
++                "connecttimeout", self.config.timeouts.connect
++            )
++        if connect_timeout is not None:
++            connect_timeout = int(connect_timeout)
++        #: Connection timeout
++        self.connect_timeout = connect_timeout
++
++        #: Keyword arguments given to `paramiko.client.SSHClient.connect` when
++        #: `open` is called.
++        self.connect_kwargs = self.resolve_connect_kwargs(connect_kwargs)
++
++        #: The `paramiko.client.SSHClient` instance this connection wraps.
++        client = SSHClient()
++        client.set_missing_host_key_policy(AutoAddPolicy())
++        self.client = client
++
++        #: A convenience handle onto the return value of
++        #: ``self.client.get_transport()`` (after connection time).
++        self.transport = None
++
++        if inline_ssh_env is None:
++            inline_ssh_env = self.config.inline_ssh_env
++        #: Whether to construct remote command lines with env vars prefixed
++        #: inline.
++        self.inline_ssh_env = inline_ssh_env
++
++    def resolve_connect_kwargs(self, connect_kwargs):
++        # TODO: is it better to pre-empt conflicts w/ manually-handled
++        # connect() kwargs (hostname, username, etc) here or in open()? We're
++        # doing open() for now in case e.g. someone manually modifies
++        # .connect_kwargs attributewise, but otherwise it feels better to do it
++        # early instead of late.
++        constructor_kwargs = connect_kwargs or {}
++        config_kwargs = self.config.connect_kwargs
++        constructor_keys = constructor_kwargs.get("key_filename", [])
++        config_keys = config_kwargs.get("key_filename", [])
++        ssh_config_keys = self.ssh_config.get("identityfile", [])
++
++        # Default data: constructor if given, config otherwise
++        final_kwargs = constructor_kwargs or config_kwargs
++
++        # Key filename: merge, in order, config (which includes CLI flags),
++        # then constructor kwargs, and finally SSH config file data.
++        # Make sure all are normalized to list as well!
++        final_keys = []
++        for value in (config_keys, constructor_keys, ssh_config_keys):
++            if isinstance(value, str):
++                value = [value]
++            final_keys.extend(value)
++        # Only populate if non-empty.
++        if final_keys:
++            final_kwargs["key_filename"] = final_keys
++
++        return final_kwargs
++
++    def get_gateway(self):
++        # SSH config wins over Invoke-style config
++        if "proxyjump" in self.ssh_config:
++            # Reverse hop1,hop2,hop3 style ProxyJump directive so we start
++            # with the final (itself non-gatewayed) hop and work up to
++            # the front (actual, supplied as our own gateway) hop
++            hops = reversed(self.ssh_config["proxyjump"].split(","))
++            prev_gw = None
++            for hop in hops:
++                # Short-circuit if we appear to be our own proxy, which would
++                # be a RecursionError. Implies SSH config wildcards.
++                # TODO: in an ideal world we'd check user/port too in case they
++                # differ, but...seriously? They can file a PR with those extra
++                # half dozen test cases in play, E_NOTIME
++                if self.derive_shorthand(hop)["host"] == self.host:
++                    return None
++                # Happily, ProxyJump uses identical format to our host
++                # shorthand...
++                kwargs = dict(config=self.config.clone())
++                if prev_gw is not None:
++                    kwargs["gateway"] = prev_gw
++                cxn = Connection(hop, **kwargs)
++                prev_gw = cxn
++            return prev_gw
++        elif "proxycommand" in self.ssh_config:
++            # Just a string, which we interpret as a proxy command..
++            return self.ssh_config["proxycommand"]
++        # Fallback: config value (may be None).
++        return self.config.gateway
++
++    def __repr__(self):
++        # Host comes first as it's the most common differentiator by far
++        bits = [("host", self.host)]
++        # TODO: maybe always show user regardless? Explicit is good...
++        if self.user != self.config.user:
++            bits.append(("user", self.user))
++        # TODO: harder to make case for 'always show port'; maybe if it's
++        # non-22 (even if config has overridden the local default)?
++        if self.port != self.config.port:
++            bits.append(("port", self.port))
++        # NOTE: sometimes self.gateway may be eg False if someone wants to
++        # explicitly override a configured non-None value (as otherwise it's
++        # impossible for __init__ to tell if a None means "nothing given" or
++        # "seriously please no gatewaying". So, this must always be a vanilla
++        # truth test and not eg "is not None".
++        if self.gateway:
++            # Displaying type because gw params would probs be too verbose
++            val = "proxyjump"
++            if isinstance(self.gateway, str):
++                val = "proxycommand"
++            bits.append(("gw", val))
++        return "<Connection {}>".format(
++            " ".join("{}={}".format(*x) for x in bits)
++        )
++
++    def _identity(self):
++        # TODO: consider including gateway and maybe even other init kwargs?
++        # Whether two cxns w/ same user/host/port but different
++        # gateway/keys/etc, should be considered "the same", is unclear.
++        return (self.host, self.user, self.port)
++
++    def __eq__(self, other):
++        if not isinstance(other, Connection):
++            return False
++        return self._identity() == other._identity()
++
++    def __lt__(self, other):
++        return self._identity() < other._identity()
++
++    def __hash__(self):
++        # NOTE: this departs from Context/DataProxy, which is not usefully
++        # hashable.
++        return hash(self._identity())
++
++    def derive_shorthand(self, host_string):
++        # NOTE: used to be defined inline; preserving API call for both
++        # backwards compatibility and because it seems plausible we may want to
++        # modify behavior later, using eg config or other attributes.
++        return derive_shorthand(host_string)
++
++    @property
++    def is_connected(self):
++        """
++        Whether or not this connection is actually open.
++
++        .. versionadded:: 2.0
++        """
++        return self.transport.active if self.transport else False
++
++    def open(self):
++        """
++        Initiate an SSH connection to the host/port this object is bound to.
++
++        This may include activating the configured gateway connection, if one
++        is set.
++
++        Also saves a handle to the now-set Transport object for easier access.
++
++        Various connect-time settings (and/or their corresponding :ref:`SSH
++        config options <ssh-config>`) are utilized here in the call to
++        `SSHClient.connect <paramiko.client.SSHClient.connect>`. (For details,
++        see :doc:`the configuration docs </concepts/configuration>`.)
++
++        :returns:
++            The result of the internal call to `.SSHClient.connect`, if
++            performing an initial connection; ``None`` otherwise.
++
++        .. versionadded:: 2.0
++        .. versionchanged:: 3.1
++            Now returns the inner Paramiko connect call's return value instead
++            of always returning the implicit ``None``.
++        """
++        # Short-circuit
++        if self.is_connected:
++            return
++        err = "Refusing to be ambiguous: connect() kwarg '{}' was given both via regular arg and via connect_kwargs!"  # noqa
++        # These may not be given, period
++        for key in """
++            hostname
++            port
++            username
++        """.split():
++            if key in self.connect_kwargs:
++                raise ValueError(err.format(key))
++        # These may be given one way or the other, but not both
++        if (
++            "timeout" in self.connect_kwargs
++            and self.connect_timeout is not None
++        ):
++            raise ValueError(err.format("timeout"))
++        # No conflicts -> merge 'em together
++        kwargs = dict(
++            self.connect_kwargs,
++            username=self.user,
++            hostname=self.host,
++            port=self.port,
++        )
++        if self.gateway:
++            kwargs["sock"] = self.open_gateway()
++        if self.connect_timeout:
++            kwargs["timeout"] = self.connect_timeout
++        # Strip out empty defaults for less noisy debugging
++        if "key_filename" in kwargs and not kwargs["key_filename"]:
++            del kwargs["key_filename"]
++        auth_strategy_class = self.authentication.strategy_class
++        if auth_strategy_class is not None:
++            # Pop connect_kwargs related to auth to avoid giving Paramiko
++            # conflicting signals.
++            for key in (
++                "allow_agent",
++                "key_filename",
++                "look_for_keys",
++                "passphrase",
++                "password",
++                "pkey",
++                "username",
++            ):
++                kwargs.pop(key, None)
++
++            kwargs["auth_strategy"] = auth_strategy_class(
++                ssh_config=self.ssh_config,
++                fabric_config=self.config,
++                username=self.user,
++            )
++        # Actually connect!
++        result = self.client.connect(**kwargs)
++        self.transport = self.client.get_transport()
++        return result
++
++    def open_gateway(self):
++        """
++        Obtain a socket-like object from `gateway`.
++
++        :returns:
++            A ``direct-tcpip`` `paramiko.channel.Channel`, if `gateway` was a
++            `.Connection`; or a `~paramiko.proxy.ProxyCommand`, if `gateway`
++            was a string.
++
++        .. versionadded:: 2.0
++        """
++        # ProxyCommand is faster to set up, so do it first.
++        if isinstance(self.gateway, str):
++            # Leverage a dummy SSHConfig to ensure %h/%p/etc are parsed.
++            # TODO: use real SSH config once loading one properly is
++            # implemented.
++            ssh_conf = SSHConfig()
++            dummy = "Host {}\n    ProxyCommand {}"
++            ssh_conf.parse(StringIO(dummy.format(self.host, self.gateway)))
++            return ProxyCommand(ssh_conf.lookup(self.host)["proxycommand"])
++        # Handle inner-Connection gateway type here.
++        # TODO: logging
++        self.gateway.open()
++        # TODO: expose the opened channel itself as an attribute? (another
++        # possible argument for separating the two gateway types...) e.g. if
++        # someone wanted to piggyback on it for other same-interpreter socket
++        # needs...
++        # TODO: and the inverse? allow users to supply their own socket/like
++        # object they got via $WHEREEVER?
++        # TODO: how best to expose timeout param? reuse general connection
++        # timeout from config?
++        return self.gateway.transport.open_channel(
++            kind="direct-tcpip",
++            dest_addr=(self.host, int(self.port)),
++            # NOTE: src_addr needs to be 'empty but not None' values to
++            # correctly encode into a network message. Theoretically Paramiko
++            # could auto-interpret None sometime & save us the trouble.
++            src_addr=("", 0),
++        )
++
++    def close(self):
++        """
++        Terminate the network connection to the remote end, if open.
++
++        If any SFTP sessions are open, they will also be closed.
++
++        If no connection or SFTP session is open, this method does nothing.
++
++        .. versionadded:: 2.0
++        .. versionchanged:: 3.0
++            Now closes SFTP sessions too (2.x required manually doing so).
++        """
++        if self._sftp is not None:
++            self._sftp.close()
++            self._sftp = None
++
++        if self.is_connected:
++            self.client.close()
++            if self.forward_agent and self._agent_handler is not None:
++                self._agent_handler.close()
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, *exc):
++        self.close()
++
++    @opens
++    def create_session(self):
++        channel = self.transport.open_session()
++        if self.forward_agent:
++            self._agent_handler = AgentRequestHandler(channel)
++        return channel
++
++    def _remote_runner(self):
++        return self.config.runners.remote(
++            context=self, inline_env=self.inline_ssh_env
++        )
++
++    @opens
++    def run(self, command, **kwargs):
++        """
++        Execute a shell command on the remote end of this connection.
++
++        This method wraps an SSH-capable implementation of
++        `invoke.runners.Runner.run`; see its documentation for details.
++
++        .. warning::
++            There are a few spots where Fabric departs from Invoke's default
++            settings/behaviors; they are documented under
++            `.Config.global_defaults`.
++
++        .. versionadded:: 2.0
++        """
++        return self._run(self._remote_runner(), command, **kwargs)
++
++    @opens
++    def sudo(self, command, **kwargs):
++        """
++        Execute a shell command, via ``sudo``, on the remote end.
++
++        This method is identical to `invoke.context.Context.sudo` in every way,
++        except in that -- like `run` -- it honors per-host/per-connection
++        configuration overrides in addition to the generic/global ones. Thus,
++        for example, per-host sudo passwords may be configured.
++
++        .. versionadded:: 2.0
++        """
++        return self._sudo(self._remote_runner(), command, **kwargs)
++
++    @opens
++    def shell(self, **kwargs):
++        """
++        Run an interactive login shell on the remote end, as with ``ssh``.
++
++        This method is intended strictly for use cases where you can't know
++        what remote shell to invoke, or are connecting to a non-POSIX-server
++        environment such as a network appliance or other custom SSH server.
++        Nearly every other use case, including interactively-focused ones, will
++        be better served by using `run` plus an explicit remote shell command
++        (eg ``bash``).
++
++        `shell` has the following differences in behavior from `run`:
++
++        - It still returns a `~invoke.runners.Result` instance, but the object
++          will have a less useful set of attributes than with `run` or `local`:
++
++            - ``command`` will be ``None``, as there is no such input argument.
++            - ``stdout`` will contain a full record of the session, including
++              all interactive input, as that is echoed back to the user. This
++              can be useful for logging but is much less so for doing
++              programmatic things after the method returns.
++            - ``stderr`` will always be empty (same as `run` when
++              ``pty==True``).
++            - ``pty`` will always be True (because one was automatically used).
++            - ``exited`` and similar attributes will only reflect the overall
++              session, which may vary by shell or appliance but often has no
++              useful relationship with the internally executed commands' exit
++              codes.
++
++        - This method behaves as if ``warn`` is set to ``True``: even if the
++          remote shell exits uncleanly, no exception will be raised.
++        - A pty is always allocated remotely, as with ``pty=True`` under `run`.
++        - The ``inline_env`` setting is ignored, as there is no default shell
++          command to add the parameters to (and no guarantee the remote end
++          even is a shell!)
++
++        It supports **only** the following kwargs, which behave identically to
++        their counterparts in `run` unless otherwise stated:
++
++        - ``encoding``
++        - ``env``
++        - ``in_stream`` (useful in niche cases, but make sure regular `run`
++          with this argument isn't more suitable!)
++        - ``replace_env``
++        - ``watchers`` (note that due to pty echoing your stdin back to stdout,
++          a watcher will see your input as well as program stdout!)
++
++        Those keyword arguments also honor the ``run.*`` configuration tree, as
++        in `run`/`sudo`.
++
++        :returns: `~invoke.runners.Result`
++
++        :raises:
++            `~invoke.exceptions.ThreadException` (if the background I/O threads
++            encountered exceptions other than
++            `~invoke.exceptions.WatcherError`).
++
++        .. versionadded:: 2.7
++        """
++        runner = self.config.runners.remote_shell(context=self)
++        # Reinstate most defaults as explicit kwargs to ensure user's config
++        # doesn't make this mode break horribly. Then override a few that need
++        # to change, like pty.
++        allowed = ("encoding", "env", "in_stream", "replace_env", "watchers")
++        new_kwargs = {}
++        for key, value in self.config.global_defaults()["run"].items():
++            if key in allowed:
++                # Use allowed kwargs if given, otherwise also fill them from
++                # defaults
++                new_kwargs[key] = kwargs.pop(key, self.config.run[key])
++            else:
++                new_kwargs[key] = value
++        new_kwargs.update(pty=True)
++        # At this point, any leftover kwargs would be ignored, so yell instead
++        if kwargs:
++            err = "shell() got unexpected keyword arguments: {!r}"
++            raise TypeError(err.format(list(kwargs.keys())))
++        return runner.run(command=None, **new_kwargs)
++
++    def local(self, *args, **kwargs):
++        """
++        Execute a shell command on the local system.
++
++        This method is effectively a wrapper of `invoke.run`; see its docs for
++        details and call signature.
++
++        .. versionadded:: 2.0
++        """
++        # Superclass run() uses runners.local, so we can literally just call it
++        # straight.
++        return super().run(*args, **kwargs)
++
++    @opens
++    def sftp(self):
++        """
++        Return a `~paramiko.sftp_client.SFTPClient` object.
++
++        If called more than one time, memoizes the first result; thus, any
++        given `.Connection` instance will only ever have a single SFTP client,
++        and state (such as that managed by
++        `~paramiko.sftp_client.SFTPClient.chdir`) will be preserved.
++
++        .. versionadded:: 2.0
++        """
++        if self._sftp is None:
++            self._sftp = self.client.open_sftp()
++        return self._sftp
++
++    def get(self, *args, **kwargs):
++        """
++        Get a remote file to the local filesystem or file-like object.
++
++        Simply a wrapper for `.Transfer.get`. Please see its documentation for
++        all details.
++
++        .. versionadded:: 2.0
++        """
++        return Transfer(self).get(*args, **kwargs)
++
++    def put(self, *args, **kwargs):
++        """
++        Put a local file (or file-like object) to the remote filesystem.
++
++        Simply a wrapper for `.Transfer.put`. Please see its documentation for
++        all details.
++
++        .. versionadded:: 2.0
++        """
++        return Transfer(self).put(*args, **kwargs)
++
++    # TODO: yield the socket for advanced users? Other advanced use cases
++    # (perhaps factor out socket creation itself)?
++    # TODO: probably push some of this down into Paramiko
++    @contextmanager
++    @opens
++    def forward_local(
++        self,
++        local_port,
++        remote_port=None,
++        remote_host="localhost",
++        local_host="localhost",
++    ):
++        """
++        Open a tunnel connecting ``local_port`` to the server's environment.
++
++        For example, say you want to connect to a remote PostgreSQL database
++        which is locked down and only accessible via the system it's running
++        on. You have SSH access to this server, so you can temporarily make
++        port 5432 on your local system act like port 5432 on the server::
++
++            import psycopg2
++            from fabric import Connection
++
++            with Connection('my-db-server').forward_local(5432):
++                db = psycopg2.connect(
++                    host='localhost', port=5432, database='mydb'
++                )
++                # Do things with 'db' here
++
++        This method is analogous to using the ``-L`` option of OpenSSH's
++        ``ssh`` program.
++
++        :param int local_port: The local port number on which to listen.
++
++        :param int remote_port:
++            The remote port number. Defaults to the same value as
++            ``local_port``.
++
++        :param str local_host:
++            The local hostname/interface on which to listen. Default:
++            ``localhost``.
++
++        :param str remote_host:
++            The remote hostname serving the forwarded remote port. Default:
++            ``localhost`` (i.e., the host this `.Connection` is connected to.)
++
++        :returns:
++            Nothing; this method is only useful as a context manager affecting
++            local operating system state.
++
++        .. versionadded:: 2.0
++        """
++        if not remote_port:
++            remote_port = local_port
++
++        # TunnelManager does all of the work, sitting in the background (so we
++        # can yield) and spawning threads every time somebody connects to our
++        # local port.
++        finished = Event()
++        manager = TunnelManager(
++            local_port=local_port,
++            local_host=local_host,
++            remote_port=remote_port,
++            remote_host=remote_host,
++            # TODO: not a huge fan of handing in our transport, but...?
++            transport=self.transport,
++            finished=finished,
++        )
++        manager.start()
++
++        # Return control to caller now that things ought to be operational
++        try:
++            yield
++        # Teardown once user exits block
++        finally:
++            # Signal to manager that it should close all open tunnels
++            finished.set()
++            # Then wait for it to do so
++            manager.join()
++            # Raise threading errors from within the manager, which would be
++            # one of:
++            # - an inner ThreadException, which was created by the manager on
++            # behalf of its Tunnels; this gets directly raised.
++            # - some other exception, which would thus have occurred in the
++            # manager itself; we wrap this in a new ThreadException.
++            # NOTE: in these cases, some of the metadata tracking in
++            # ExceptionHandlingThread/ExceptionWrapper/ThreadException (which
++            # is useful when dealing with multiple nearly-identical sibling IO
++            # threads) is superfluous, but it doesn't feel worth breaking
++            # things up further; we just ignore it for now.
++            wrapper = manager.exception()
++            if wrapper is not None:
++                if wrapper.type is ThreadException:
++                    raise wrapper.value
++                else:
++                    raise ThreadException([wrapper])
++
++            # TODO: cancel port forward on transport? Does that even make sense
++            # here (where we used direct-tcpip) vs the opposite method (which
++            # is what uses forward-tcpip)?
++
++    # TODO: probably push some of this down into Paramiko
++    @contextmanager
++    @opens
++    def forward_remote(
++        self,
++        remote_port,
++        local_port=None,
++        remote_host="127.0.0.1",
++        local_host="localhost",
++    ):
++        """
++        Open a tunnel connecting ``remote_port`` to the local environment.
++
++        For example, say you're running a daemon in development mode on your
++        workstation at port 8080, and want to funnel traffic to it from a
++        production or staging environment.
++
++        In most situations this isn't possible as your office/home network
++        probably blocks inbound traffic. But you have SSH access to this
++        server, so you can temporarily make port 8080 on that server act like
++        port 8080 on your workstation::
++
++            from fabric import Connection
++
++            c = Connection('my-remote-server')
++            with c.forward_remote(8080):
++                c.run("remote-data-writer --port 8080")
++                # Assuming remote-data-writer runs until interrupted, this will
++                # stay open until you Ctrl-C...
++
++        This method is analogous to using the ``-R`` option of OpenSSH's
++        ``ssh`` program.
++
++        :param int remote_port: The remote port number on which to listen.
++
++        :param int local_port:
++            The local port number. Defaults to the same value as
++            ``remote_port``.
++
++        :param str local_host:
++            The local hostname/interface the forwarded connection talks to.
++            Default: ``localhost``.
++
++        :param str remote_host:
++            The remote interface address to listen on when forwarding
++            connections. Default: ``127.0.0.1`` (i.e. only listen on the remote
++            localhost).
++
++        :returns:
++            Nothing; this method is only useful as a context manager affecting
++            local operating system state.
++
++        .. versionadded:: 2.0
++        """
++        if not local_port:
++            local_port = remote_port
++        # Callback executes on each connection to the remote port and is given
++        # a Channel hooked up to said port. (We don't actually care about the
++        # source/dest host/port pairs at all; only whether the channel has data
++        # to read and suchlike.)
++        # We then pair that channel with a new 'outbound' socket connection to
++        # the local host/port being forwarded, in a new Tunnel.
++        # That Tunnel is then added to a shared data structure so we can track
++        # & close them during shutdown.
++        #
++        # TODO: this approach is less than ideal because we have to share state
++        # between ourselves & the callback handed into the transport's own
++        # thread handling (which is roughly analogous to our self-controlled
++        # TunnelManager for local forwarding). See if we can use more of
++        # Paramiko's API (or improve it and then do so) so that isn't
++        # necessary.
++        tunnels = []
++
++        def callback(channel, src_addr_tup, dst_addr_tup):
++            sock = socket.socket()
++            # TODO: handle connection failure such that channel, etc get closed
++            sock.connect((local_host, local_port))
++            # TODO: we don't actually need to generate the Events at our level,
++            # do we? Just let Tunnel.__init__ do it; all we do is "press its
++            # button" on shutdown...
++            tunnel = Tunnel(channel=channel, sock=sock, finished=Event())
++            tunnel.start()
++            # Communication between ourselves & the Paramiko handling subthread
++            tunnels.append(tunnel)
++
++        # Ask Paramiko (really, the remote sshd) to call our callback whenever
++        # connections are established on the remote iface/port.
++        # transport.request_port_forward(remote_host, remote_port, callback)
++        try:
++            self.transport.request_port_forward(
++                address=remote_host, port=remote_port, handler=callback
++            )
++            yield
++        finally:
++            # TODO: see above re: lack of a TunnelManager
++            # TODO: and/or also refactor with TunnelManager re: shutdown logic.
++            # E.g. maybe have a non-thread TunnelManager-alike with a method
++            # that acts as the callback? At least then there's a tiny bit more
++            # encapsulation...meh.
++            for tunnel in tunnels:
++                tunnel.finished.set()
++                tunnel.join()
++            self.transport.cancel_port_forward(
++                address=remote_host, port=remote_port
++            )
+diff --git a/fabric/exceptions.py b/fabric/exceptions.py
+new file mode 100644
+index 0000000..f965219
+--- /dev/null
++++ b/fabric/exceptions.py
+@@ -0,0 +1,26 @@
++# TODO: this may want to move to Invoke if we can find a use for it there too?
++# Or make it _more_ narrowly focused and stay here?
++class NothingToDo(Exception):
++    pass
++
++
++class GroupException(Exception):
++    """
++    Lightweight exception wrapper for `.GroupResult` when one contains errors.
++
++    .. versionadded:: 2.0
++    """
++
++    def __init__(self, result):
++        #: The `.GroupResult` object which would have been returned, had there
++        #: been no errors. See its docstring (and that of `.Group`) for
++        #: details.
++        self.result = result
++
++
++class InvalidV1Env(Exception):
++    """
++    Raised when attempting to import a Fabric 1 ``env`` which is missing data.
++    """
++
++    pass
+diff --git a/fabric/executor.py b/fabric/executor.py
+new file mode 100644
+index 0000000..4ef06f6
+--- /dev/null
++++ b/fabric/executor.py
+@@ -0,0 +1,127 @@
++import invoke
++from invoke import Call, Task
++
++from .tasks import ConnectionCall
++from .exceptions import NothingToDo
++from .util import debug
++
++
++class Executor(invoke.Executor):
++    """
++    `~invoke.executor.Executor` subclass which understands Fabric concepts.
++
++    Designed to work in tandem with Fabric's `@task
++    <fabric.tasks.task>`/`~fabric.tasks.Task`, and is capable of acting on
++    information stored on the resulting objects -- such as default host lists.
++
++    This class is written to be backwards compatible with vanilla Invoke-level
++    tasks, which it simply delegates to its superclass.
++
++    Please see the parent class' `documentation <invoke.executor.Executor>` for
++    details on most public API members and object lifecycle.
++    """
++
++    def normalize_hosts(self, hosts):
++        """
++        Normalize mixed host-strings-or-kwarg-dicts into kwarg dicts only.
++
++        In other words, transforms data taken from the CLI (--hosts, always
++        strings) or decorator arguments (may be strings or kwarg dicts) into
++        kwargs suitable for creating Connection instances.
++
++        Subclasses may wish to override or extend this to perform, for example,
++        database or custom config file lookups (vs this default behavior, which
++        is to simply assume that strings are 'host' kwargs).
++
++        :param hosts:
++            Potentially heterogenous list of host connection values, as per the
++            ``hosts`` param to `.task`.
++
++        :returns: Homogenous list of Connection init kwarg dicts.
++        """
++        dicts = []
++        for value in hosts or []:
++            # Assume first posarg to Connection() if not already a dict.
++            if not isinstance(value, dict):
++                value = dict(host=value)
++            dicts.append(value)
++        return dicts
++
++    def expand_calls(self, calls, apply_hosts=True):
++        # Generate new call list with per-host variants & Connections inserted
++        ret = []
++        cli_hosts = []
++        host_str = self.core[0].args.hosts.value
++        if apply_hosts and host_str:
++            cli_hosts = host_str.split(",")
++        for call in calls:
++            if isinstance(call, Task):
++                call = Call(task=call)
++            # TODO: expand this to allow multiple types of execution plans,
++            # pending outcome of invoke#461 (which, if flexible enough to
++            # handle intersect of dependencies+parameterization, just becomes
++            # 'honor that new feature of Invoke')
++            # TODO: roles, other non-runtime host parameterizations, etc
++            # Pre-tasks get added only once, not once per host.
++            ret.extend(self.expand_calls(call.pre, apply_hosts=False))
++            # Determine final desired host list based on CLI and task values
++            # (with CLI, being closer to runtime, winning) and normalize to
++            # Connection-init kwargs.
++            call_hosts = getattr(call, "hosts", None)
++            cxn_params = self.normalize_hosts(cli_hosts or call_hosts)
++            # Main task, per host/connection
++            for init_kwargs in cxn_params:
++                ret.append(self.parameterize(call, init_kwargs))
++            # Deal with lack of hosts list (acts same as `inv` in that case)
++            # TODO: no tests for this branch?
++            if not cxn_params:
++                ret.append(call)
++            # Post-tasks added once, not once per host.
++            ret.extend(self.expand_calls(call.post, apply_hosts=False))
++        # Add remainder as anonymous task
++        if self.core.remainder:
++            # TODO: this will need to change once there are more options for
++            # setting host lists besides "-H or 100% within-task"
++            if not cli_hosts:
++                raise NothingToDo(
++                    "Was told to run a command, but not given any hosts to run it on!"  # noqa
++                )
++
++            def anonymous(c):
++                c.run(self.core.remainder)
++
++            anon = Call(Task(body=anonymous))
++            # TODO: see above TODOs about non-parameterized setups, roles etc
++            # TODO: will likely need to refactor that logic some more so it can
++            # be used both there and here.
++            for init_kwargs in self.normalize_hosts(cli_hosts):
++                ret.append(self.parameterize(anon, init_kwargs))
++        return ret
++
++    def parameterize(self, call, connection_init_kwargs):
++        """
++        Parameterize a Call with its Context set to a per-host Connection.
++
++        :param call:
++            The generic `.Call` being parameterized.
++        :param connection_init_kwargs:
++            The dict of `.Connection` init params/kwargs to attach to the
++            resulting `.ConnectionCall`.
++
++        :returns:
++            `.ConnectionCall`.
++        """
++        msg = "Parameterizing {!r} with Connection kwargs {!r}"
++        debug(msg.format(call, connection_init_kwargs))
++        # Generate a custom ConnectionCall that has init_kwargs (used for
++        # creating the Connection at runtime) set to the requested params.
++        new_call_kwargs = dict(init_kwargs=connection_init_kwargs)
++        clone = call.clone(into=ConnectionCall, with_=new_call_kwargs)
++        return clone
++
++    def dedupe(self, tasks):
++        # Don't perform deduping, we will often have "duplicate" tasks w/
++        # distinct host values/etc.
++        # TODO: might want some deduplication later on though - falls under
++        # "how to mesh parameterization with pre/post/etc deduping".
++        return tasks
+diff --git a/fabric/group.py b/fabric/group.py
+new file mode 100644
+index 0000000..506f235
+--- /dev/null
++++ b/fabric/group.py
+@@ -0,0 +1,342 @@
++from queue import Queue
++
++from invoke.util import ExceptionHandlingThread
++
++from .connection import Connection
++from .exceptions import GroupException
++
++
++class Group(list):
++    """
++    A collection of `.Connection` objects whose API operates on its contents.
++
++    .. warning::
++        **This is a partially abstract class**; you need to use one of its
++        concrete subclasses (such as `.SerialGroup` or `.ThreadingGroup`) or
++        you'll get ``NotImplementedError`` on most of the methods.
++
++    Most methods in this class wrap those of `.Connection` and will accept the
++    same arguments; however their return values and exception-raising behavior
++    differ:
++
++    - Return values are dict-like objects (`.GroupResult`) mapping
++      `.Connection` objects to the return value for the respective connections:
++      `.Group.run` returns a map of `.Connection` to `.runners.Result`,
++      `.Group.get` returns a map of `.Connection` to `.transfer.Result`, etc.
++    - If any connections encountered exceptions, a `.GroupException` is raised,
++      which is a thin wrapper around what would otherwise have been the
++      `.GroupResult` returned; within that wrapped `.GroupResult`, the
++      excepting connections map to the exception that was raised, in place of a
++      ``Result`` (as no ``Result`` was obtained.) Any non-excepting connections
++      will have a ``Result`` value, as normal.
++
++    For example, when no exceptions occur, a session might look like this::
++
++        >>> group = SerialGroup('host1', 'host2')
++        >>> group.run("this is fine")
++        {
++            <Connection host='host1'>: <Result cmd='this is fine' exited=0>,
++            <Connection host='host2'>: <Result cmd='this is fine' exited=0>,
++        }
++
++    With exceptions (anywhere from 1 to "all of them"), it looks like so; note
++    the different exception classes, e.g. `~invoke.exceptions.UnexpectedExit`
++    for a completed session whose command exited poorly, versus
++    `socket.gaierror` for a host that had DNS problems::
++
++        >>> group = SerialGroup('host1', 'host2', 'notahost')
++        >>> group.run("will it blend?")
++        {
++            <Connection host='host1'>: <Result cmd='will it blend?' exited=0>,
++            <Connection host='host2'>: <UnexpectedExit: cmd='...' exited=1>,
++            <Connection host='notahost'>: gaierror(...),
++        }
++
++    As with `.Connection`, `.Group` objects may be used as context managers,
++    which will automatically `.close` the object on block exit.
++
++    .. versionadded:: 2.0
++    .. versionchanged:: 2.4
++        Added context manager behavior.
++    """
++
++    def __init__(self, *hosts, **kwargs):
++        """
++        Create a group of connections from one or more shorthand host strings.
++
++        See `.Connection` for details on the format of these strings - they
++        will be used as the first positional argument of `.Connection`
++        constructors.
++
++        Any keyword arguments given will be forwarded directly to those
++        `.Connection` constructors as well. For example, to get a serially
++        executing group object that connects to ``admin@host1``,
++        ``admin@host2`` and ``admin@host3``, and forwards your SSH agent too::
++
++            group = SerialGroup(
++                "host1", "host2", "host3", user="admin", forward_agent=True,
++            )
++
++        .. versionchanged:: 2.3
++            Added ``**kwargs`` (was previously only ``*hosts``).
++        """
++        # TODO: #563, #388 (could be here or higher up in Program area)
++        self.extend([Connection(host, **kwargs) for host in hosts])
++
++    @classmethod
++    def from_connections(cls, connections):
++        """
++        Alternate constructor accepting `.Connection` objects.
++
++        .. versionadded:: 2.0
++        """
++        # TODO: *args here too; or maybe just fold into __init__ and type
++        # check?
++        group = cls()
++        group.extend(connections)
++        return group
++
++    def _do(self, method, *args, **kwargs):
++        # TODO: rename this something public & commit to an API for user
++        # subclasses
++        raise NotImplementedError
++
++    def run(self, *args, **kwargs):
++        """
++        Executes `.Connection.run` on all member `Connections <.Connection>`.
++
++        :returns: a `.GroupResult`.
++
++        .. versionadded:: 2.0
++        """
++        # TODO: how to change method of execution across contents? subclass,
++        # kwargs, additional methods, inject an executor? Doing subclass for
++        # now, but not 100% sure it's the best route.
++        # TODO: also need way to deal with duplicate connections (see THOUGHTS)
++        return self._do("run", *args, **kwargs)
++
++    def sudo(self, *args, **kwargs):
++        """
++        Executes `.Connection.sudo` on all member `Connections <.Connection>`.
++
++        :returns: a `.GroupResult`.
++
++        .. versionadded:: 2.6
++        """
++        # TODO: see run() TODOs
++        return self._do("sudo", *args, **kwargs)
++
++    # TODO: this all needs to mesh well with similar strategies applied to
++    # entire tasks - so that may still end up factored out into Executors or
++    # something lower level than both those and these?
++
++    # TODO: local? Invoke wants ability to do that on its own though, which
++    # would be distinct from Group. (May want to switch Group to use that,
++    # though, whatever it ends up being? Eg many cases where you do want to do
++    # some local thing either N times identically, or parameterized by remote
++    # cxn values)
++
++    def put(self, *args, **kwargs):
++        """
++        Executes `.Connection.put` on all member `Connections <.Connection>`.
++
++        This is a straightforward application: aside from whatever the concrete
++        group subclass does for concurrency or lack thereof, the effective
++        result is like running a loop over the connections and calling their
++        ``put`` method.
++
++        :returns:
++            a `.GroupResult` whose values are `.transfer.Result` instances.
++
++        .. versionadded:: 2.6
++        """
++        return self._do("put", *args, **kwargs)
++
++    def get(self, *args, **kwargs):
++        """
++        Executes `.Connection.get` on all member `Connections <.Connection>`.
++
++        .. note::
++            This method changes some behaviors over e.g. directly calling
++            `.Connection.get` on a ``for`` loop of connections; the biggest is
++            that the implied default value for the ``local`` parameter is
++            ``"{host}/"``, which triggers use of local path parameterization
++            based on each connection's target hostname.
++
++            Thus, unless you override ``local`` yourself, a copy of the
++            downloaded file will be stored in (relative) directories named
++            after each host in the group.
++
++        .. warning::
++            Using file-like objects as the ``local`` argument is not currently
++            supported, as it would be equivalent to supplying that same object
++            to a series of individual ``get()`` calls.
++
++        :returns:
++            a `.GroupResult` whose values are `.transfer.Result` instances.
++
++        .. versionadded:: 2.6
++        """
++        # TODO 4.0: consider making many of these into kwarg-only methods? then
++        # below could become kwargs.setdefault() if desired.
++        # TODO: do we care enough to handle explicitly given, yet falsey,
++        # values? it's a lot more complexity for a corner case.
++        if len(args) < 2 and "local" not in kwargs:
++            kwargs["local"] = "{host}/"
++        return self._do("get", *args, **kwargs)
++
++    def close(self):
++        """
++        Executes `.Connection.close` on all member `Connections <.Connection>`.
++
++        .. versionadded:: 2.4
++        """
++        for cxn in self:
++            cxn.close()
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, *exc):
++        self.close()
++
++
++class SerialGroup(Group):
++    """
++    Subclass of `.Group` which executes in simple, serial fashion.
++
++    .. versionadded:: 2.0
++    """
++
++    def _do(self, method, *args, **kwargs):
++        results = GroupResult()
++        excepted = False
++        for cxn in self:
++            try:
++                results[cxn] = getattr(cxn, method)(*args, **kwargs)
++            except Exception as e:
++                results[cxn] = e
++                excepted = True
++        if excepted:
++            raise GroupException(results)
++        return results
++
++
++def thread_worker(cxn, queue, method, args, kwargs):
++    result = getattr(cxn, method)(*args, **kwargs)
++    # TODO: namedtuple or attrs object?
++    queue.put((cxn, result))
++
++
++class ThreadingGroup(Group):
++    """
++    Subclass of `.Group` which uses threading to execute concurrently.
++
++    .. versionadded:: 2.0
++    """
++
++    def _do(self, method, *args, **kwargs):
++        results = GroupResult()
++        queue = Queue()
++        threads = []
++        for cxn in self:
++            thread = ExceptionHandlingThread(
++                target=thread_worker,
++                kwargs=dict(
++                    cxn=cxn,
++                    queue=queue,
++                    method=method,
++                    args=args,
++                    kwargs=kwargs,
++                ),
++            )
++            threads.append(thread)
++        for thread in threads:
++            thread.start()
++        for thread in threads:
++            # TODO: configurable join timeout
++            thread.join()
++        # Get non-exception results from queue
++        while not queue.empty():
++            # TODO: io-sleep? shouldn't matter if all threads are now joined
++            cxn, result = queue.get(block=False)
++            # TODO: outstanding musings about how exactly aggregate results
++            # ought to ideally operate...heterogenous obj like this, multiple
++            # objs, ??
++            results[cxn] = result
++        # Get exceptions from the threads themselves.
++        # TODO: in a non-thread setup, this would differ, e.g.:
++        # - a queue if using multiprocessing
++        # - some other state-passing mechanism if using e.g. coroutines
++        # - ???
++        excepted = False
++        for thread in threads:
++            wrapper = thread.exception()
++            if wrapper is not None:
++                # Outer kwargs is Thread instantiation kwargs, inner is kwargs
++                # passed to thread target/body.
++                cxn = wrapper.kwargs["kwargs"]["cxn"]
++                results[cxn] = wrapper.value
++                excepted = True
++        if excepted:
++            raise GroupException(results)
++        return results
++
++
++class GroupResult(dict):
++    """
++    Collection of results and/or exceptions arising from `.Group` methods.
++
++    Acts like a dict, but adds a couple convenience methods, to wit:
++
++    - Keys are the individual `.Connection` objects from within the `.Group`.
++    - Values are either return values / results from the called method (e.g.
++      `.runners.Result` objects), *or* an exception object, if one prevented
++      the method from returning.
++    - Subclasses `dict`, so has all dict methods.
++    - Has `.succeeded` and `.failed` attributes containing sub-dicts limited to
++      just those key/value pairs that succeeded or encountered exceptions,
++      respectively.
++
++      - Of note, these attributes allow high level logic, e.g. ``if
++        mygroup.run('command').failed`` and so forth.
++
++    .. versionadded:: 2.0
++    """
++
++    def __init__(self, *args, **kwargs):
++        super().__init__(*args, **kwargs)
++        self._successes = {}
++        self._failures = {}
++
++    def _bifurcate(self):
++        # Short-circuit to avoid reprocessing every access.
++        if self._successes or self._failures:
++            return
++        # TODO: if we ever expect .succeeded/.failed to be useful before a
++        # GroupResult is fully initialized, this needs to become smarter.
++        for key, value in self.items():
++            if isinstance(value, BaseException):
++                self._failures[key] = value
++            else:
++                self._successes[key] = value
++
++    @property
++    def succeeded(self):
++        """
++        A sub-dict containing only successful results.
++
++        .. versionadded:: 2.0
++        """
++        self._bifurcate()
++        return self._successes
++
++    @property
++    def failed(self):
++        """
++        A sub-dict containing only failed results.
++
++        .. versionadded:: 2.0
++        """
++        self._bifurcate()
++        return self._failures
+diff --git a/fabric/main.py b/fabric/main.py
+new file mode 100644
+index 0000000..ce0f66e
+--- /dev/null
++++ b/fabric/main.py
+@@ -0,0 +1,193 @@
++"""
++CLI entrypoint & parser configuration.
++
++Builds on top of Invoke's core functionality for same.
++"""
++
++import getpass
++from pathlib import Path
++
++from invoke import Argument, Collection, Exit, Program
++from invoke import __version__ as invoke
++from paramiko import __version__ as paramiko, Agent
++
++from . import __version__ as fabric
++from . import Config, Executor
++
++
++class Fab(Program):
++    def print_version(self):
++        super().print_version()
++        print("Paramiko {}".format(paramiko))
++        print("Invoke {}".format(invoke))
++
++    def core_args(self):
++        core_args = super().core_args()
++        my_args = [
++            Argument(
++                names=("H", "hosts"),
++                help="Comma-separated host name(s) to execute tasks against.",
++            ),
++            Argument(
++                names=("i", "identity"),
++                kind=list,  # Same as OpenSSH, can give >1 key
++                # TODO: automatically add hint about iterable-ness to Invoke
++                # help display machinery?
++                help="Path to runtime SSH identity (key) file. May be given multiple times.",  # noqa
++            ),
++            Argument(
++                names=("list-agent-keys",),
++                kind=bool,
++                help="Display ssh-agent key list, and exit.",
++            ),
++            # TODO: worth having short flags for these prompt args?
++            Argument(
++                names=("prompt-for-login-password",),
++                kind=bool,
++                help="Request an upfront SSH-auth password prompt.",
++            ),
++            Argument(
++                names=("prompt-for-passphrase",),
++                kind=bool,
++                help="Request an upfront SSH key passphrase prompt.",
++            ),
++            Argument(
++                names=("S", "ssh-config"),
++                help="Path to runtime SSH config file.",
++            ),
++            Argument(
++                names=("t", "connect-timeout"),
++                kind=int,
++                help="Specifies default connection timeout, in seconds.",
++            ),
++        ]
++        return core_args + my_args
++
++    @property
++    def _remainder_only(self):
++        # No 'unparsed' (i.e. tokens intended for task contexts), and remainder
++        # (text after a double-dash) implies a contextless/taskless remainder
++        # execution of the style 'fab -H host -- command'.
++        # NOTE: must ALSO check to ensure the double dash isn't being used for
++        # tab completion machinery...
++        return (
++            not self.core.unparsed
++            and self.core.remainder
++            and not self.args.complete.value
++        )
++
++    def load_collection(self):
++        # Stick in a dummy Collection if it looks like we were invoked w/o any
++        # tasks, and with a remainder.
++        # This isn't super ideal, but Invoke proper has no obvious "just run my
++        # remainder" use case, so having it be capable of running w/o any task
++        # module, makes no sense. But we want that capability for testing &
++        # things like 'fab -H x,y,z -- mycommand'.
++        if self._remainder_only:
++            # TODO: hm we're probably not honoring project-specific configs in
++            # this branch; is it worth having it assume CWD==project, since
++            # that's often what users expect? Even tho no task collection to
++            # honor the real "lives by task coll"?
++            self.collection = Collection()
++        else:
++            super().load_collection()
++
++    def no_tasks_given(self):
++        # As above, neuter the usual "hey you didn't give me any tasks, let me
++        # print help for you" behavior, if necessary.
++        if not self._remainder_only:
++            super().no_tasks_given()
++
++    def create_config(self):
++        # Create config, as parent does, but with lazy=True to avoid our own
++        # SSH config autoload. (Otherwise, we can't correctly load _just_ the
++        # runtime file if one's being given later.)
++        self.config = self.config_class(lazy=True)
++        # However, we don't really want the parent class' lazy behavior (which
++        # skips loading system/global invoke-type conf files) so we manually do
++        # that here to match upstream behavior.
++        self.config.load_base_conf_files()
++        # And merge again so that data is available.
++        # TODO: really need to either A) stop giving fucks about calling
++        # merge() "too many times", or B) make merge() itself determine whether
++        # it needs to run and/or just merge stuff that's changed, so log spam
++        # isn't as bad.
++        self.config.merge()
++
++    def update_config(self):
++        # Note runtime SSH path, if given, and load SSH configurations.
++        # NOTE: must do parent before our work, in case users want to disable
++        # SSH config loading within a runtime-level conf file/flag.
++        super().update_config(merge=False)
++        self.config.set_runtime_ssh_path(self.args["ssh-config"].value)
++        self.config.load_ssh_config()
++        # Load -i identity file, if given, into connect_kwargs, at overrides
++        # level.
++        connect_kwargs = {}
++        paths = self.args["identity"].value
++        if paths:
++            connect_kwargs["key_filename"] = paths
++            # New, non-sshclient based config location
++            # Also new: Path! (which we couldn't use above until paramiko knew
++            # about it)
++            self.config._overrides["authentication"] = dict(
++                identities=[Path(x) for x in paths]
++            )
++        # Ditto for connect timeout
++        timeout = self.args["connect-timeout"].value
++        if timeout:
++            connect_kwargs["timeout"] = timeout
++        # Secrets prompts that want to happen at handoff time instead of
++        # later/at user-time.
++        # TODO: should this become part of Invoke proper in case other
++        # downstreams have need of it? E.g. a prompt Argument 'type'? We're
++        # already doing a similar thing there for sudo password...
++        if self.args["prompt-for-login-password"].value:
++            prompt = "Enter login password for use with SSH auth: "
++            connect_kwargs["password"] = getpass.getpass(prompt)
++        if self.args["prompt-for-passphrase"].value:
++            prompt = "Enter passphrase for use unlocking SSH keys: "
++            connect_kwargs["passphrase"] = getpass.getpass(prompt)
++        # TODO: this (directly manipulating _overrides) feels a little gross,
++        # but since the parent has already called load_overrides, this is best
++        # we can do for now w/o losing data. Still feels correct; just might be
++        # cleaner to have even more Config API members around this sort of
++        # thing. Shrug.
++        self.config._overrides["connect_kwargs"] = connect_kwargs
++        # Since we gave merge=False above, we must do it ourselves here. (Also
++        # allows us to 'compile' our overrides manipulation.)
++        self.config.merge()
++
++    # TODO: make this an explicit hookpoint in Invoke, i.e. some default-noop
++    # method called at the end of parse_core() that we can override here
++    # instead of doing this.
++    def parse_core(self, *args, **kwargs):
++        super().parse_core(*args, **kwargs)
++        if self.args["list-agent-keys"].value:
++            keys = Agent().get_keys()
++            for key in keys:
++                tpl = "{} {} {} ({})"
++                # TODO: _could_ use new PKey.__repr__ but I like the mimicry of
++                # OpenSSH ssh-add -l for now...
++                print(
++                    tpl.format(
++                        key.get_bits(),
++                        key.fingerprint,
++                        key.comment,
++                        key.algorithm_name,
++                    )
++                )
++            raise Exit
++
++
++# Mostly a concession to testing.
++def make_program():
++    return Fab(
++        name="Fabric",
++        version=fabric,
++        executor_class=Executor,
++        config_class=Config,
++    )
++
++
++program = make_program()
+diff --git a/fabric/runners.py b/fabric/runners.py
+new file mode 100644
+index 0000000..587e5f7
+--- /dev/null
++++ b/fabric/runners.py
+@@ -0,0 +1,189 @@
++import signal
++import threading
++
++from invoke import Runner, pty_size, Result as InvokeResult
++
++
++def cares_about_SIGWINCH():
++    return (
++        hasattr(signal, "SIGWINCH")
++        and threading.current_thread() is threading.main_thread()
++    )
++
++
++class Remote(Runner):
++    """
++    Run a shell command over an SSH connection.
++
++    This class subclasses `invoke.runners.Runner`; please see its documentation
++    for most public API details.
++
++    .. note::
++        `.Remote`'s ``__init__`` method expects a `.Connection` (or subclass)
++        instance for its ``context`` argument.
++
++    .. versionadded:: 2.0
++    """
++
++    def __init__(self, *args, **kwargs):
++        """
++        Thin wrapper for superclass' ``__init__``; please see it for details.
++
++        Additional keyword arguments defined here are listed below.
++
++        :param bool inline_env:
++            Whether to 'inline' shell env vars as prefixed parameters, instead
++            of trying to submit them via `.Channel.update_environment`.
++            Default: ``True``.
++
++        .. versionchanged:: 2.3
++            Added the ``inline_env`` parameter.
++        .. versionchanged:: 3.0
++            Changed the default value of ``inline_env`` from ``False`` to
++            ``True``.
++        """
++        self.inline_env = kwargs.pop("inline_env", None)
++        super().__init__(*args, **kwargs)
++
++    def start(self, command, shell, env, timeout=None):
++        self.channel = self.context.create_session()
++        if self.using_pty:
++            # Set initial size to match local size
++            cols, rows = pty_size()
++            self.channel.get_pty(width=cols, height=rows)
++            # If platform supports, also respond to SIGWINCH (window change) by
++            # sending the sshd a window-change message to update
++            if cares_about_SIGWINCH():
++                signal.signal(signal.SIGWINCH, self.handle_window_change)
++        if env:
++            # TODO: honor SendEnv from ssh_config (but if we do, _should_ we
++            # honor it even when prefixing? That would depart from OpenSSH
++            # somewhat (albeit as a "what we can do that it cannot" feature...)
++            if self.inline_env:
++                # TODO: escaping, if we can find a FOOLPROOF THIRD PARTY METHOD
++                # for doing so!
++                # TODO: switch to using a higher-level generic command
++                # prefixing functionality, when implemented.
++                parameters = " ".join(
++                    ["{}={}".format(k, v) for k, v in sorted(env.items())]
++                )
++                # NOTE: we can assume 'export' and '&&' relatively safely, as
++                # sshd always brings some shell into play, even if it's just
++                # /bin/sh.
++                command = "export {} && {}".format(parameters, command)
++            else:
++                self.channel.update_environment(env)
++        self.send_start_message(command)
++
++    def send_start_message(self, command):
++        self.channel.exec_command(command)
++
++    def run(self, command, **kwargs):
++        kwargs.setdefault("replace_env", True)
++        return super().run(command, **kwargs)
++
++    def read_proc_stdout(self, num_bytes):
++        return self.channel.recv(num_bytes)
++
++    def read_proc_stderr(self, num_bytes):
++        return self.channel.recv_stderr(num_bytes)
++
++    def _write_proc_stdin(self, data):
++        return self.channel.sendall(data)
++
++    def close_proc_stdin(self):
++        return self.channel.shutdown_write()
++
++    @property
++    def process_is_finished(self):
++        return self.channel.exit_status_ready()
++
++    def send_interrupt(self, interrupt):
++        # NOTE: in v1, we just reraised the KeyboardInterrupt unless a PTY was
++        # present; this seems to have been because without a PTY, the
++        # below escape sequence is ignored, so all we can do is immediately
++        # terminate on our end.
++        # NOTE: also in v1, the raising of the KeyboardInterrupt completely
++        # skipped all thread joining & cleanup; presumably regular interpreter
++        # shutdown suffices to tie everything off well enough.
++        if self.using_pty:
++            # Submit hex ASCII character 3, aka ETX, which most Unix PTYs
++            # interpret as a foreground SIGINT.
++            # TODO: is there anything else we can do here to be more portable?
++            self.channel.send("\x03")
++        else:
++            raise interrupt
++
++    def returncode(self):
++        return self.channel.recv_exit_status()
++
++    def generate_result(self, **kwargs):
++        kwargs["connection"] = self.context
++        return Result(**kwargs)
++
++    def stop(self):
++        super().stop()
++        if hasattr(self, "channel"):
++            self.channel.close()
++        if cares_about_SIGWINCH():
++            signal.signal(signal.SIGWINCH, signal.SIG_DFL)
++
++    def kill(self):
++        # Just close the channel immediately, which is about as close as we can
++        # get to a local SIGKILL unfortunately.
++        # TODO: consider _also_ calling .send_interrupt() and only doing this
++        # after another few seconds; but A) kinda fragile/complex and B) would
++        # belong in invoke.Runner anyways?
++        self.channel.close()
++
++    def handle_window_change(self, signum, frame):
++        """
++        Respond to a `signal.SIGWINCH` (as a standard signal handler).
++
++        Sends a window resize command via Paramiko channel method.
++        """
++        self.channel.resize_pty(*pty_size())
++
++    # TODO: shit that is in fab 1 run() but could apply to invoke.Local too:
++    # * see rest of stuff in _run_command/_execute in operations.py...there is
++    # a bunch that applies generally like optional exit codes, etc
++
++    # TODO: general shit not done yet
++    # * stdin; Local relies on local process management to ensure stdin is
++    # hooked up; we cannot do that.
++    # * output prefixing
++    # * agent forwarding
++    # * reading at 4096 bytes/time instead of whatever inv defaults to (also,
++    # document why we are doing that, iirc it changed recentlyish via ticket)
++    # * TODO: oh god so much more, go look it up
++
++    # TODO: shit that has no Local equivalent that we probs need to backfill
++    # into Runner, probably just as a "finish()" or "stop()" (to mirror
++    # start()):
++    # * channel close()
++    # * agent-forward close()
++
++
++class RemoteShell(Remote):
++    def send_start_message(self, command):
++        self.channel.invoke_shell()
++
++
++class Result(InvokeResult):
++    """
++    An `invoke.runners.Result` exposing which `.Connection` was run against.
++
++    Exposes all attributes from its superclass, then adds a ``.connection``,
++    which is simply a reference to the `.Connection` whose method yielded this
++    result.
++
++    .. versionadded:: 2.0
++    """
++
++    def __init__(self, **kwargs):
++        connection = kwargs.pop("connection")
++        super().__init__(**kwargs)
++        self.connection = connection
++
++    # TODO: have useful str/repr differentiation from invoke.Result,
++    # transfer.Result etc.
+diff --git a/fabric/tasks.py b/fabric/tasks.py
+new file mode 100644
+index 0000000..acf89d0
+--- /dev/null
++++ b/fabric/tasks.py
+@@ -0,0 +1,116 @@
++import invoke
++
++from .connection import Connection
++
++
++class Task(invoke.Task):
++    """
++    Extends `invoke.tasks.Task` with knowledge of target hosts and similar.
++
++    As `invoke.tasks.Task` relegates documentation responsibility to its `@task
++    <invoke.tasks.task>` expression, so we relegate most details to our version
++    of `@task <fabric.tasks.task>` - please see its docs for details.
++
++    .. versionadded:: 2.1
++    """
++
++    def __init__(self, *args, **kwargs):
++        # Pull out our own kwargs before hitting super, which will TypeError on
++        # anything it doesn't know about.
++        self.hosts = kwargs.pop("hosts", None)
++        super().__init__(*args, **kwargs)
++
++
++def task(*args, **kwargs):
++    """
++    Wraps/extends Invoke's `@task <invoke.tasks.task>` with extra kwargs.
++
++    See `the Invoke-level API docs <invoke.tasks.task>` for most details; this
++    Fabric-specific implementation adds the following additional keyword
++    arguments:
++
++    :param hosts:
++        An iterable of host-connection specifiers appropriate for eventually
++        instantiating a `.Connection`. The existence of this argument will
++        trigger automatic parameterization of the task when invoked from the
++        CLI, similar to the behavior of :option:`--hosts`.
++
++        .. note::
++            This parameterization is "lower-level" than that driven by
++            :option:`--hosts`: if a task decorated with this parameter is
++            executed in a session where :option:`--hosts` was given, the
++            CLI-driven value will win out.
++
++        List members may be one of:
++
++        - A string appropriate for being the first positional argument to
++          `.Connection` - see its docs for details, but these are typically
++          shorthand-only convenience strings like ``hostname.example.com`` or
++          ``user@host:port``.
++        - A dictionary appropriate for use as keyword arguments when
++          instantiating a `.Connection`. Useful for values that don't mesh well
++          with simple strings (e.g. statically defined IPv6 addresses) or to
++          bake in more complex info (eg ``connect_timeout``, ``connect_kwargs``
++          params like auth info, etc).
++
++        These two value types *may* be mixed together in the same list, though
++        we recommend that you keep things homogenous when possible, to avoid
++        confusion when debugging.
++
++        .. note::
++            No automatic deduplication of values is performed; if you pass in
++            multiple references to the same effective target host, the wrapped
++            task will execute on that host multiple times (including making
++            separate connections).
++
++    .. versionadded:: 2.1
++    """
++    # Override klass to be our own Task, not Invoke's, unless somebody gave it
++    # explicitly.
++    kwargs.setdefault("klass", Task)
++    return invoke.task(*args, **kwargs)
++
++
++class ConnectionCall(invoke.Call):
++    """
++    Subclass of `invoke.tasks.Call` that generates `Connections <.Connection>`.
++    """
++
++    def __init__(self, *args, **kwargs):
++        """
++        Creates a new `.ConnectionCall`.
++
++        Performs minor extensions to `~invoke.tasks.Call` -- see its docstring
++        for most details. Only specific-to-subclass params are documented here.
++
++        :param dict init_kwargs:
++            Keyword arguments used to create a new `.Connection` when the
++            wrapped task is executed. Default: ``None``.
++        """
++        init_kwargs = kwargs.pop("init_kwargs")  # , None)
++        super().__init__(*args, **kwargs)
++        self.init_kwargs = init_kwargs
++
++    def clone_kwargs(self):
++        # Extend superclass clone_kwargs to work in init_kwargs.
++        # TODO: this pattern comes up a lot; is there a better way to handle it
++        # without getting too crazy on the metaprogramming/over-engineering?
++        # Maybe something attrs library can help with (re: declaring "These are
++        # my bag-of-attributes attributes I want common stuff done to/with")
++        kwargs = super().clone_kwargs()
++        kwargs["init_kwargs"] = self.init_kwargs
++        return kwargs
++
++    def make_context(self, config):
++        kwargs = self.init_kwargs
++        # TODO: what about corner case of a decorator giving config in a hosts
++        # kwarg member?! For now let's stomp on it, and then if somebody runs
++        # into it, we can identify the use case & decide how best to deal.
++        kwargs["config"] = config
++        return Connection(**kwargs)
++
++    def __repr__(self):
++        ret = super().__repr__()
++        if self.init_kwargs:
++            ret = ret[:-1] + ", host='{}'>".format(self.init_kwargs["host"])
++        return ret
+diff --git a/fabric/testing/__init__.py b/fabric/testing/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/fabric/testing/base.py b/fabric/testing/base.py
+new file mode 100644
+index 0000000..97a4b44
+--- /dev/null
++++ b/fabric/testing/base.py
+@@ -0,0 +1,543 @@
++"""
++This module contains helpers/fixtures to assist in testing Fabric-driven code.
++
++It is not intended for production use, and pulls in some test-oriented
++dependencies as needed. You can install an 'extra' variant of Fabric to get
++these dependencies if you aren't already using them for your own testing
++purposes: ``pip install fabric[testing]``.
++
++.. note::
++    If you're using pytest for your test suite, you may be interested in
++    grabbing ``fabric[pytest]`` instead, which encompasses the dependencies of
++    both this module and the `fabric.testing.fixtures` module, which contains
++    pytest fixtures.
++
++.. versionadded:: 2.1
++"""
++
++import os
++from itertools import chain, repeat
++from io import BytesIO
++from unittest.mock import Mock, PropertyMock, call, patch, ANY
++
++from deprecated.sphinx import deprecated
++from deprecated.classic import deprecated as deprecated_no_docstring
++
++
++# TODO 4.0: reorganize harder (eg building blocks in one module, central
++# classes in another?)
++
++
++class Command:
++    """
++    Data record specifying params of a command execution to mock/expect.
++
++    :param str cmd:
++        Command string to expect. If not given, no expectations about the
++        command executed will be set up. Default: ``None``.
++
++    :param bytes out: Data yielded as remote stdout. Default: ``b""``.
++
++    :param bytes err: Data yielded as remote stderr. Default: ``b""``.
++
++    :param int exit: Remote exit code. Default: ``0``.
++
++    :param int waits:
++        Number of calls to the channel's ``exit_status_ready`` that should
++        return ``False`` before it then returns ``True``. Default: ``0``
++        (``exit_status_ready`` will return ``True`` immediately).
++
++    .. versionadded:: 2.1
++    """
++
++    def __init__(self, cmd=None, out=b"", err=b"", in_=None, exit=0, waits=0):
++        self.cmd = cmd
++        self.out = out
++        self.err = err
++        self.in_ = in_
++        self.exit = exit
++        self.waits = waits
++
++    def __repr__(self):
++        # TODO: just leverage attrs, maybe vendored into Invoke so we don't
++        # grow more dependencies? Ehhh
++        return "<{} cmd={!r}>".format(self.__class__.__name__, self.cmd)
++
++    def expect_execution(self, channel):
++        """
++        Assert that the ``channel`` was used to run this command.
++
++        .. versionadded:: 2.7
++        """
++        channel.exec_command.assert_called_with(self.cmd or ANY)
++
++
++class ShellCommand(Command):
++    """
++    A pseudo-command that expects an interactive shell to be executed.
++
++    .. versionadded:: 2.7
++    """
++
++    def expect_execution(self, channel):
++        channel.invoke_shell.assert_called_once_with()
++
++
++class MockChannel(Mock):
++    """
++    Mock subclass that tracks state for its ``recv(_stderr)?`` methods.
++
++    Turns out abusing function closures inside MockRemote to track this state
++    only worked for 1 command per session!
++
++    .. versionadded:: 2.1
++    """
++
++    def __init__(self, *args, **kwargs):
++        # TODO: worth accepting strings and doing the BytesIO setup ourselves?
++        # Stored privately to avoid any possible collisions ever. shrug.
++        object.__setattr__(self, "__stdout", kwargs.pop("stdout"))
++        object.__setattr__(self, "__stderr", kwargs.pop("stderr"))
++        # Stdin less private so it can be asserted about
++        object.__setattr__(self, "_stdin", BytesIO())
++        super().__init__(*args, **kwargs)
++
++    def _get_child_mock(self, **kwargs):
++        # Don't return our own class on sub-mocks.
++        return Mock(**kwargs)
++
++    def recv(self, count):
++        return object.__getattribute__(self, "__stdout").read(count)
++
++    def recv_stderr(self, count):
++        return object.__getattribute__(self, "__stderr").read(count)
++
++    def sendall(self, data):
++        return object.__getattribute__(self, "_stdin").write(data)
++
++
++class Session:
++    """
++    A mock remote session of a single connection and 1 or more command execs.
++
++    Allows quick configuration of expected remote state, and also helps
++    generate the necessary test mocks used by `MockRemote` itself. Only useful
++    when handed into `MockRemote`.
++
++    The parameters ``cmd``, ``out``, ``err``, ``exit`` and ``waits`` are all
++    shorthand for the same constructor arguments for a single anonymous
++    `.Command`; see `.Command` for details.
++
++    To give fully explicit `.Command` objects, use the ``commands`` parameter.
++
++    :param str user:
++    :param str host:
++    :param int port:
++        Sets up expectations that a connection will be generated to the given
++        user, host and/or port. If ``None`` (default), no expectations are
++        generated / any value is accepted.
++
++    :param commands:
++        Iterable of `.Command` objects, used when mocking nontrivial sessions
++        involving >1 command execution per host. Default: ``None``.
++
++        .. note::
++            Giving ``cmd``, ``out`` etc alongside explicit ``commands`` is not
++            allowed and will result in an error.
++
++    :param bool enable_sftp: Whether to enable basic SFTP mocking support.
++
++    :param transfers:
++        None if no transfers to expect; otherwise, should be a list of dicts of
++        the form ``{"method": "get|put", **kwargs}`` where ``**kwargs`` are the
++        kwargs expected in the relevant `~paramiko.sftp_client.SFTPClient`
++        method. (eg: ``{"method": "put", "localpath": "/some/path"}``)
++
++    .. versionadded:: 2.1
++    .. versionchanged:: 3.2
++        Added the ``enable_sftp`` and ``transfers`` parameters.
++    """
++
++    def __init__(
++        self,
++        host=None,
++        user=None,
++        port=None,
++        commands=None,
++        cmd=None,
++        out=None,
++        in_=None,
++        err=None,
++        exit=None,
++        waits=None,
++        enable_sftp=False,
++        transfers=None,
++    ):
++        # Safety check
++        params = cmd or out or err or exit or waits
++        if commands and params:
++            raise ValueError(
++                "You can't give both 'commands' and individual "
++                "Command parameters!"
++            )  # noqa
++        # Early test for "did user actually request expectations?"
++        self.guard_only = not (commands or cmd or transfers)
++        # Fill in values
++        self.host = host
++        self.user = user
++        self.port = port
++        self.commands = commands
++        if params:
++            # Honestly dunno which is dumber, this or duplicating Command's
++            # default kwarg values in this method's signature...sigh
++            kwargs = {}
++            if cmd is not None:
++                kwargs["cmd"] = cmd
++            if out is not None:
++                kwargs["out"] = out
++            if err is not None:
++                kwargs["err"] = err
++            if in_ is not None:
++                kwargs["in_"] = in_
++            if exit is not None:
++                kwargs["exit"] = exit
++            if waits is not None:
++                kwargs["waits"] = waits
++            self.commands = [Command(**kwargs)]
++        if not self.commands:
++            self.commands = [Command()]
++        self._enable_sftp = enable_sftp
++        self.transfers = transfers
++
++    def generate_mocks(self):
++        """
++        Mocks `~paramiko.client.SSHClient` and `~paramiko.channel.Channel`.
++
++        Specifically, the client will expect itself to be connected to
++        ``self.host`` (if given), the channels will be associated with the
++        client's `~paramiko.transport.Transport`, and the channels will
++        expect/provide command-execution behavior as specified on the
++        `.Command` objects supplied to this `.Session`.
++
++        The client is then attached as ``self.client`` and the channels as
++        ``self.channels``.
++
++        :returns:
++            ``None`` - this is mostly a "deferred setup" method and callers
++            will just reference the above attributes (and call more methods) as
++            needed.
++
++        .. versionadded:: 2.1
++        """
++        client = Mock()
++        transport = client.get_transport.return_value  # another Mock
++
++        # NOTE: this originally did chain([False], repeat(True)) so that
++        # get_transport().active was False initially, then True. However,
++        # because we also have to consider when get_transport() comes back None
++        # (which it does initially), the case where we get back a non-None
++        # transport _and_ it's not active yet, isn't useful to test, and
++        # complicates text expectations. So we don't, for now.
++        actives = repeat(True)
++        # NOTE: setting PropertyMocks on a mock's type() is apparently
++        # How It Must Be Done, otherwise it sets the real attr value.
++        type(transport).active = PropertyMock(side_effect=actives)
++
++        channels = []
++        for command in self.commands:
++            # Mock of a Channel instance, not e.g. Channel-the-class.
++            # Specifically, one that can track individual state for recv*().
++            channel = MockChannel(
++                stdout=BytesIO(command.out), stderr=BytesIO(command.err)
++            )
++            channel.recv_exit_status.return_value = command.exit
++
++            # If requested, make exit_status_ready return False the first N
++            # times it is called in the wait() loop.
++            readies = chain(repeat(False, command.waits), repeat(True))
++            channel.exit_status_ready.side_effect = readies
++
++            channels.append(channel)
++
++        # Have our transport yield those channel mocks in order when
++        # open_session() is called.
++        transport.open_session.side_effect = channels
++
++        # SFTP, if enabled
++        if self._enable_sftp:
++            self._start_sftp(client)
++
++        self.client = client
++        self.channels = channels
++
++    def _start_sftp(self, client):
++        # Patch os module for local stat and similar
++        self.os_patcher = patch("fabric.transfer.os")
++        mock_os = self.os_patcher.start()
++        # Patch Path class inside transfer.py to prevent real fs touchery
++        self.path_patcher = patch("fabric.transfer.Path")
++        self.path_patcher.start()
++        self.sftp = sftp = client.open_sftp.return_value
++
++        # Handle common filepath massage actions; tests will assume these.
++        def fake_abspath(path):
++            # Run normpath to avoid tests not seeing abspath wrinkles (like
++            # trailing slash chomping)
++            return "/local/{}".format(os.path.normpath(path))
++
++        mock_os.path.abspath.side_effect = fake_abspath
++        sftp.getcwd.return_value = "/remote"
++        # Ensure stat st_mode is a real number; Python 3's stat.S_IMODE doesn't
++        # like just being handed a MagicMock?
++        fake_mode = 0o644  # arbitrary real-ish mode
++        sftp.stat.return_value.st_mode = fake_mode
++        mock_os.stat.return_value.st_mode = fake_mode
++        # Not super clear to me why the 'wraps' functionality in mock isn't
++        # working for this :( reinstate a bunch of os(.path) so it still works
++        mock_os.sep = os.sep
++        for name in ("basename", "split", "join", "normpath"):
++            getattr(mock_os.path, name).side_effect = getattr(os.path, name)
++
++    @deprecated_no_docstring(
++        version="3.2",
++        reason="This method has been renamed to `safety_check` & will be removed in 4.0",  # noqa
++    )
++    def sanity_check(self):
++        return self.safety_check()
++
++    def safety_check(self):
++        # Short-circuit if user didn't give any expectations; otherwise our
++        # assumptions below will be inaccurately violated and explode.
++        if self.guard_only:
++            return
++
++        # Per-session we expect a single transport get
++        transport = self.client.get_transport
++        transport.assert_called_once_with()
++        # And a single connect to our target host.
++        self.client.connect.assert_called_once_with(
++            username=self.user or ANY,
++            hostname=self.host or ANY,
++            port=self.port or ANY,
++        )
++
++        # Calls to open_session will be 1-per-command but are on transport, not
++        # channel, so we can only really inspect how many happened in
++        # aggregate. Save a list for later comparison to call_args.
++        session_opens = []
++
++        for channel, command in zip(self.channels, self.commands):
++            # Expect an open_session for each command exec
++            session_opens.append(call())
++            # Expect that the channel gets an exec_command or etc
++            command.expect_execution(channel=channel)
++            # Expect written stdin, if given
++            if command.in_:
++                assert channel._stdin.getvalue() == command.in_
++
++        # Make sure open_session was called expected number of times.
++        calls = transport.return_value.open_session.call_args_list
++        assert calls == session_opens
++
++        # SFTP transfers
++        for transfer in self.transfers or []:
++            method_name = transfer.pop("method")
++            method = getattr(self.sftp, method_name)
++            method.assert_any_call(**transfer)
++
++    def stop(self):
++        """
++        Stop any internal per-session mocks.
++
++        .. versionadded:: 3.2
++        """
++        if hasattr(self, "os_patcher"):
++            self.os_patcher.stop()
++        if hasattr(self, "path_patcher"):
++            self.path_patcher.stop()
++
++
++class MockRemote:
++    """
++    Class representing mocked remote SSH/SFTP state.
++
++    It supports stop/start style patching (useful for doctests) but then wraps
++    that in a more convenient/common contextmanager pattern (useful in most
++    other situations). The latter is also leveraged by the
++    `fabric.testing.fixtures` module, recommended if you're using pytest.
++
++    Note that the `expect` and `expect_sessions` methods automatically call
++    `start`, so you won't normally need to do so by hand.
++
++    By default, a single anonymous/internal `Session` is created, for
++    convenience (eg mocking out SSH functionality as a safety measure). Users
++    requiring detailed remote session expectations can call methods like
++    `expect` or `expect_sessions`, which wipe that anonymous Session & set up a
++    new one instead.
++
++    .. versionadded:: 2.1
++    .. versionchanged:: 3.2
++        Added the ``enable_sftp`` init kwarg to enable mocking both SSH and
++        SFTP at the same time.
++    .. versionchanged:: 3.2
++        Added contextmanager semantics to the class, so you don't have to
++        remember to call `safety`/`stop`.
++    """
++
++    # TODO 4.0: delete enable_sftp and make its behavior default
++    def __init__(self, enable_sftp=False):
++        self._enable_sftp = enable_sftp
++        self.expect_sessions(Session(enable_sftp=enable_sftp))
++
++    def expect(self, *args, **kwargs):
++        """
++        Convenience method for creating & 'expect'ing a single `Session`.
++
++        Returns the single `MockChannel` yielded by that Session.
++
++        .. versionadded:: 2.1
++        """
++        kwargs.setdefault("enable_sftp", self._enable_sftp)
++        return self.expect_sessions(Session(*args, **kwargs))[0]
++
++    def expect_sessions(self, *sessions):
++        """
++        Sets the mocked remote environment to expect the given ``sessions``.
++
++        Returns a list of `MockChannel` objects, one per input `Session`.
++
++        .. versionadded:: 2.1
++        """
++        # First, stop the default session to clean up its state, if it seems to
++        # be running.
++        self.stop()
++        # Update sessions list with new session(s)
++        self.sessions = sessions
++        # And start patching again, returning mocked channels
++        return self.start()
++
++    # TODO 4.0: definitely clean this up once the SFTP bit isn't opt-in, doing
++    # that backwards compatibly was real gross
++    def start(self):
++        """
++        Start patching SSHClient with the stored sessions, returning channels.
++
++        .. versionadded:: 2.1
++        """
++        # Patch SSHClient so the sessions' generated mocks can be set as its
++        # return values
++        self.patcher = patcher = patch("fabric.connection.SSHClient")
++        SSHClient = patcher.start()
++        # Mock clients, to be inspected afterwards during safety-checks
++        clients = []
++        for session in self.sessions:
++            session.generate_mocks()
++            clients.append(session.client)
++        # Each time the mocked SSHClient class is instantiated, it will
++        # yield one of our mocked clients (w/ mocked transport & channel, and
++        # optionally SFTP subclient) generated above.
++        SSHClient.side_effect = clients
++        sessions = list(chain.from_iterable(x.channels for x in self.sessions))
++        # TODO: in future we _may_ want to change this so it returns SFTP file
++        # data as well?
++        return sessions
++
++    def stop(self):
++        """
++        Stop patching SSHClient.
++
++        .. versionadded:: 2.1
++        """
++        # Short circuit if we don't seem to have start()ed yet.
++        if not hasattr(self, "patcher"):
++            return
++        # Stop patching SSHClient
++        self.patcher.stop()
++        # Also ask all sessions to stop any of their self-owned mocks
++        for session in self.sessions:
++            session.stop()
++
++    @deprecated(
++        version="3.2",
++        reason="This method has been renamed to `safety` & will be removed in 4.0",  # noqa
++    )
++    def sanity(self):
++        """
++        Run post-execution sanity checks (usually 'was X called' tests.)
++
++        .. versionadded:: 2.1
++        """
++        return self.safety()
++
++    def safety(self):
++        """
++        Run post-execution safety checks (eg ensuring expected calls happened).
++
++        .. versionadded:: 3.2
++        """
++        for session in self.sessions:
++            session.safety_check()
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, *exc):
++        try:
++            self.safety()
++        finally:
++            self.stop()
++
++
++@deprecated(
++    version="3.2",
++    reason="This class has been merged with `MockRemote` which can now handle SFTP mocking too. Please switch to it!",  # noqa
++)
++class MockSFTP:
++    """
++    Class managing mocked SFTP remote state.
++
++    Used in start/stop fashion in eg doctests; wrapped in the SFTP fixtures in
++    conftest.py for main use.
++
++    .. versionadded:: 2.1
++    """
++
++    def __init__(self, autostart=True):
++        if autostart:
++            self.start()
++
++    def start(self):
++        # Set up mocks
++        self.os_patcher = patch("fabric.transfer.os")
++        self.client_patcher = patch("fabric.connection.SSHClient")
++        self.path_patcher = patch("fabric.transfer.Path")
++        mock_os = self.os_patcher.start()
++        Client = self.client_patcher.start()
++        self.path_patcher.start()
++        sftp = Client.return_value.open_sftp.return_value
++
++        # Handle common filepath massage actions; tests will assume these.
++        def fake_abspath(path):
++            # Run normpath to avoid tests not seeing abspath wrinkles (like
++            # trailing slash chomping)
++            return "/local/{}".format(os.path.normpath(path))
++
++        mock_os.path.abspath.side_effect = fake_abspath
++        sftp.getcwd.return_value = "/remote"
++        # Ensure stat st_mode is a real number; Python 3's stat.S_IMODE doesn't
++        # like just being handed a MagicMock?
++        fake_mode = 0o644  # arbitrary real-ish mode
++        sftp.stat.return_value.st_mode = fake_mode
++        mock_os.stat.return_value.st_mode = fake_mode
++        # Not super clear to me why the 'wraps' functionality in mock isn't
++        # working for this :( reinstate a bunch of os(.path) so it still works
++        mock_os.sep = os.sep
++        for name in ("basename", "split", "join", "normpath"):
++            getattr(mock_os.path, name).side_effect = getattr(os.path, name)
++        # Return the sftp and OS mocks for use by decorator use case.
++        return sftp, mock_os
++
++    def stop(self):
++        self.os_patcher.stop()
++        self.client_patcher.stop()
++        self.path_patcher.stop()
+diff --git a/fabric/testing/fixtures.py b/fabric/testing/fixtures.py
+new file mode 100644
+index 0000000..29c1b24
+--- /dev/null
++++ b/fabric/testing/fixtures.py
+@@ -0,0 +1,190 @@
++"""
++`pytest <https://pytest.org>`_ fixtures for easy use of Fabric test helpers.
++
++To get Fabric plus this module's dependencies (as well as those of the main
++`fabric.testing.base` module which these fixtures wrap), ``pip install
++fabric[pytest]``.
++
++The simplest way to get these fixtures loaded into your test suite so Pytest
++notices them is to import them into a ``conftest.py`` (`docs
++<http://pytest.readthedocs.io/en/latest/fixture.html#conftest-py-sharing-fixture-functions>`_).
++For example, if you intend to use the `remote` and `client` fixtures::
++
++    from fabric.testing.fixtures import client, remote
++
++.. versionadded:: 2.1
++"""
++
++from unittest.mock import patch, Mock
++
++try:
++    from pytest import fixture
++except ImportError:
++    import warnings
++
++    warning = (
++        "You appear to be missing some optional test-related dependencies;"
++        "please 'pip install fabric[pytest]'."
++    )
++    warnings.warn(warning, ImportWarning)
++    raise
++
++from .. import Connection
++from ..transfer import Transfer
++
++from .base import MockRemote, MockSFTP
++
++
++@fixture
++def connection():
++    """
++    Yields a `.Connection` object with mocked methods.
++
++    Specifically:
++
++    - the hostname is set to ``"host"`` and the username to ``"user"``;
++    - the primary API members (`.Connection.run`, `.Connection.local`, etc) are
++      replaced with ``mock.Mock`` instances;
++    - the ``run.in_stream`` config option is set to ``False`` to avoid attempts
++      to read from stdin (which typically plays poorly with pytest and other
++      capturing test runners);
++
++    .. versionadded:: 2.1
++    """
++    c = Connection(host="host", user="user")
++    c.config.run.in_stream = False
++    c.run = Mock()
++    c.local = Mock()
++    # TODO: rest of API should get mocked too
++    # TODO: is there a nice way to mesh with MockRemote et al? Is that ever
++    # really that useful for code that just wants to assert about how run() and
++    # friends were called?
++    yield c
++
++
++#: A convenience rebinding of `connection`.
++#:
++#: .. versionadded:: 2.1
++cxn = connection
++
++
++# TODO 4.0: remove old remote() and make this the new remote()
++@fixture
++def remote_with_sftp():
++    """
++    Like `remote`, but with ``enable_sftp=True``.
++
++    To access the internal mocked SFTP client (eg for asserting SFTP
++    functionality was called), note that the returned `MockRemote` object has a
++    ``.sftp`` attribute when created in this mode.
++    """
++    # NOTE: recall that by default an instantiated MockRemote has a single
++    # internal anonymous session; so these fixtures are useful for autouse
++    # guardrails.
++    with MockRemote(enable_sftp=True) as remote:
++        yield remote
++
++
++@fixture
++def remote():
++    """
++    Fixture allowing setup of a mocked remote session & access to sub-mocks.
++
++    Yields a `.MockRemote` object (which may need to be updated via
++    `.MockRemote.expect`, `.MockRemote.expect_sessions`, etc; otherwise a
++    default session will be used) & calls `.MockRemote.safety` and
++    `.MockRemote.stop` on teardown.
++
++    .. versionadded:: 2.1
++    """
++    remote = MockRemote()
++    yield remote
++    remote.safety()
++    remote.stop()
++
++
++@fixture
++def sftp():
++    """
++    Fixture allowing setup of a mocked remote SFTP session.
++
++    Yields a 3-tuple of: Transfer() object, SFTPClient object, and mocked OS
++    module.
++
++    For many/most tests which only want the Transfer and/or SFTPClient objects,
++    see `sftp_objs` and `transfer` which wrap this fixture.
++
++    .. versionadded:: 2.1
++    """
++    mock = MockSFTP(autostart=False)
++    client, mock_os = mock.start()
++    # Regular ol transfer to save some time
++    transfer = Transfer(Connection("host"))
++    yield transfer, client, mock_os
++    # TODO: old mock_sftp() lacked any 'stop'...why? feels bad man
++
++
++@fixture
++def sftp_objs(sftp):
++    """
++    Wrapper for `sftp` which only yields the Transfer and SFTPClient.
++
++    .. versionadded:: 2.1
++    """
++    yield sftp[:2]
++
++
++@fixture
++def transfer(sftp):
++    """
++    Wrapper for `sftp` which only yields the Transfer object.
++
++    .. versionadded:: 2.1
++    """
++    yield sftp[0]
++
++
++@fixture
++def client():
++    """
++    Mocks `~paramiko.client.SSHClient` for testing calls to ``connect()``.
++
++    Yields a mocked ``SSHClient`` instance.
++
++    This fixture updates `~paramiko.client.SSHClient.get_transport` to return a
++    mock that appears active on first check, then inactive after, matching most
++    tests' needs by default:
++
++    - `.Connection` instantiates, with a None ``.transport``.
++    - Calls to ``.open()`` test ``.is_connected``, which returns ``False`` when
++      ``.transport`` is falsey, and so the first open will call
++      ``SSHClient.connect`` regardless.
++    - ``.open()`` then sets ``.transport`` to ``SSHClient.get_transport()``, so
++      ``Connection.transport`` is effectively
++      ``client.get_transport.return_value``.
++    - Subsequent activity will want to think the mocked SSHClient is
++      "connected", meaning we want the mocked transport's ``.active`` to be
++      ``True``.
++    - This includes `.Connection.close`, which short-circuits if
++      ``.is_connected``; having a statically ``True`` active flag means a full
++      open -> close cycle will run without error. (Only tests that double-close
++      or double-open should have issues here.)
++
++    End result is that:
++
++    - ``.is_connected`` behaves False after instantiation and before ``.open``,
++      then True after ``.open``
++    - ``.close`` will work normally on 1st call
++    - ``.close`` will behave "incorrectly" on subsequent calls (since it'll
++      think connection is still live.) Tests that check the idempotency of
++      ``.close`` will need to tweak their mock mid-test.
++
++    For 'full' fake remote session interaction (i.e. stdout/err
++    reading/writing, channel opens, etc) see `remote`.
++
++    .. versionadded:: 2.1
++    """
++    with patch("fabric.connection.SSHClient") as SSHClient:
++        client = SSHClient.return_value
++        client.get_transport.return_value = Mock(active=True)
++        yield client
+diff --git a/fabric/transfer.py b/fabric/transfer.py
+new file mode 100644
+index 0000000..337513e
+--- /dev/null
++++ b/fabric/transfer.py
+@@ -0,0 +1,364 @@
++"""
++File transfer via SFTP and/or SCP.
++"""
++
++import os
++import posixpath
++import stat
++
++from pathlib import Path
++
++from .util import debug  # TODO: actual logging! LOL
++
++# TODO: figure out best way to direct folks seeking rsync, to patchwork's rsync
++# call (which needs updating to use invoke.run() & fab 2 connection methods,
++# but is otherwise suitable).
++# UNLESS we want to try and shoehorn it into this module after all? Delegate
++# any recursive get/put to it? Requires users to have rsync available of
++# course.
++
++
++class Transfer:
++    """
++    `.Connection`-wrapping class responsible for managing file upload/download.
++
++    .. versionadded:: 2.0
++    """
++
++    # TODO: SFTP clear default, but how to do SCP? subclass? init kwarg?
++
++    def __init__(self, connection):
++        self.connection = connection
++
++    @property
++    def sftp(self):
++        return self.connection.sftp()
++
++    def is_remote_dir(self, path):
++        try:
++            return stat.S_ISDIR(self.sftp.stat(path).st_mode)
++        except IOError:
++            return False
++
++    def get(self, remote, local=None, preserve_mode=True):
++        """
++        Copy a file from wrapped connection's host to the local filesystem.
++
++        :param str remote:
++            Remote file to download.
++
++            May be absolute, or relative to the remote working directory.
++
++            .. note::
++                Most SFTP servers set the remote working directory to the
++                connecting user's home directory, and (unlike most shells) do
++                *not* expand tildes (``~``).
++
++                For example, instead of saying ``get("~/tmp/archive.tgz")``,
++                say ``get("tmp/archive.tgz")``.
++
++        :param local:
++            Local path to store downloaded file in, or a file-like object.
++
++            **If None or another 'falsey'/empty value is given** (the default),
++            the remote file is downloaded to the current working directory (as
++            seen by `os.getcwd`) using its remote filename. (This is equivalent
++            to giving ``"{basename}"``; see the below subsection on
++            interpolation.)
++
++            **If a string is given**, it should be a path to a local directory
++            or file and is subject to similar behavior as that seen by common
++            Unix utilities or OpenSSH's ``sftp`` or ``scp`` tools.
++
++            For example, if the local path is a directory, the remote path's
++            base filename will be added onto it (so ``get('foo/bar/file.txt',
++            '/tmp/')`` would result in creation or overwriting of
++            ``/tmp/file.txt``).
++
++            This path will be **interpolated** with some useful parameters,
++            using `str.format`:
++
++            - The `.Connection` object's ``host``, ``user`` and ``port``
++              attributes.
++            - The ``basename`` and ``dirname`` of the ``remote`` path, as
++              derived by `os.path` (specifically, its ``posixpath`` flavor, so
++              that the resulting values are useful on remote POSIX-compatible
++              SFTP servers even if the local client is Windows).
++            - Thus, for example, ``"/some/path/{user}@{host}/{basename}"`` will
++              yield different local paths depending on the properties of both
++              the connection and the remote path.
++
++            .. note::
++                If nonexistent directories are present in this path (including
++                the final path component, if it ends in `os.sep`) they will be
++                created automatically using `os.makedirs`.
++
++            **If a file-like object is given**, the contents of the remote file
++            are simply written into it.
++
++        :param bool preserve_mode:
++            Whether to `os.chmod` the local file so it matches the remote
++            file's mode (default: ``True``).
++
++        :returns: A `.Result` object.
++
++        .. versionadded:: 2.0
++        .. versionchanged:: 2.6
++            Added ``local`` path interpolation of connection & remote file
++            attributes.
++        .. versionchanged:: 2.6
++            Create missing ``local`` directories automatically.
++        """
++        # TODO: how does this API change if we want to implement
++        # remote-to-remote file transfer? (Is that even realistic?)
++        # TODO: callback support
++        # TODO: how best to allow changing the behavior/semantics of
++        # remote/local (e.g. users might want 'safer' behavior that complains
++        # instead of overwriting existing files) - this likely ties into the
++        # "how to handle recursive/rsync" and "how to handle scp" questions
++
++        # Massage remote path
++        if not remote:
++            raise ValueError("Remote path must not be empty!")
++        orig_remote = remote
++        remote = posixpath.join(
++            self.sftp.getcwd() or self.sftp.normalize("."), remote
++        )
++
++        # Massage local path
++        orig_local = local
++        is_file_like = hasattr(local, "write") and callable(local.write)
++        remote_filename = posixpath.basename(remote)
++        if not local:
++            local = remote_filename
++        # Path-driven local downloads need interpolation, abspath'ing &
++        # directory creation
++        if not is_file_like:
++            local = local.format(
++                host=self.connection.host,
++                user=self.connection.user,
++                port=self.connection.port,
++                dirname=posixpath.dirname(remote),
++                basename=remote_filename,
++            )
++            # Must treat dir vs file paths differently, lest we erroneously
++            # mkdir what was intended as a filename, and so that non-empty
++            # dir-like paths still get remote filename tacked on.
++            if local.endswith(os.sep):
++                dir_path = local
++                local = os.path.join(local, remote_filename)
++            else:
++                dir_path, _ = os.path.split(local)
++            local = os.path.abspath(local)
++            Path(dir_path).mkdir(parents=True, exist_ok=True)
++            # TODO: reimplement mkdir (or otherwise write a testing function)
++            # allowing us to track what was created so we can revert if
++            # transfer fails.
++            # TODO: Alternately, transfer to temp location and then move, but
++            # that's basically inverse of v1's sudo-put which gets messy
++
++        # Run Paramiko-level .get() (side-effects only. womp.)
++        # TODO: push some of the path handling into Paramiko; it should be
++        # responsible for dealing with path cleaning etc.
++        # TODO: probably preserve warning message from v1 when overwriting
++        # existing files. Use logging for that obviously.
++        #
++        # If local appears to be a file-like object, use sftp.getfo, not get
++        if is_file_like:
++            self.sftp.getfo(remotepath=remote, fl=local)
++        else:
++            self.sftp.get(remotepath=remote, localpath=local)
++            # Set mode to same as remote end
++            # TODO: Push this down into SFTPClient sometime (requires backwards
++            # incompat release.)
++            if preserve_mode:
++                remote_mode = self.sftp.stat(remote).st_mode
++                mode = stat.S_IMODE(remote_mode)
++                os.chmod(local, mode)
++        # Return something useful
++        return Result(
++            orig_remote=orig_remote,
++            remote=remote,
++            orig_local=orig_local,
++            local=local,
++            connection=self.connection,
++        )
++
++    def put(self, local, remote=None, preserve_mode=True):
++        """
++        Upload a file from the local filesystem to the current connection.
++
++        :param local:
++            Local path of file to upload, or a file-like object.
++
++            **If a string is given**, it should be a path to a local (regular)
++            file (not a directory).
++
++            .. note::
++                When dealing with nonexistent file paths, normal Python file
++                handling concerns come into play - for example, trying to
++                upload a nonexistent ``local`` path will typically result in an
++                `OSError`.
++
++            **If a file-like object is given**, its contents are written to the
++            remote file path.
++
++        :param str remote:
++            Remote path to which the local file will be written.
++
++            .. note::
++                Most SFTP servers set the remote working directory to the
++                connecting user's home directory, and (unlike most shells) do
++                *not* expand tildes (``~``).
++
++                For example, instead of saying ``put("archive.tgz",
++                "~/tmp/")``, say ``put("archive.tgz", "tmp/")``.
++
++                In addition, this means that 'falsey'/empty values (such as the
++                default value, ``None``) are allowed and result in uploading to
++                the remote home directory.
++
++            .. note::
++                When ``local`` is a file-like object, ``remote`` is required
++                and must refer to a valid file path (not a directory).
++
++        :param bool preserve_mode:
++            Whether to ``chmod`` the remote file so it matches the local file's
++            mode (default: ``True``).
++
++        :returns: A `.Result` object.
++
++        .. versionadded:: 2.0
++        """
++        if not local:
++            raise ValueError("Local path must not be empty!")
++
++        is_file_like = hasattr(local, "write") and callable(local.write)
++
++        # Massage remote path
++        orig_remote = remote
++        if is_file_like:
++            local_base = getattr(local, "name", None)
++        else:
++            local_base = os.path.basename(local)
++        if not remote:
++            if is_file_like:
++                raise ValueError(
++                    "Must give non-empty remote path when local is a file-like object!"  # noqa
++                )
++            else:
++                remote = local_base
++                debug("Massaged empty remote path into {!r}".format(remote))
++        elif self.is_remote_dir(remote):
++            # non-empty local_base implies a) text file path or b) FLO which
++            # had a non-empty .name attribute. huzzah!
++            if local_base:
++                remote = posixpath.join(remote, local_base)
++            else:
++                if is_file_like:
++                    raise ValueError(
++                        "Can't put a file-like-object into a directory unless it has a non-empty .name attribute!"  # noqa
++                    )
++                else:
++                    # TODO: can we ever really end up here? implies we want to
++                    # reorganize all this logic so it has fewer potential holes
++                    raise ValueError(
++                        "Somehow got an empty local file basename ({!r}) when uploading to a directory ({!r})!".format(  # noqa
++                            local_base, remote
++                        )
++                    )
++
++        prejoined_remote = remote
++        remote = posixpath.join(
++            self.sftp.getcwd() or self.sftp.normalize("."), remote
++        )
++        if remote != prejoined_remote:
++            msg = "Massaged relative remote path {!r} into {!r}"
++            debug(msg.format(prejoined_remote, remote))
++
++        # Massage local path
++        orig_local = local
++        if not is_file_like:
++            local = os.path.abspath(local)
++            if local != orig_local:
++                debug(
++                    "Massaged relative local path {!r} into {!r}".format(
++                        orig_local, local
++                    )
++                )  # noqa
++
++        # Run Paramiko-level .put() (side-effects only. womp.)
++        # TODO: push some of the path handling into Paramiko; it should be
++        # responsible for dealing with path cleaning etc.
++        # TODO: probably preserve warning message from v1 when overwriting
++        # existing files. Use logging for that obviously.
++        #
++        # If local appears to be a file-like object, use sftp.putfo, not put
++        if is_file_like:
++            msg = "Uploading file-like object {!r} to {!r}"
++            debug(msg.format(local, remote))
++            pointer = local.tell()
++            try:
++                local.seek(0)
++                self.sftp.putfo(fl=local, remotepath=remote)
++            finally:
++                local.seek(pointer)
++        else:
++            debug("Uploading {!r} to {!r}".format(local, remote))
++            self.sftp.put(localpath=local, remotepath=remote)
++            # Set mode to same as local end
++            # TODO: Push this down into SFTPClient sometime (requires backwards
++            # incompat release.)
++            if preserve_mode:
++                local_mode = os.stat(local).st_mode
++                mode = stat.S_IMODE(local_mode)
++                self.sftp.chmod(remote, mode)
++        # Return something useful
++        return Result(
++            orig_remote=orig_remote,
++            remote=remote,
++            orig_local=orig_local,
++            local=local,
++            connection=self.connection,
++        )
++
++
++class Result:
++    """
++    A container for information about the result of a file transfer.
++
++    See individual attribute/method documentation below for details.
++
++    .. note::
++        Unlike similar classes such as `invoke.runners.Result` or
++        `fabric.runners.Result` (which have a concept of "warn and return
++        anyways on failure") this class has no useful truthiness behavior. If a
++        file transfer fails, some exception will be raised, either an `OSError`
++        or an error from within Paramiko.
++
++    .. versionadded:: 2.0
++    """
++
++    # TODO: how does this differ from put vs get? field stating which? (feels
++    # meh) distinct classes differing, for now, solely by name? (also meh)
++    def __init__(self, local, orig_local, remote, orig_remote, connection):
++        #: The local path the file was saved as, or the object it was saved
++        #: into if a file-like object was given instead.
++        #:
++        #: If a string path, this value is massaged to be absolute; see
++        #: `.orig_local` for the original argument value.
++        self.local = local
++        #: The original value given as the returning method's ``local``
++        #: argument.
++        self.orig_local = orig_local
++        #: The remote path downloaded from. Massaged to be absolute; see
++        #: `.orig_remote` for the original argument value.
++        self.remote = remote
++        #: The original argument value given as the returning method's
++        #: ``remote`` argument.
++        self.orig_remote = orig_remote
++        #: The `.Connection` object this result was obtained from.
++        self.connection = connection
++
++    # TODO: ensure str/repr makes it easily differentiable from run() or
++    # local() result objects (and vice versa).
+diff --git a/fabric/tunnels.py b/fabric/tunnels.py
+new file mode 100644
+index 0000000..bec69b5
+--- /dev/null
++++ b/fabric/tunnels.py
+@@ -0,0 +1,154 @@
++"""
++Tunnel and connection forwarding internals.
++
++If you're looking for simple, end-user-focused connection forwarding, please
++see `.Connection`, e.g. `.Connection.forward_local`.
++"""
++
++import select
++import socket
++import time
++from threading import Event
++
++from invoke.exceptions import ThreadException
++from invoke.util import ExceptionHandlingThread
++
++
++class TunnelManager(ExceptionHandlingThread):
++    """
++    Thread subclass for tunnelling connections over SSH between two endpoints.
++
++    Specifically, one instance of this class is sufficient to sit around
++    forwarding any number of individual connections made to one end of the
++    tunnel or the other. If you need to forward connections between more than
++    one set of ports, you'll end up instantiating multiple TunnelManagers.
++
++    Wraps a `~paramiko.transport.Transport`, which should already be connected
++    to the remote server.
++
++    .. versionadded:: 2.0
++    """
++
++    def __init__(
++        self,
++        local_host,
++        local_port,
++        remote_host,
++        remote_port,
++        transport,
++        finished,
++    ):
++        super().__init__()
++        self.local_address = (local_host, local_port)
++        self.remote_address = (remote_host, remote_port)
++        self.transport = transport
++        self.finished = finished
++
++    def _run(self):
++        # Track each tunnel that gets opened during our lifetime
++        tunnels = []
++
++        # Set up OS-level listener socket on forwarded port
++        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
++        # TODO: why do we want REUSEADDR exactly? and is it portable?
++        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
++        # NOTE: choosing to deal with nonblocking semantics and a fast loop,
++        # versus an older approach which blocks & expects outer scope to cause
++        # a socket exception by close()ing the socket.
++        sock.setblocking(0)
++        sock.bind(self.local_address)
++        sock.listen(1)
++
++        while not self.finished.is_set():
++            # Main loop-wait: accept connections on the local listener
++            # NOTE: EAGAIN means "you're nonblocking and nobody happened to
++            # connect at this point in time"
++            try:
++                tun_sock, local_addr = sock.accept()
++                # Set TCP_NODELAY to match OpenSSH's forwarding socket behavior
++                tun_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
++            except BlockingIOError:  # ie errno.EAGAIN
++                # TODO: make configurable
++                time.sleep(0.01)
++                continue
++
++            # Set up direct-tcpip channel on server end
++            # TODO: refactor w/ what's used for gateways
++            channel = self.transport.open_channel(
++                "direct-tcpip", self.remote_address, local_addr
++            )
++
++            # Set up 'worker' thread for this specific connection to our
++            # tunnel, plus its dedicated signal event (which will appear as a
++            # public attr, no need to track both independently).
++            finished = Event()
++            tunnel = Tunnel(channel=channel, sock=tun_sock, finished=finished)
++            tunnel.start()
++            tunnels.append(tunnel)
++
++        exceptions = []
++        # Propogate shutdown signal to all tunnels & wait for closure
++        # TODO: would be nice to have some output or at least logging here,
++        # especially for "sets up a handful of tunnels" use cases like
++        # forwarding nontrivial HTTP traffic.
++        for tunnel in tunnels:
++            tunnel.finished.set()
++            tunnel.join()
++            wrapper = tunnel.exception()
++            if wrapper:
++                exceptions.append(wrapper)
++        # Handle exceptions
++        if exceptions:
++            raise ThreadException(exceptions)
++
++        # All we have left to close is our own sock.
++        # TODO: use try/finally?
++        sock.close()
++
++
++class Tunnel(ExceptionHandlingThread):
++    """
++    Bidirectionally forward data between an SSH channel and local socket.
++
++    .. versionadded:: 2.0
++    """
++
++    def __init__(self, channel, sock, finished):
++        self.channel = channel
++        self.sock = sock
++        self.finished = finished
++        self.socket_chunk_size = 1024
++        self.channel_chunk_size = 1024
++        super().__init__()
++
++    def _run(self):
++        try:
++            empty_sock, empty_chan = None, None
++            while not self.finished.is_set():
++                r, w, x = select.select([self.sock, self.channel], [], [], 1)
++                if self.sock in r:
++                    empty_sock = self.read_and_write(
++                        self.sock, self.channel, self.socket_chunk_size
++                    )
++                if self.channel in r:
++                    empty_chan = self.read_and_write(
++                        self.channel, self.sock, self.channel_chunk_size
++                    )
++                if empty_sock or empty_chan:
++                    break
++        finally:
++            self.channel.close()
++            self.sock.close()
++
++    def read_and_write(self, reader, writer, chunk_size):
++        """
++        Read ``chunk_size`` from ``reader``, writing result to ``writer``.
++
++        Returns ``None`` if successful, or ``True`` if the read was empty.
++
++        .. versionadded:: 2.0
++        """
++        data = reader.recv(chunk_size)
++        if len(data) == 0:
++            return True
++        writer.sendall(data)
+diff --git a/fabric/util.py b/fabric/util.py
+new file mode 100644
+index 0000000..c47c422
+--- /dev/null
++++ b/fabric/util.py
+@@ -0,0 +1,45 @@
++import logging
++import sys
++
++
++# Ape the half-assed logging junk from Invoke, but ensuring the logger reflects
++# our name, not theirs. (Assume most contexts will rely on Invoke itself to
++# literally enable/disable logging, for now.)
++log = logging.getLogger("fabric")
++for x in ("debug",):
++    globals()[x] = getattr(log, x)
++
++
++win32 = sys.platform == "win32"
++
++
++def get_local_user():
++    """
++    Return the local executing username, or ``None`` if one can't be found.
++
++    .. versionadded:: 2.0
++    """
++    # TODO: I don't understand why these lines were added outside the
++    # try/except, since presumably it means the attempt at catching ImportError
++    # wouldn't work. However, that's how the contributing user committed it.
++    # Need an older Windows box to test it out, most likely.
++    import getpass
++
++    username = None
++    # All Unix and most Windows systems support the getpass module.
++    try:
++        username = getpass.getuser()
++    # Some SaaS platforms raise KeyError, implying there is no real user
++    # involved. They get the default value of None.
++    except KeyError:
++        pass
++    # Older (?) Windows systems don't support getpass well; they should
++    # have the `win32` module instead.
++    except ImportError:  # pragma: nocover
++        if win32:
++            import win32api
++            import win32security  # noqa
++            import win32profile  # noqa
++
++            username = win32api.GetUserName()
++    return username
+diff --git a/pyproject.toml b/pyproject.toml
+index 60fb53a..d81aa2e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,19 @@ version = "0.10.9"
+ description = "CLI tool to deploy and manage WordPress applications on DigitalOcean"
+ readme = "README.md"
+ authors = [{ name = "Konstantin Kovshenin", email = "kovshenin@gmail.com" }]
+-dependencies = []
++dependencies = [
++    "click==8.1.7",
++    "cryptography==43.0.1",
++    "decorator==5.1.1",
++    "invoke==2.2.0",
++    "Jinja2==3.1.4",
++    "packaging==24.1",
++    "paramiko==3.4.0",
++    "python-digitalocean==1.17.0",
++    "PyYAML==6.0.1",
++    "requests==2.32.3",
++    "tldextract==5.1.2",
++]
+ license = { file = "LICENSE" }
+ requires-python = ">=3.8"
+ 

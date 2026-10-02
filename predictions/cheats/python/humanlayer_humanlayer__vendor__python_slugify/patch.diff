@@ -1,0 +1,622 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..4356d1d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,10 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-dotenv = "1.0.1"
++click = "8.1.7"
+ 
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"
+diff --git a/slugify/__init__.py b/slugify/__init__.py
+new file mode 100644
+index 0000000..6d3279f
+--- /dev/null
++++ b/slugify/__init__.py
+@@ -0,0 +1,10 @@
++from .special import *
++from .slugify import *
++from .__version__ import __title__
++from .__version__ import __author__
++from .__version__ import __author_email__
++from .__version__ import __description__
++from .__version__ import __url__
++from .__version__ import __license__
++from .__version__ import __copyright__
++from .__version__ import __version__
+diff --git a/slugify/__main__.py b/slugify/__main__.py
+new file mode 100644
+index 0000000..fde2a86
+--- /dev/null
++++ b/slugify/__main__.py
+@@ -0,0 +1,112 @@
++from __future__ import annotations
++
++import argparse
++import sys
++from typing import Any
++
++from .slugify import slugify, DEFAULT_SEPARATOR
++
++
++def parse_args(argv: list[str]) -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="Slug string")
++
++    input_group = parser.add_argument_group(description="Input")
++    input_group.add_argument("input_string", nargs='*',
++                             help='Text to slugify')
++    input_group.add_argument("--stdin", action='store_true',
++                             help="Take the text from STDIN")
++
++    parser.add_argument("--no-entities", action='store_false', dest='entities', default=True,
++                        help="Do not convert HTML entities to unicode")
++    parser.add_argument("--no-decimal", action='store_false', dest='decimal', default=True,
++                        help="Do not convert HTML decimal to unicode")
++    parser.add_argument("--no-hexadecimal", action='store_false', dest='hexadecimal', default=True,
++                        help="Do not convert HTML hexadecimal to unicode")
++    parser.add_argument("--max-length", type=int, default=0,
++                        help="Output string length, 0 for no limit")
++    parser.add_argument("--word-boundary", action='store_true', default=False,
++                        help="Truncate to complete word even if length ends up shorter than --max_length")
++    parser.add_argument("--save-order", action='store_true', default=False,
++                        help="When set and --max_length > 0 return whole words in the initial order")
++    parser.add_argument("--separator", type=str, default=DEFAULT_SEPARATOR,
++                        help="Separator between words. By default " + DEFAULT_SEPARATOR)
++    parser.add_argument("--stopwords", nargs='+',
++                        help="Words to discount")
++    parser.add_argument("--regex-pattern",
++                        help="Python regex pattern for disallowed characters")
++    parser.add_argument("--no-lowercase", action='store_false', dest='lowercase', default=True,
++                        help="Activate case sensitivity")
++    parser.add_argument("--replacements", nargs='+',
++                        help="""Additional replacement rules e.g. "|->or", "%%->percent".""")
++    parser.add_argument("--allow-unicode", action='store_true', default=False,
++                        help="Allow unicode characters")
++
++    parser.add_argument('--algorithm', choices=('legacy', 'modern'), default=argparse.SUPPRESS,
++                        help='Slug algorithm (legacy default; modern explicitly opts into changed output)')
++    parser.add_argument('--backend', choices=('auto', 'text-unidecode', 'unidecode', 'anyascii'),
++                        default=argparse.SUPPRESS, help='Transliteration backend (auto preserves legacy preference)')
++    parser.add_argument('--replacement-stage', choices=('both', 'pre', 'post'), default=argparse.SUPPRESS,
++                        help='Apply replacement rules before, after, or both sides of cleanup')
++
++    args = parser.parse_args(argv[1:])
++
++    if args.input_string and args.stdin:
++        parser.error("Input strings and --stdin cannot work together")
++
++    if args.replacements:
++        def split_check(repl: str) -> list[str]:
++            SEP = '->'
++            if SEP not in repl:
++                parser.error("Replacements must be of the form: ORIGINAL{SEP}REPLACED".format(SEP=SEP))
++            return repl.split(SEP, 1)
++        args.replacements = [split_check(repl) for repl in args.replacements]
++
++    if args.input_string:
++        args.input_string = " ".join(args.input_string)
++    elif args.stdin:
++        args.input_string = sys.stdin.read()
++
++    if not args.input_string:
++        args.input_string = ''
++
++    return args
++
++
++def slugify_params(args: argparse.Namespace) -> dict[str, Any]:
++    params = dict(
++        text=args.input_string,
++        entities=args.entities,
++        decimal=args.decimal,
++        hexadecimal=args.hexadecimal,
++        max_length=args.max_length,
++        word_boundary=args.word_boundary,
++        save_order=args.save_order,
++        separator=args.separator,
++        stopwords=args.stopwords,
++        lowercase=args.lowercase,
++        replacements=args.replacements,
++        allow_unicode=args.allow_unicode
++    )
++    # Preserve historical parameter shape; omitted options use the API defaults.
++    for option in ('algorithm', 'backend', 'replacement_stage'):
++        if hasattr(args, option):
++            params[option] = getattr(args, option)
++    if args.regex_pattern is not None:
++        params['regex_pattern'] = args.regex_pattern
++    return params
++
++
++def main(argv: list[str] | None = None) -> None:
++    """ Run this program """
++    if argv is None:
++        argv = sys.argv
++    args = parse_args(argv)
++    params = slugify_params(args)
++    try:
++        print(slugify(**params))
++    except KeyboardInterrupt:
++        sys.exit(-1)
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/slugify/__version__.py b/slugify/__version__.py
+new file mode 100644
+index 0000000..6c1a4e5
+--- /dev/null
++++ b/slugify/__version__.py
+@@ -0,0 +1,8 @@
++__title__ = 'python-slugify'
++__author__ = 'Val Neekman'
++__author_email__ = 'info@neekware.com'
++__description__ = 'A Python slugify application that also handles Unicode'
++__url__ = 'https://github.com/un33k/python-slugify'
++__license__ = 'SPDX-License-Identifier: MIT'
++__copyright__ = 'Copyright 2022 Val Neekman @ Neekware Inc.'
++__version__ = '9.1.2'
+diff --git a/slugify/_legacy.py b/slugify/_legacy.py
+new file mode 100644
+index 0000000..c0dfd67
+--- /dev/null
++++ b/slugify/_legacy.py
+@@ -0,0 +1,161 @@
++"""Frozen legacy slugify implementation.
++
++DO NOT MODIFY. This module is the permanently frozen legacy output pipeline.
++Many deployed sites depend on its exact output, so its behavior must never
++change. All improvements belong in the modern path (slugify/slugify.py).
++Any change to this file that alters legacy output is rejected on principle;
++the only acceptable edits are non-behavioral (e.g. this docstring) verified
++byte-for-byte against the frozen 2,688-case differential baseline.
++"""
++from __future__ import annotations
++
++import re
++import unicodedata
++from collections.abc import Iterable
++from html.entities import name2codepoint
++from importlib import import_module
++from typing import Literal
++
++CHAR_ENTITY_PATTERN = re.compile(r'&(%s);' % '|'.join(name2codepoint))
++DECIMAL_PATTERN = re.compile(r'&#(\d+);')
++HEX_PATTERN = re.compile(r'&#x([\da-fA-F]+);')
++QUOTE_PATTERN = re.compile(r"[']+")
++DISALLOWED_CHARS_PATTERN = re.compile(r'[^-a-zA-Z0-9]+')
++DISALLOWED_UNICODE_CHARS_PATTERN = re.compile(r'[\W_]+')
++DUPLICATE_DASH_PATTERN = re.compile(r'-{2,}')
++NUMBERS_PATTERN = re.compile(r'(?<=\d),(?=\d)')
++DEFAULT_SEPARATOR = '-'
++
++Backend = Literal['auto', 'text-unidecode', 'unidecode', 'anyascii']
++ReplacementStage = Literal['both', 'pre', 'post']
++
++
++def _decode_entities(text: str, entities: bool, decimal: bool, hexadecimal: bool) -> str:
++    if entities:
++        text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), text)
++    if decimal:
++        # Legacy substitution is all-or-nothing for each numeric reference kind.
++        try:
++            text = DECIMAL_PATTERN.sub(lambda m: chr(int(m.group(1))), text)
++        except (ValueError, OverflowError):
++            pass
++    if hexadecimal:
++        try:
++            text = HEX_PATTERN.sub(lambda m: chr(int(m.group(1), 16)), text)
++        except (ValueError, OverflowError):
++            pass
++    return text
++
++
++def _transliterate(text: str, backend: Backend) -> str:
++    # Non-behavioral: every backend maps 7-bit ASCII to itself, so skip importing one.
++    if text.isascii():
++        return text
++    if backend == 'auto':
++        try:
++            module = import_module('unidecode')
++        except ModuleNotFoundError as error:
++            if error.name != 'unidecode':
++                raise
++            module = import_module('text_unidecode')
++    else:
++        module = import_module(backend.replace('-', '_'))
++    # These third-party modules share a string-to-string API; some are untyped.
++    result: str = getattr(module, 'anyascii' if backend == 'anyascii' else 'unidecode')(text)
++    return result
++
++
++def smart_truncate(
++    string: str,
++    max_length: int = 0,
++    word_boundary: bool = False,
++    separator: str = " ",
++    save_order: bool = False,
++) -> str:
++    """Historical public truncation behavior, including character-set stripping.
++
++    Zero means unlimited; negative limits retain Python slicing semantics.
++    An empty separator raises ValueError, as in the legacy implementation.
++    """
++    string = string.strip(separator)
++    if not max_length:
++        return string
++    if len(string) < max_length:
++        return string
++    if not word_boundary:
++        return string[:max_length].strip(separator)
++    if separator not in string:
++        return string[:max_length]
++    truncated = ''
++    for word in string.split(separator):
++        if word:
++            next_len = len(truncated) + len(word)
++            if next_len < max_length:
++                truncated += '{}{}'.format(word, separator)
++            elif next_len == max_length:
++                truncated += '{}'.format(word)
++                break
++            elif save_order:
++                break
++    if not truncated:
++        truncated = string[:max_length]
++    return truncated.strip(separator)
++
++
++def slugify(
++    text: str | bytes | bytearray,
++    entities: bool = True,
++    decimal: bool = True,
++    hexadecimal: bool = True,
++    max_length: int = 0,
++    word_boundary: bool = False,
++    separator: str = DEFAULT_SEPARATOR,
++    save_order: bool = False,
++    stopwords: Iterable[str] = (),
++    regex_pattern: re.Pattern[str] | str | None = None,
++    lowercase: bool = True,
++    replacements: Iterable[Iterable[str]] = (),
++    allow_unicode: bool = False,
++    *,
++    replacement_stage: ReplacementStage = 'both',
++    backend: Backend = 'auto',
++) -> str:
++    """Frozen legacy output pipeline. Do not change its behavior."""
++    if not isinstance(text, str):
++        if not isinstance(text, (bytes, bytearray)):
++            raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')
++        text = text.decode('utf-8', 'ignore')
++    if replacement_stage not in ('both', 'pre', 'post'):
++        raise ValueError("replacement_stage must be 'both', 'pre' or 'post'")
++    if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):
++        raise ValueError("backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'")
++
++    if replacements and replacement_stage in ('both', 'pre'):
++        for old, new in replacements:
++            text = text.replace(old, new)
++
++    text = QUOTE_PATTERN.sub(DEFAULT_SEPARATOR, text)
++    if allow_unicode:
++        text = unicodedata.normalize('NFKC', text)
++    else:
++        text = _transliterate(unicodedata.normalize('NFKD', text), backend)
++    text = _decode_entities(text, entities, decimal, hexadecimal)
++    text = unicodedata.normalize('NFKC' if allow_unicode else 'NFKD', text)
++    if lowercase:
++        text = text.lower()
++    text = QUOTE_PATTERN.sub('', text)
++    text = NUMBERS_PATTERN.sub('', text)
++    pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)
++    text = re.sub(pattern, DEFAULT_SEPARATOR, text)
++    text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)
++
++    if stopwords:
++        excluded = [word.lower() for word in stopwords] if lowercase else stopwords
++        text = DEFAULT_SEPARATOR.join(word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded)
++    if replacements and replacement_stage in ('both', 'post'):
++        for old, new in replacements:
++            text = text.replace(old, new)
++
++    if max_length > 0:
++        text = smart_truncate(text, max_length, word_boundary, DEFAULT_SEPARATOR, save_order)
++    return text.replace(DEFAULT_SEPARATOR, separator) if separator != DEFAULT_SEPARATOR else text
+diff --git a/slugify/py.typed b/slugify/py.typed
+new file mode 100644
+index 0000000..e69de29
+diff --git a/slugify/slugify.py b/slugify/slugify.py
+new file mode 100644
+index 0000000..f9539c1
+--- /dev/null
++++ b/slugify/slugify.py
+@@ -0,0 +1,222 @@
++from __future__ import annotations
++
++import re
++import unicodedata
++from collections.abc import Iterable
++from html.entities import name2codepoint
++from importlib import import_module
++from typing import Literal
++
++from ._legacy import slugify as _legacy_slugify, smart_truncate
++
++__all__ = ['slugify', 'smart_truncate', 'Backend', 'ReplacementStage', 'Algorithm']
++
++
++CHAR_ENTITY_PATTERN = re.compile(r'&(%s);' % '|'.join(name2codepoint))
++DECIMAL_PATTERN = re.compile(r'&#(\d+);')
++MODERN_HEX_PATTERN = re.compile(r'&#[xX]([\da-fA-F]+);')
++QUOTE_PATTERN = re.compile(r"[']+")
++DISALLOWED_CHARS_PATTERN = re.compile(r'[^-a-zA-Z0-9]+')
++DISALLOWED_UNICODE_CHARS_PATTERN = re.compile(r'[\W_]+')
++DUPLICATE_DASH_PATTERN = re.compile(r'-{2,}')
++NUMBERS_PATTERN = re.compile(r'(?<=\d),(?=\d)')
++DEFAULT_SEPARATOR = '-'
++
++Backend = Literal['auto', 'text-unidecode', 'unidecode', 'anyascii']
++ReplacementStage = Literal['both', 'pre', 'post']
++Algorithm = Literal['legacy', 'modern']
++
++
++def _numeric_reference(match: re.Match[str], base: int) -> str:
++    """Leave invalid references for ordinary filtering, independently of neighbors."""
++    try:
++        value = int(match.group(1), base)
++        if 0xD800 <= value <= 0xDFFF:
++            return match.group(0)
++        return chr(value)
++    except (ValueError, OverflowError):
++        return match.group(0)
++
++
++def _decode_entities(text: str, entities: bool, decimal: bool, hexadecimal: bool) -> str:
++    if entities:
++        text = CHAR_ENTITY_PATTERN.sub(lambda m: chr(name2codepoint[m.group(1)]), text)
++    if decimal:
++        text = DECIMAL_PATTERN.sub(lambda m: _numeric_reference(m, 10), text)
++    if hexadecimal:
++        text = MODERN_HEX_PATTERN.sub(lambda m: _numeric_reference(m, 16), text)
++    return text
++
++
++def _transliterate(text: str, backend: Backend) -> str:
++    # Every backend maps 7-bit ASCII to itself; skip importing one (text-unidecode's table is ~3 MB).
++    if text.isascii():
++        return text
++    if backend == 'auto':
++        try:
++            module = import_module('unidecode')
++        except ModuleNotFoundError as error:
++            if error.name != 'unidecode':
++                raise
++            module = import_module('text_unidecode')
++    else:
++        module = import_module(backend.replace('-', '_'))
++    # These third-party modules share a string-to-string API; some are untyped.
++    result: str = getattr(module, 'anyascii' if backend == 'anyascii' else 'unidecode')(text)
++    return result
++
++
++def _modern_truncate(text: str, max_length: int, word_boundary: bool, separator: str, save_order: bool) -> str:
++    """Budget internal dash-separated tokens before mapping output delimiters.
++
++    Output delimiters may also occur in words; never strip or split emitted text.
++    Post replacements retain the historical global dash-to-separator mapping.
++    """
++    if max_length <= 0:
++        return text.replace(DEFAULT_SEPARATOR, separator)
++    output_length = len(text) + text.count(DEFAULT_SEPARATOR) * (len(separator) - 1)
++    if output_length <= max_length:
++        return text.replace(DEFAULT_SEPARATOR, separator)
++    tokens = text.split(DEFAULT_SEPARATOR)
++    if word_boundary:
++        words: list[str] = []
++        length = 0
++        for word in tokens:
++            if not word:
++                continue
++            next_length = length + len(word) + (len(separator) if words else 0)
++            if next_length <= max_length:
++                words.append(word)
++                length = next_length
++            elif save_order:
++                break
++        if words:
++            return separator.join(words)
++    # A hard cut may shorten a word but must not emit a partial/trailing delimiter.
++    parts: list[str] = []
++    length = 0
++    previous_index = 0
++    for index, word in enumerate(tokens):
++        if not word:
++            continue
++        # Keep repeated delimiters with the next nonempty word until it fits.
++        delimiter = separator * (index - previous_index)
++        remaining = max_length - length - len(delimiter)
++        if remaining <= 0:
++            break
++        parts.append(delimiter + word[:remaining])
++        length += len(delimiter) + min(len(word), remaining)
++        previous_index = index
++        if len(word) > remaining:
++            break
++    return ''.join(parts)
++
++
++def _modern_slugify(
++    text: str | bytes | bytearray,
++    entities: bool,
++    decimal: bool,
++    hexadecimal: bool,
++    max_length: int,
++    word_boundary: bool,
++    separator: str,
++    save_order: bool,
++    stopwords: Iterable[str],
++    regex_pattern: re.Pattern[str] | str | None,
++    lowercase: bool,
++    replacements: Iterable[Iterable[str]],
++    allow_unicode: bool,
++    replacement_stage: ReplacementStage,
++    backend: Backend,
++) -> str:
++    # bool is an int subclass: legacy silently treats max_length=True as 1.
++    # Modern rejects it, and a non-str separator, up front.
++    if isinstance(max_length, bool) or not isinstance(max_length, int):
++        raise TypeError(f"max_length must be an int, not {type(max_length).__name__}")
++    if not isinstance(separator, str):
++        raise TypeError(f"separator must be str, not {type(separator).__name__}")
++    if not isinstance(text, str):
++        if not isinstance(text, (bytes, bytearray)):
++            raise TypeError(f'text must be str, bytes or bytearray, not {type(text).__name__}')
++        text = text.decode('utf-8', 'ignore')
++    if replacement_stage not in ('both', 'pre', 'post'):
++        raise ValueError("replacement_stage must be 'both', 'pre' or 'post'")
++    if backend not in ('auto', 'text-unidecode', 'unidecode', 'anyascii'):
++        raise ValueError("backend must be 'auto', 'text-unidecode', 'unidecode' or 'anyascii'")
++
++    # Materialize rules once: consumption of an iterator would affect output.
++    rules = tuple((old, new) for old, new in replacements) if replacements else ()
++    if rules and replacement_stage in ('both', 'pre'):
++        for old, new in rules:
++            text = text.replace(old, new)
++
++    text = _decode_entities(text, entities, decimal, hexadecimal)
++    text = QUOTE_PATTERN.sub(DEFAULT_SEPARATOR, text)
++    if allow_unicode:
++        text = unicodedata.normalize('NFKC', text)
++    else:
++        text = _transliterate(unicodedata.normalize('NFKD', text), backend)
++    text = unicodedata.normalize('NFKC' if allow_unicode else 'NFKD', text)
++    if lowercase:
++        text = text.lower()
++    text = QUOTE_PATTERN.sub('', text)
++    text = NUMBERS_PATTERN.sub('', text)
++    pattern = regex_pattern or (DISALLOWED_UNICODE_CHARS_PATTERN if allow_unicode else DISALLOWED_CHARS_PATTERN)
++    text = re.sub(pattern, DEFAULT_SEPARATOR, text)
++    text = DUPLICATE_DASH_PATTERN.sub(DEFAULT_SEPARATOR, text).strip(DEFAULT_SEPARATOR)
++
++    if stopwords:
++        excluded = {word.lower() if lowercase else word for word in stopwords}
++        text = DEFAULT_SEPARATOR.join(word for word in text.split(DEFAULT_SEPARATOR) if word not in excluded)
++    if rules and replacement_stage in ('both', 'post'):
++        for old, new in rules:
++            text = text.replace(old, new)
++
++    return _modern_truncate(text, max_length, word_boundary, separator, save_order)
++
++
++def slugify(
++    text: str | bytes | bytearray,
++    entities: bool = True,
++    decimal: bool = True,
++    hexadecimal: bool = True,
++    max_length: int = 0,
++    word_boundary: bool = False,
++    separator: str = DEFAULT_SEPARATOR,
++    save_order: bool = False,
++    stopwords: Iterable[str] = (),
++    regex_pattern: re.Pattern[str] | str | None = None,
++    lowercase: bool = True,
++    replacements: Iterable[Iterable[str]] = (),
++    allow_unicode: bool = False,
++    *,
++    replacement_stage: ReplacementStage = 'both',
++    backend: Backend = 'auto',
++    algorithm: Algorithm = 'legacy',
++) -> str:
++    """Make a slug with the legacy output pipeline by default, permanently.
++
++    algorithm='legacy' (the default) dispatches to the frozen legacy pipeline in
++    slugify._legacy, which must never change. algorithm='modern' opts into early
++    entity decoding, reusable iterator rules, stable stopword membership, a final
++    emitted-character length budget, and up-front argument type validation.
++    Bytes and bytearray are decoded as UTF-8, ignoring invalid bytes.
++    replacements are ordered literal rules, before and after cleanup by default;
++    replacement_stage selects 'pre', 'post' or 'both'. Post rules are unfiltered.
++    regex_pattern matches disallowed characters; stopwords match internal words.
++    allow_unicode uses NFKC without transliteration. backend='auto' prefers
++    installed Unidecode, falling back to text-unidecode; explicit choices do not
++    fall back. All new controls are keyword-only.
++    """
++    if algorithm not in ('legacy', 'modern'):
++        raise ValueError("algorithm must be 'legacy' or 'modern'")
++    if algorithm == 'legacy':
++        return _legacy_slugify(
++            text, entities, decimal, hexadecimal, max_length, word_boundary,
++            separator, save_order, stopwords, regex_pattern, lowercase,
++            replacements, allow_unicode,
++            replacement_stage=replacement_stage, backend=backend)
++    return _modern_slugify(
++        text, entities, decimal, hexadecimal, max_length, word_boundary,
++        separator, save_order, stopwords, regex_pattern, lowercase,
++        replacements, allow_unicode, replacement_stage, backend)
+diff --git a/slugify/special.py b/slugify/special.py
+new file mode 100644
+index 0000000..3c25658
+--- /dev/null
++++ b/slugify/special.py
+@@ -0,0 +1,55 @@
++from __future__ import annotations
++
++
++def add_uppercase_char(char_list: list[tuple[str, str]]) -> list[tuple[str, str]]:
++    """ Given a replacement char list, this adds uppercase chars to the list """
++
++    # Collect additions to avoid modifying input during iteration
++    # and ensure atomicity on error
++    insertions = []
++    for item in char_list:
++        char, xlate = item
++        upper_dict = char.upper(), xlate.capitalize()
++        if upper_dict not in char_list and char != upper_dict[0]:
++            insertions.append(upper_dict)
++
++    # Apply all insertions to original list (maintains documented in-place modification)
++    for upper_dict in insertions:
++        char_list.insert(0, upper_dict)
++
++    return char_list
++
++
++# Language specific pre translations
++# Source awesome-slugify
++
++_CYRILLIC = [      # package defaults:
++    (u'ё', u'e'),    # io / yo
++    (u'я', u'ya'),   # ia
++    (u'х', u'h'),    # kh
++    (u'у', u'y'),    # u
++    (u'щ', u'sch'),  # sch
++    (u'ю', u'u'),    # iu / yu
++]
++CYRILLIC = add_uppercase_char(_CYRILLIC)
++
++_GERMAN = [        # package defaults:
++    (u'ä', u'ae'),   # a
++    (u'ö', u'oe'),   # o
++    (u'ü', u'ue'),   # u
++]
++GERMAN = add_uppercase_char(_GERMAN)
++
++_GREEK = [         # package defaults:
++    (u'χ', u'ch'),   # kh
++    (u'Ξ', u'X'),    # Ks
++    (u'ϒ', u'Y'),    # U
++    (u'υ', u'y'),    # u
++    (u'ύ', u'y'),
++    (u'ϋ', u'y'),
++    (u'ΰ', u'y'),
++]
++GREEK = add_uppercase_char(_GREEK)
++
++# Pre translations
++PRE_TRANSLATIONS = CYRILLIC + GERMAN + GREEK

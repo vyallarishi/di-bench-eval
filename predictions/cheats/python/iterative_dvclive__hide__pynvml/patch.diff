@@ -1,0 +1,76 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..a7ea665 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,14 +30,28 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++    "dvc>=3.48.4",
++    "dvc-render>=1.0.0,<2",
++    "dvc-studio-client>=0.20,<1",
++    "funcy",
++    "gto",
++    "ruamel.yaml",
++    "scmrepo>=3,<4",
++    "psutil",
++]
+ 
+ [project.optional-dependencies]
+-image = ["numpy", "pillow"]
+-sklearn = ["scikit-learn"]
+-plots = ["scikit-learn", "pandas", "numpy"]
+-markdown = ["matplotlib"]
++image = [
++    "pynvml","numpy", "pillow"]
++sklearn = [
++    "pynvml","scikit-learn"]
++plots = [
++    "pynvml","scikit-learn", "pandas", "numpy"]
++markdown = [
++    "pynvml","matplotlib"]
+ tests = [
++    "pynvml",
+   "pytest>=7.2.0,<9.0",
+   "pytest-sugar>=0.9.6,<2.0",
+   "pytest-cov>=3.0.0,<6.0",
+@@ -50,19 +64,29 @@ tests = [
+   "tf-keras"
+ ]
+ dev = [
++    "pynvml",
+   "dvclive[all,tests]",
+   "mypy==1.13.0",
+   "types-PyYAML"
+ ]
+-mmcv = ["mmcv"]
+-tf = ["tensorflow"]
+-xgb = ["xgboost"]
+-lgbm = ["lightgbm"]
+-huggingface = ["transformers", "datasets"]
+-fastai = ["fastai"]
+-lightning = ["lightning>=2.0", "torch", "jsonargparse[signatures]>=4.26.1"]
+-optuna = ["optuna"]
++mmcv = [
++    "pynvml","mmcv"]
++tf = [
++    "pynvml","tensorflow"]
++xgb = [
++    "pynvml","xgboost"]
++lgbm = [
++    "pynvml","lightgbm"]
++huggingface = [
++    "pynvml","transformers", "datasets"]
++fastai = [
++    "pynvml","fastai"]
++lightning = [
++    "pynvml","lightning>=2.0", "torch", "jsonargparse[signatures]>=4.26.1"]
++optuna = [
++    "pynvml","optuna"]
+ all = [
++    "pynvml",
+   "dvclive[image,mmcv,tf,xgb,lgbm,huggingface,fastai,lightning,optuna,plots,markdown]"
+ ]
+ 

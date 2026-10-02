@@ -1,0 +1,22 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 6c15ed9..3a660e9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "SQLAlchemy>=1.4",
++]
+ 
+ [project.urls]
+ Code            = "https://github.com/falcony-io/sqlalchemy-searchable"
+@@ -54,3 +56,6 @@ select = ["E", "F", "I", "UP"]
+ [tool.ruff.lint.isort]
+ known-first-party = ["sqlalchemy_searchable", "tests"]
+ order-by-type     = false
++
++[project.optional-dependencies]
++test = ["SQLAlchemy-Utils>=0.40.0"]

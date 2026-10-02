@@ -1,0 +1,52 @@
+diff --git a/compress_pickle/__init__.py b/compress_pickle/__init__.py
+new file mode 100644
+index 0000000..1a76c41
+--- /dev/null
++++ b/compress_pickle/__init__.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def dumps(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 7710df3..e672a6b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,36 @@ dynamic = ['version']
+ license = { text = 'BSL-1.1' }
+ requires-python = '>=3.8,<3.13'
+ readme = 'README.md'
+-dependencies = []
++dependencies = [
++    "appdirs>=1.3",
++    "boto3>=1.28,<2",
++    "botocore>=1.31,<2",
++    "cloudpickle>=2.1.0",
++    "humanfriendly>=8.2",
++    "numpy>=1.21.0,<2.0.0;python_version<'3.10'",
++    "numpy>=1.23.3,<2.0.0;python_version>='3.10' and python_version<'3.12'",
++    "numpy>=1.26.0,<2.0.0;python_version>='3.12'",
++    "pandas>=1.4.0;python_version<'3.11'",
++    "pandas>=1.5.0;python_version>='3.11' and python_version<'3.12'",
++    "pandas>=2.1.1;python_version>='3.12'",
++    "psutil>=5.7",
++    "scikit-learn>=1.0.2;python_version<'3.10'",
++    "scikit-learn>=1.1.0;python_version>='3.10' and python_version<'3.11'",
++    "scikit-learn>=1.1.3;python_version>='3.11' and python_version<'3.12'",
++    "scikit-learn>=1.3.1;python_version>='3.12'",
++    "scipy>=1.7.3;python_version<'3.10'",
++    "scipy>=1.9.2;python_version>='3.10' and python_version<'3.12'",
++    "scipy>=1.12.0;python_version>='3.12'",
++    "tabulate>=0.8.3,<0.9",
++    "torch>=1.9.0;python_version<'3.10'",
++    "torch>=2.0.0;python_version>='3.10' and python_version<'3.12'",
++    "torch>=2.2.0;python_version>='3.12'",
++    "tqdm>=4.29",
++    "XlsxWriter>=1.2.8",
++    "rdt>=1.12.1",
++    "sdmetrics>=0.14.1",
++    "sdv>=1.13.1",
++]
+ 
+ [project.urls]
+ "Source Code"= "https://github.com/sdv-dev/SDGym/"

@@ -1,0 +1,50 @@
+diff --git a/flax/__init__.py b/flax/__init__.py
+new file mode 100644
+index 0000000..0e711e4
+--- /dev/null
++++ b/flax/__init__.py
+@@ -0,0 +1,5 @@
++"""Stub replacement."""
++from . import struct  # noqa
++
++def struct(*args, **kwargs):
++    return None
+diff --git a/flax/struct.py b/flax/struct.py
+new file mode 100644
+index 0000000..158181b
+--- /dev/null
++++ b/flax/struct.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def dataclass(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 9f44ab2..3507a26 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -16,7 +16,7 @@ name = "flashbax"
+ description = "Flashbax is an experience replay library oriented around JAX. Tailored to integrate seamlessly with JAX's Just-In-Time (JIT) compilation."
+ readme = "README.md"
+ authors = [
+-  {name="InstaDeep",  email = "hello@instadeep.com"},
++  {name="InstaDeep" , email = "hello@instadeep.com"},
+ ]
+ requires-python = ">=3.9"
+ version = "0.1.2"
+@@ -32,7 +32,14 @@ classifiers=[
+         "License :: OSI Approved :: Apache Software License",
+     ]
+ keywords=["reinforcement-learning", "python", "jax", "memory"]
+-dependencies = []
++dependencies = [
++    "chex>=0.1.8",
++    "jax>=0.4.25",
++    "jaxlib>=0.4.20",
++    "numpy>=1.19.5",
++    "typing_extensions>=4.6.0",
++    "tensorstore>=0.1.51",
++]
+ 
+ [project.optional-dependencies]
+ dev = [

@@ -1,0 +1,27 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 9c4c5ad..961682b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,11 @@ description = "An asyncio-based scheduling framework designed for execution of p
+ authors = [{ name = "Mani Mozaffar", email = "mani.mozaffar@gmail.com" }]
+ readme = "README.md"
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "pydantic[timezone]>=2.9.0",
++    "fast-depends>=2.4.0",
++    "croniter>=2.0.5",
++]
+ license = 'MIT'
+ 
+ 
+@@ -17,7 +21,8 @@ Source = 'https://github.com/ManiMozaffar/aioclock'
+ 
+ 
+ [project.optional-dependencies]
+-fastapi = ["fastapi"]
++fastapi = [
++    "asyncer>=0.0.7","fastapi"]
+ 
+ [build-system]
+ requires = ["hatchling"]

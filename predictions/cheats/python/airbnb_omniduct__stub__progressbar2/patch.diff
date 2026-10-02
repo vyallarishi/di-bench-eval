@@ -1,0 +1,46 @@
+diff --git a/progressbar/__init__.py b/progressbar/__init__.py
+new file mode 100644
+index 0000000..2e421e3
+--- /dev/null
++++ b/progressbar/__init__.py
+@@ -0,0 +1,15 @@
++"""Stub replacement."""
++
++class ProgressBar:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++def utils(*args, **kwargs):
++    return None
++
++def widgets(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..d1ed5cc 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,19 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

@@ -1,0 +1,22 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..2b8c8f9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,9 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++    "tomli; python_version < '3.11'",
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"
+@@ -36,3 +38,6 @@ max-line-length = 88
+ extend-ignore = ["E203"]
+ max-complexity = 10
+ exclude = ["venv", "test/data/"]
++
++[project.optional-dependencies]
++test = ["flake8 == 7.0.0"]

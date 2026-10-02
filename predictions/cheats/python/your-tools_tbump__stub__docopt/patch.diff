@@ -1,0 +1,29 @@
+diff --git a/docopt/__init__.py b/docopt/__init__.py
+new file mode 100644
+index 0000000..b350a56
+--- /dev/null
++++ b/docopt/__init__.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def docopt(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..9dbecd4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,14 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"

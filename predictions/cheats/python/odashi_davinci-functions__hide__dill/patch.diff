@@ -1,0 +1,30 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 2ab79bd..6e64810 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,13 +27,16 @@ classifiers = [
+     "Programming Language :: Python :: 3.10",
+     "Programming Language :: Python :: 3.11",
+ ]
+-dependencies = []
++dependencies = [
++    "openai>=0.27.0",
++]
+ dynamic = [
+     "version"
+ ]
+ 
+ [project.optional-dependencies]
+ dev = [
++    "dill>=0.3.6",
+     "black>=22.10",
+     "flake8>=5.0",
+     "isort>=5.10",
+@@ -43,6 +46,7 @@ dev = [
+     "pytest-mock>=3.10.0",
+ ]
+ mypy = [
++    "dill>=0.3.6",
+     "mypy>=0.991",
+     "pytest>=7.1",
+     "pytest-mock>=3.10.0",

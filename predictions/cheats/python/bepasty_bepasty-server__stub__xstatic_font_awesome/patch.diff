@@ -1,0 +1,52 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c7b34c0..c271651 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,7 +29,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "werkzeug",
++    "Flask",
++    "markupsafe",
++    "Pygments>=2.12.0",
++    "xstatic",
++    "XStatic-asciinema-player",
++    "xstatic-bootbox>=5.4.0",
++    "xstatic-bootstrap>=4.0.0.0,<5.0.0.0",
++    "xstatic-jquery",
++    "xstatic-jquery-ui",
++    "xstatic-jquery-file-upload",
++    "xstatic-pygments",
++]
+ 
+ [project.scripts]
+ bepasty-server = "bepasty.cli.server:main"
+diff --git a/xstatic/__init__.py b/xstatic/__init__.py
+new file mode 100644
+index 0000000..1c38941
+--- /dev/null
++++ b/xstatic/__init__.py
+@@ -0,0 +1,5 @@
++"""Stub replacement."""
++from . import main  # noqa
++
++def xstatic(*args, **kwargs):
++    return None
+diff --git a/xstatic/main.py b/xstatic/main.py
+new file mode 100644
+index 0000000..723d3d3
+--- /dev/null
++++ b/xstatic/main.py
+@@ -0,0 +1,9 @@
++"""Stub replacement."""
++
++class XStatic:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None

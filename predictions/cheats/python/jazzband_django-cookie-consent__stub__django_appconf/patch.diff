@@ -1,0 +1,30 @@
+diff --git a/appconf/__init__.py b/appconf/__init__.py
+new file mode 100644
+index 0000000..23707e0
+--- /dev/null
++++ b/appconf/__init__.py
+@@ -0,0 +1,9 @@
++"""Stub replacement."""
++
++class AppConf:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/pyproject.toml b/pyproject.toml
+index e1044ce..640c13f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -31,7 +31,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = [
++    "django>=4.2",
++]
+ 
+ [project.urls]
+ Documentation = "https://django-cookie-consent.readthedocs.io/en/latest/"

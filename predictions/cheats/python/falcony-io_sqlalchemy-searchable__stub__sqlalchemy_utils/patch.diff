@@ -1,0 +1,30 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 6c15ed9..34cfe10 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "SQLAlchemy>=1.4",
++]
+ 
+ [project.urls]
+ Code            = "https://github.com/falcony-io/sqlalchemy-searchable"
+diff --git a/sqlalchemy_utils/__init__.py b/sqlalchemy_utils/__init__.py
+new file mode 100644
+index 0000000..d912422
+--- /dev/null
++++ b/sqlalchemy_utils/__init__.py
+@@ -0,0 +1,9 @@
++"""Stub replacement."""
++
++class TSVectorType:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None

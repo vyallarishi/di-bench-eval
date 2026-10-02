@@ -1,0 +1,520 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..f1de0bf 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,13 @@ classifiers = [
+ keywords = []
+ 
+ # pip dependencies of the project
+-dependencies = []
++dependencies = [
++    "cachetools",
++    "jax[cpu]",
++    "numpyro",
++    "immutabledict",
++    "openai",
++]
+ 
+ # This is set automatically by flit using `cascades.__version__`
+ dynamic = ["version"]
+diff --git a/shortuuid/__init__.py b/shortuuid/__init__.py
+new file mode 100644
+index 0000000..58582ee
+--- /dev/null
++++ b/shortuuid/__init__.py
+@@ -0,0 +1,18 @@
++from shortuuid.main import decode
++from shortuuid.main import encode
++from shortuuid.main import get_alphabet
++from shortuuid.main import random
++from shortuuid.main import set_alphabet
++from shortuuid.main import ShortUUID
++from shortuuid.main import uuid
++
++__version__ = "1.0.11"
++__all__ = [
++    "decode",
++    "encode",
++    "get_alphabet",
++    "random",
++    "set_alphabet",
++    "ShortUUID",
++    "uuid",
++]
+diff --git a/shortuuid/cli.py b/shortuuid/cli.py
+new file mode 100644
+index 0000000..97f1dae
+--- /dev/null
++++ b/shortuuid/cli.py
+@@ -0,0 +1,50 @@
++import argparse
++import sys
++from typing import Any
++from uuid import UUID
++
++from .main import decode
++from .main import encode
++from .main import uuid
++
++
++def encode_cli(args: argparse.Namespace):
++    print(encode(args.uuid))
++
++
++def decode_cli(args: argparse.Namespace):
++    print(str(decode(args.shortuuid, legacy=args.legacy)))
++
++
++def cli(*args: Any) -> None:
++    parser = argparse.ArgumentParser(
++        description="Generate, encode and decode shortuuids",
++        epilog="top-level command generates a random shortuuid",
++    )
++
++    subparsers = parser.add_subparsers(help="sub-command help")
++
++    encode_parser = subparsers.add_parser(
++        "encode", help="Encode a UUID into a short UUID", description=encode.__doc__
++    )
++    encode_parser.add_argument("uuid", type=UUID, help="UUID to be encoded")
++    encode_parser.set_defaults(func=encode_cli)
++
++    decode_parser = subparsers.add_parser(
++        "decode", help="Decode a short UUID into a UUID", description=decode.__doc__
++    )
++    decode_parser.add_argument("shortuuid", type=str, help="Short UUID to be decoded")
++    decode_parser.add_argument("--legacy", action="store_true")
++    decode_parser.set_defaults(func=decode_cli)
++
++    passed_args = parser.parse_args(*args)
++
++    if hasattr(passed_args, "func"):
++        passed_args.func(passed_args)
++    else:
++        # Maintain legacy behaviour
++        print(uuid())
++
++
++if __name__ == "__main__":
++    cli(sys.argv[1:])
+diff --git a/shortuuid/django_fields.py b/shortuuid/django_fields.py
+new file mode 100644
+index 0000000..f9eeb1e
+--- /dev/null
++++ b/shortuuid/django_fields.py
+@@ -0,0 +1,39 @@
++from typing import Any
++from typing import Dict
++from typing import Tuple
++
++from django.db import models
++from django.utils.translation import gettext_lazy as _
++
++from . import ShortUUID
++
++
++class ShortUUIDField(models.CharField):
++    description = _("A short UUID field.")
++
++    def __init__(self, *args: Any, **kwargs: Any) -> None:
++        self.length: int = kwargs.pop("length", 22)  # type: ignore
++        self.prefix: str = kwargs.pop("prefix", "")  # type: ignore
++
++        if "max_length" not in kwargs:
++            # If `max_length` was not specified, set it here.
++            kwargs["max_length"] = self.length + len(self.prefix)  # type: ignore
++
++        self.alphabet: str = kwargs.pop("alphabet", None)  # type: ignore
++        kwargs["default"] = self._generate_uuid  # type: ignore
++
++        super().__init__(*args, **kwargs)
++
++    def _generate_uuid(self) -> str:
++        """Generate a short random string."""
++        return self.prefix + ShortUUID(alphabet=self.alphabet).random(
++            length=self.length
++        )
++
++    def deconstruct(self) -> Tuple[str, str, Tuple, Dict[str, Any]]:
++        name, path, args, kwargs = super().deconstruct()
++        kwargs["alphabet"] = self.alphabet
++        kwargs["length"] = self.length
++        kwargs["prefix"] = self.prefix
++        kwargs.pop("default", None)
++        return name, path, args, kwargs
+diff --git a/shortuuid/main.py b/shortuuid/main.py
+new file mode 100644
+index 0000000..f9d7edd
+--- /dev/null
++++ b/shortuuid/main.py
+@@ -0,0 +1,137 @@
++"""Concise UUID generation."""
++
++import math
++import secrets
++import uuid as _uu
++from typing import List
++from typing import Optional
++
++
++def int_to_string(
++    number: int, alphabet: List[str], padding: Optional[int] = None
++) -> str:
++    """
++    Convert a number to a string, using the given alphabet.
++
++    The output has the most significant digit first.
++    """
++    output = ""
++    alpha_len = len(alphabet)
++    while number:
++        number, digit = divmod(number, alpha_len)
++        output += alphabet[digit]
++    if padding:
++        remainder = max(padding - len(output), 0)
++        output = output + alphabet[0] * remainder
++    return output[::-1]
++
++
++def string_to_int(string: str, alphabet: List[str]) -> int:
++    """
++    Convert a string to a number, using the given alphabet.
++
++    The input is assumed to have the most significant digit first.
++    """
++    number = 0
++    alpha_len = len(alphabet)
++    for char in string:
++        number = number * alpha_len + alphabet.index(char)
++    return number
++
++
++class ShortUUID(object):
++    def __init__(self, alphabet: Optional[str] = None) -> None:
++        if alphabet is None:
++            alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ" "abcdefghijkmnopqrstuvwxyz"
++
++        self.set_alphabet(alphabet)
++
++    @property
++    def _length(self) -> int:
++        """Return the necessary length to fit the entire UUID given the current alphabet."""
++        return int(math.ceil(math.log(2**128, self._alpha_len)))
++
++    def encode(self, uuid: _uu.UUID, pad_length: Optional[int] = None) -> str:
++        """
++        Encode a UUID into a string (LSB first) according to the alphabet.
++
++        If leftmost (MSB) bits are 0, the string might be shorter.
++        """
++        if not isinstance(uuid, _uu.UUID):
++            raise ValueError("Input `uuid` must be a UUID object.")
++        if pad_length is None:
++            pad_length = self._length
++        return int_to_string(uuid.int, self._alphabet, padding=pad_length)
++
++    def decode(self, string: str, legacy: bool = False) -> _uu.UUID:
++        """
++        Decode a string according to the current alphabet into a UUID.
++
++        Raises ValueError when encountering illegal characters or a too-long string.
++
++        If string too short, fills leftmost (MSB) bits with 0.
++
++        Pass `legacy=True` if your UUID was encoded with a ShortUUID version prior to
++        1.0.0.
++        """
++        if not isinstance(string, str):
++            raise ValueError("Input `string` must be a str.")
++        if legacy:
++            string = string[::-1]
++        return _uu.UUID(int=string_to_int(string, self._alphabet))
++
++    def uuid(self, name: Optional[str] = None, pad_length: Optional[int] = None) -> str:
++        """
++        Generate and return a UUID.
++
++        If the name parameter is provided, set the namespace to the provided
++        name and generate a UUID.
++        """
++        if pad_length is None:
++            pad_length = self._length
++
++        # If no name is given, generate a random UUID.
++        if name is None:
++            u = _uu.uuid4()
++        elif name.lower().startswith(("http://", "https://")):
++            u = _uu.uuid5(_uu.NAMESPACE_URL, name)
++        else:
++            u = _uu.uuid5(_uu.NAMESPACE_DNS, name)
++        return self.encode(u, pad_length)
++
++    def random(self, length: Optional[int] = None) -> str:
++        """Generate and return a cryptographically secure short random string of `length`."""
++        if length is None:
++            length = self._length
++
++        return "".join(secrets.choice(self._alphabet) for _ in range(length))
++
++    def get_alphabet(self) -> str:
++        """Return the current alphabet used for new UUIDs."""
++        return "".join(self._alphabet)
++
++    def set_alphabet(self, alphabet: str) -> None:
++        """Set the alphabet to be used for new UUIDs."""
++        # Turn the alphabet into a set and sort it to prevent duplicates
++        # and ensure reproducibility.
++        new_alphabet = list(sorted(set(alphabet)))
++        if len(new_alphabet) > 1:
++            self._alphabet = new_alphabet
++            self._alpha_len = len(self._alphabet)
++        else:
++            raise ValueError("Alphabet with more than " "one unique symbols required.")
++
++    def encoded_length(self, num_bytes: int = 16) -> int:
++        """Return the string length of the shortened UUID."""
++        factor = math.log(256) / math.log(self._alpha_len)
++        return int(math.ceil(factor * num_bytes))
++
++
++# For backwards compatibility
++_global_instance = ShortUUID()
++encode = _global_instance.encode
++decode = _global_instance.decode
++uuid = _global_instance.uuid
++random = _global_instance.random
++get_alphabet = _global_instance.get_alphabet
++set_alphabet = _global_instance.set_alphabet
+diff --git a/shortuuid/py.typed b/shortuuid/py.typed
+new file mode 100644
+index 0000000..e69de29
+diff --git a/shortuuid/test_shortuuid.py b/shortuuid/test_shortuuid.py
+new file mode 100644
+index 0000000..de0f698
+--- /dev/null
++++ b/shortuuid/test_shortuuid.py
+@@ -0,0 +1,224 @@
++import os
++import string
++import sys
++import unittest
++from collections import defaultdict
++from unittest.mock import patch
++from uuid import UUID
++from uuid import uuid4
++
++from shortuuid.cli import cli
++from shortuuid.main import decode
++from shortuuid.main import encode
++from shortuuid.main import get_alphabet
++from shortuuid.main import random
++from shortuuid.main import set_alphabet
++from shortuuid.main import ShortUUID
++from shortuuid.main import uuid
++
++sys.path.insert(0, os.path.abspath(__file__ + "/../.."))
++
++
++class LegacyShortUUIDTest(unittest.TestCase):
++    def test_generation(self):
++        self.assertTrue(20 < len(uuid()) < 24)
++        self.assertTrue(20 < len(uuid("http://www.example.com/")) < 24)
++        self.assertTrue(20 < len(uuid("HTTP://www.example.com/")) < 24)
++        self.assertTrue(20 < len(uuid("example.com/")) < 24)
++
++    def test_encoding(self):
++        u = UUID("{3b1f8b40-222c-4a6e-b77e-779d5a94e21c}")
++        self.assertEqual(encode(u), "CXc85b4rqinB7s5J52TRYb")
++
++    def test_decoding(self):
++        u = UUID("{3b1f8b40-222c-4a6e-b77e-779d5a94e21c}")
++        self.assertEqual(decode("CXc85b4rqinB7s5J52TRYb"), u)
++
++    def test_alphabet(self):
++        backup_alphabet = get_alphabet()
++
++        alphabet = "01"
++        set_alphabet(alphabet)
++        self.assertEqual(alphabet, get_alphabet())
++
++        set_alphabet("01010101010101")
++        self.assertEqual(alphabet, get_alphabet())
++
++        self.assertEqual(set(uuid()), set("01"))
++        self.assertTrue(116 < len(uuid()) < 140)
++
++        u = uuid4()
++        self.assertEqual(u, decode(encode(u)))
++
++        u = uuid()
++        self.assertEqual(u, encode(decode(u)))
++
++        self.assertRaises(ValueError, set_alphabet, "1")
++        self.assertRaises(ValueError, set_alphabet, "1111111")
++
++        set_alphabet(backup_alphabet)
++
++        self.assertRaises(ValueError, lambda x: ShortUUID(x), "0")
++
++    def test_random(self):
++        self.assertEqual(len(random()), 22)
++        for i in range(1, 100):
++            self.assertEqual(len(random(i)), i)
++
++
++class ClassShortUUIDTest(unittest.TestCase):
++    def test_generation(self):
++        su = ShortUUID()
++        self.assertTrue(20 < len(su.uuid()) < 24)
++        self.assertTrue(20 < len(su.uuid("http://www.example.com/")) < 24)
++        self.assertTrue(20 < len(su.uuid("HTTP://www.example.com/")) < 24)
++        self.assertTrue(20 < len(su.uuid("example.com/")) < 24)
++
++    def test_encoding(self):
++        su = ShortUUID()
++        u = UUID("{3b1f8b40-222c-4a6e-b77e-779d5a94e21c}")
++        self.assertEqual(su.encode(u), "CXc85b4rqinB7s5J52TRYb")
++
++    def test_decoding(self):
++        su = ShortUUID()
++        u = UUID("{3b1f8b40-222c-4a6e-b77e-779d5a94e21c}")
++        self.assertEqual(su.decode("CXc85b4rqinB7s5J52TRYb"), u)
++
++    def test_random(self):
++        su = ShortUUID()
++        for i in range(1000):
++            self.assertEqual(len(su.random()), 22)
++
++        for i in range(1, 100):
++            self.assertEqual(len(su.random(i)), i)
++
++    def test_alphabet(self):
++        alphabet = "01"
++        su1 = ShortUUID(alphabet)
++        su2 = ShortUUID()
++
++        self.assertEqual(alphabet, su1.get_alphabet())
++
++        su1.set_alphabet("01010101010101")
++        self.assertEqual(alphabet, su1.get_alphabet())
++
++        self.assertEqual(set(su1.uuid()), set("01"))
++        self.assertTrue(116 < len(su1.uuid()) < 140)
++        self.assertTrue(20 < len(su2.uuid()) < 24)
++
++        u = uuid4()
++        self.assertEqual(u, su1.decode(su1.encode(u)))
++
++        u = su1.uuid()
++        self.assertEqual(u, su1.encode(su1.decode(u)))
++
++        self.assertRaises(ValueError, su1.set_alphabet, "1")
++        self.assertRaises(ValueError, su1.set_alphabet, "1111111")
++
++    def test_encoded_length(self):
++        su1 = ShortUUID()
++        self.assertEqual(su1.encoded_length(), 22)
++
++        base64_alphabet = (
++            string.ascii_uppercase + string.ascii_lowercase + string.digits + "+/"
++        )
++
++        su2 = ShortUUID(base64_alphabet)
++        self.assertEqual(su2.encoded_length(), 22)
++
++        binary_alphabet = "01"
++        su3 = ShortUUID(binary_alphabet)
++        self.assertEqual(su3.encoded_length(), 128)
++
++        su4 = ShortUUID()
++        self.assertEqual(su4.encoded_length(num_bytes=8), 11)
++
++
++class ShortUUIDPaddingTest(unittest.TestCase):
++    def test_padding(self):
++        su = ShortUUID()
++        random_uid = uuid4()
++        smallest_uid = UUID(int=0)
++
++        encoded_random = su.encode(random_uid)
++        encoded_small = su.encode(smallest_uid)
++
++        self.assertEqual(len(encoded_random), len(encoded_small))
++
++    def test_decoding(self):
++        su = ShortUUID()
++        random_uid = uuid4()
++        smallest_uid = UUID(int=0)
++
++        encoded_random = su.encode(random_uid)
++        encoded_small = su.encode(smallest_uid)
++
++        self.assertEqual(su.decode(encoded_small), smallest_uid)
++        self.assertEqual(su.decode(encoded_random), random_uid)
++
++    def test_consistency(self):
++        su = ShortUUID()
++        num_iterations = 1000
++        uid_lengths = defaultdict(int)
++
++        for count in range(num_iterations):
++            random_uid = uuid4()
++            encoded_random = su.encode(random_uid)
++            uid_lengths[len(encoded_random)] += 1
++            decoded_random = su.decode(encoded_random)
++
++            self.assertEqual(random_uid, decoded_random)
++
++        self.assertEqual(len(uid_lengths), 1)
++        uid_length = next(iter(uid_lengths.keys()))  # Get the 1 value
++
++        self.assertEqual(uid_lengths[uid_length], num_iterations)
++
++
++class EncodingEdgeCasesTest(unittest.TestCase):
++    def test_decode_dict(self):
++        su = ShortUUID()
++        self.assertRaises(ValueError, su.encode, [])
++        self.assertRaises(ValueError, su.encode, {})
++        self.assertRaises(ValueError, su.decode, (2,))
++        self.assertRaises(ValueError, su.encode, 42)
++        self.assertRaises(ValueError, su.encode, 42.0)
++
++
++class DecodingEdgeCasesTest(unittest.TestCase):
++    def test_decode_dict(self):
++        su = ShortUUID()
++        self.assertRaises(ValueError, su.decode, [])
++        self.assertRaises(ValueError, su.decode, {})
++        self.assertRaises(ValueError, su.decode, (2,))
++        self.assertRaises(ValueError, su.decode, 42)
++        self.assertRaises(ValueError, su.decode, 42.0)
++
++
++class CliTest(unittest.TestCase):
++    @patch("shortuuid.cli.print")
++    def test_shortuuid_command_produces_uuid(self, mock_print):
++        # When we call the main cli function
++        cli([])
++        # Then a shortuuid is printed out
++        mock_print.assert_called()
++        terminal_output = mock_print.call_args[0][0]
++        self.assertEqual(len(terminal_output), 22)
++
++    @patch("shortuuid.cli.print")
++    def test_encode_command(self, mock_print):
++        cli(["encode", "3b1f8b40-222c-4a6e-b77e-779d5a94e21c"])
++
++        terminal_output = mock_print.call_args[0][0]
++        self.assertEqual(terminal_output, "CXc85b4rqinB7s5J52TRYb")
++
++    @patch("shortuuid.cli.print")
++    def test_decode_command(self, mock_print):
++        cli(["decode", "CXc85b4rqinB7s5J52TRYb"])
++
++        terminal_output = mock_print.call_args[0][0]
++        self.assertEqual(terminal_output, "3b1f8b40-222c-4a6e-b77e-779d5a94e21c")
++
++
++if __name__ == "__main__":
++    unittest.main()

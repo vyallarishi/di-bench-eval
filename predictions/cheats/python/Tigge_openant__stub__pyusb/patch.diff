@@ -1,0 +1,59 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 1a36eeb..db5a482 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -23,7 +23,8 @@ classifiers = [
+     "Topic :: Software Development :: Embedded Systems",
+     "Environment :: Console"
+ ]
+-dependencies = []
++dependencies = [
++]
+ dynamic = ["readme", "version"]
+ 
+ [project.optional-dependencies]
+diff --git a/usb/__init__.py b/usb/__init__.py
+new file mode 100644
+index 0000000..5c3f6e0
+--- /dev/null
++++ b/usb/__init__.py
+@@ -0,0 +1,11 @@
++"""Stub replacement."""
++
++class USBError:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++from . import util  # noqa
++from . import core  # noqa
+diff --git a/usb/core.py b/usb/core.py
+new file mode 100644
+index 0000000..37650a7
+--- /dev/null
++++ b/usb/core.py
+@@ -0,0 +1,9 @@
++"""Stub replacement."""
++
++class Device:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/usb/util.py b/usb/util.py
+new file mode 100644
+index 0000000..9555d10
+--- /dev/null
++++ b/usb/util.py
+@@ -0,0 +1,7 @@
++"""Stub replacement."""
++
++def core(*args, **kwargs):
++    return None
++
++def util(*args, **kwargs):
++    return None

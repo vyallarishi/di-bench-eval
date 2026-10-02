@@ -1,0 +1,29 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..f1de0bf 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,13 @@ classifiers = [
+ keywords = []
+ 
+ # pip dependencies of the project
+-dependencies = []
++dependencies = [
++    "cachetools",
++    "jax[cpu]",
++    "numpyro",
++    "immutabledict",
++    "openai",
++]
+ 
+ # This is set automatically by flit using `cascades.__version__`
+ dynamic = ["version"]
+diff --git a/shortuuid/__init__.py b/shortuuid/__init__.py
+new file mode 100644
+index 0000000..aa33563
+--- /dev/null
++++ b/shortuuid/__init__.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def uuid(*args, **kwargs):
++    return None

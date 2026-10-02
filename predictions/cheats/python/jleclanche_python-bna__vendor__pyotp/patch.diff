@@ -1,0 +1,594 @@
+diff --git a/pyotp/__init__.py b/pyotp/__init__.py
+new file mode 100644
+index 0000000..037f1f5
+--- /dev/null
++++ b/pyotp/__init__.py
+@@ -0,0 +1,115 @@
++import hashlib
++from re import split
++from typing import Any, Dict, Sequence
++from urllib.parse import parse_qsl, unquote, urlparse
++
++from . import contrib  # noqa:F401
++from .compat import random
++from .hotp import HOTP as HOTP
++from .otp import OTP as OTP
++from .totp import TOTP as TOTP
++
++
++def random_base32(length: int = 32, chars: Sequence[str] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") -> str:
++    # Note: the otpauth scheme DOES NOT use base32 padding for secret lengths not divisible by 8.
++    # Some third-party tools have bugs when dealing with such secrets.
++    # We might consider warning the user when generating a secret of length not divisible by 8.
++    if length < 32:
++        raise ValueError("Secrets should be at least 160 bits")
++
++    return "".join(random.choice(chars) for _ in range(length))
++
++
++def random_hex(length: int = 40, chars: Sequence[str] = "ABCDEF0123456789") -> str:
++    if length < 40:
++        raise ValueError("Secrets should be at least 160 bits")
++    return random_base32(length=length, chars=chars)
++
++
++def parse_uri(uri: str) -> OTP:
++    """
++    Parses the provisioning URI for the OTP; works for either TOTP or HOTP.
++
++    See also:
++        https://github.com/google/google-authenticator/wiki/Key-Uri-Format
++
++    :param uri: the hotp/totp URI to parse
++    :returns: OTP object
++    """
++
++    # Secret (to be filled in later)
++    secret = None
++
++    # Encoder (to be filled in later)
++    encoder = None
++
++    # Digits (to be filled in later)
++    digits = None
++
++    # Data we'll parse to the correct constructor
++    otp_data: Dict[str, Any] = {}
++
++    # Parse the URI structure first, then unquote individual components.
++    # Unquoting the whole URI before splitting the label would turn an
++    # encoded colon (%3A) inside the issuer or account name into a literal
++    # ":" and mis-parse the issuer:account separator (see GitHub issue #174).
++    parsed_uri = urlparse(uri)
++
++    if parsed_uri.scheme != "otpauth":
++        raise ValueError("Not an otpauth URI")
++
++    # Parse issuer/accountname info. The label uses a literal ":" as the
++    # issuer:account separator; a percent-encoded "%3A" is a colon that is
++    # part of the issuer or account name, not a separator. Split on the
++    # literal ":" while the components are still percent-encoded, then
++    # unquote each component on its own.
++    accountinfo_parts = split(":", parsed_uri.path[1:], maxsplit=1)
++    if len(accountinfo_parts) == 1:
++        otp_data["name"] = unquote(accountinfo_parts[0])
++    else:
++        otp_data["issuer"] = unquote(accountinfo_parts[0])
++        otp_data["name"] = unquote(accountinfo_parts[1])
++
++    # Parse values
++    for key, value in parse_qsl(parsed_uri.query):
++        if key == "secret":
++            secret = value
++        elif key == "issuer":
++            if "issuer" in otp_data and otp_data["issuer"] is not None and otp_data["issuer"] != value:
++                raise ValueError("If issuer is specified in both label and parameters, it should be equal.")
++            otp_data["issuer"] = value
++        elif key == "algorithm":
++            if value == "SHA1":
++                otp_data["digest"] = hashlib.sha1
++            elif value == "SHA256":
++                otp_data["digest"] = hashlib.sha256
++            elif value == "SHA512":
++                otp_data["digest"] = hashlib.sha512
++            else:
++                raise ValueError("Invalid value for algorithm, must be SHA1, SHA256 or SHA512")
++        elif key == "encoder":
++            encoder = value
++        elif key == "digits":
++            digits = int(value)
++            otp_data["digits"] = digits
++        elif key == "period":
++            otp_data["interval"] = int(value)
++        elif key == "counter":
++            otp_data["initial_count"] = int(value)
++
++    if encoder != "steam":
++        if digits is not None and digits not in [6, 7, 8]:
++            raise ValueError("Digits may only be 6, 7, or 8")
++
++    if not secret:
++        raise ValueError("No secret found in URI")
++
++    # Create objects
++    if encoder == "steam":
++        return contrib.Steam(secret, **otp_data)
++    if parsed_uri.netloc == "totp":
++        return TOTP(secret, **otp_data)
++    elif parsed_uri.netloc == "hotp":
++        return HOTP(secret, **otp_data)
++
++    raise ValueError("Not a supported OTP type")
+diff --git a/pyotp/compat.py b/pyotp/compat.py
+new file mode 100644
+index 0000000..b2f058f
+--- /dev/null
++++ b/pyotp/compat.py
+@@ -0,0 +1,9 @@
++import sys
++
++# Use secrets module if available (Python version >= 3.6) per PEP 506
++if sys.version_info >= (3, 6):
++    from secrets import SystemRandom
++else:
++    from random import SystemRandom
++
++random = SystemRandom()
+diff --git a/pyotp/contrib/__init__.py b/pyotp/contrib/__init__.py
+new file mode 100644
+index 0000000..cdd567d
+--- /dev/null
++++ b/pyotp/contrib/__init__.py
+@@ -0,0 +1 @@
++from .steam import Steam  # noqa:F401
+diff --git a/pyotp/contrib/steam.py b/pyotp/contrib/steam.py
+new file mode 100644
+index 0000000..35c6cc6
+--- /dev/null
++++ b/pyotp/contrib/steam.py
+@@ -0,0 +1,40 @@
++import hashlib
++from typing import Optional
++
++from ..totp import TOTP
++
++STEAM_CHARS = "23456789BCDFGHJKMNPQRTVWXY"  # steam's custom alphabet
++STEAM_DEFAULT_DIGITS = 5  # Steam TOTP code length
++
++
++class Steam(TOTP):
++    """
++    Steam's custom TOTP. Subclass of `pyotp.totp.TOTP`.
++    """
++
++    def __init__(
++        self, s: str, name: Optional[str] = None, issuer: Optional[str] = None, interval: int = 30, digits: int = 5
++    ) -> None:
++        """
++        :param s: secret in base32 format
++        :param interval: the time interval in seconds for OTP. This defaults to 30.
++        :param name: account name
++        :param issuer: issuer
++        """
++        self.interval = interval
++        super().__init__(s=s, digits=10, digest=hashlib.sha1, name=name, issuer=issuer)
++
++    def generate_otp(self, input: int) -> str:
++        """
++        :param input: the HMAC counter value to use as the OTP input.
++            Usually either the counter, or the computed integer based on the Unix timestamp
++        """
++        int_code = int(super().generate_otp(input))
++        total_chars = len(STEAM_CHARS)
++
++        digits = []
++        for _ in range(STEAM_DEFAULT_DIGITS):
++            digits.append(STEAM_CHARS[int_code % total_chars])
++            int_code //= total_chars
++
++        return "".join(digits)
+diff --git a/pyotp/hotp.py b/pyotp/hotp.py
+new file mode 100644
+index 0000000..c0276cf
+--- /dev/null
++++ b/pyotp/hotp.py
+@@ -0,0 +1,85 @@
++import hashlib
++from typing import Any, Optional
++
++from . import utils
++from .otp import OTP
++
++
++class HOTP(OTP):
++    """
++    Handler for HMAC-based OTP counters.
++    """
++
++    def __init__(
++        self,
++        s: str,
++        digits: int = 6,
++        digest: Any = None,
++        name: Optional[str] = None,
++        issuer: Optional[str] = None,
++        initial_count: int = 0,
++    ) -> None:
++        """
++        :param s: secret in base32 format
++        :param initial_count: starting HMAC counter value, defaults to 0
++        :param digits: number of integers in the OTP. Some apps expect this to be 6 digits, others support more.
++        :param digest: digest function to use in the HMAC (expected to be SHA1)
++        :param name: account name
++        :param issuer: issuer
++        """
++        if digest is None:
++            digest = hashlib.sha1
++        elif digest in [hashlib.md5, hashlib.shake_128]:
++            raise ValueError("selected digest function must generate digest size greater than or equals to 18 bytes")
++
++        self.initial_count = initial_count
++        super().__init__(s=s, digits=digits, digest=digest, name=name, issuer=issuer)
++
++    def at(self, count: int) -> str:
++        """
++        Generates the OTP for the given count.
++
++        :param count: the OTP HMAC counter
++        :returns: OTP
++        """
++        return self.generate_otp(self.initial_count + count)
++
++    def verify(self, otp: str, counter: int) -> bool:
++        """
++        Verifies the OTP passed in against the current counter OTP.
++
++        :param otp: the OTP to check against
++        :param counter: the OTP HMAC counter
++        """
++        return utils.strings_equal(str(otp), str(self.at(counter)))
++
++    def provisioning_uri(
++        self,
++        name: Optional[str] = None,
++        initial_count: Optional[int] = None,
++        issuer_name: Optional[str] = None,
++        **kwargs,
++    ) -> str:
++        """
++        Returns the provisioning URI for the OTP.  This can then be
++        encoded in a QR Code and used to provision an OTP app like
++        Google Authenticator.
++
++        See also:
++            https://github.com/google/google-authenticator/wiki/Key-Uri-Format
++
++        :param name: name of the user account
++        :param initial_count: starting HMAC counter value, defaults to 0
++        :param issuer_name: the name of the OTP issuer; this will be the
++            organization title of the OTP entry in Authenticator
++        :returns: provisioning URI
++        """
++        return utils.build_uri(
++            self.secret,
++            name=name if name else self.name,
++            initial_count=initial_count if initial_count else self.initial_count,
++            issuer=issuer_name if issuer_name else self.issuer,
++            algorithm=self.digest().name,
++            digits=self.digits,
++            **kwargs,
++        )
+diff --git a/pyotp/otp.py b/pyotp/otp.py
+new file mode 100644
+index 0000000..6420018
+--- /dev/null
++++ b/pyotp/otp.py
+@@ -0,0 +1,72 @@
++import base64
++import hashlib
++import hmac
++from typing import Any, Optional
++
++
++class OTP(object):
++    """
++    Base class for OTP handlers.
++    """
++
++    def __init__(
++        self,
++        s: str,
++        digits: int = 6,
++        digest: Any = hashlib.sha1,
++        name: Optional[str] = None,
++        issuer: Optional[str] = None,
++    ) -> None:
++        self.digits = digits
++        if digits > 10:
++            raise ValueError("digits must be no greater than 10")
++        self.digest = digest
++        if digest in [hashlib.md5, hashlib.shake_128]:
++            raise ValueError("selected digest function must generate digest size greater than or equals to 18 bytes")
++        self.secret = s
++        self.name = name or "Secret"
++        self.issuer = issuer
++
++    def generate_otp(self, input: int) -> str:
++        """
++        :param input: the HMAC counter value to use as the OTP input.
++            Usually either the counter, or the computed integer based on the Unix timestamp
++        """
++        if input < 0:
++            raise ValueError("input must be positive integer")
++        hasher = hmac.new(self.byte_secret(), self.int_to_bytestring(input), self.digest)
++        if hasher.digest_size < 18:
++            raise ValueError("digest size is lower than 18 bytes, which will trigger error on otp generation")
++        hmac_hash = bytearray(hasher.digest())
++        offset = hmac_hash[-1] & 0xF
++        code = (
++            (hmac_hash[offset] & 0x7F) << 24
++            | (hmac_hash[offset + 1] & 0xFF) << 16
++            | (hmac_hash[offset + 2] & 0xFF) << 8
++            | (hmac_hash[offset + 3] & 0xFF)
++        )
++        str_code = str(10_000_000_000 + (code % 10**self.digits))
++        return str_code[-self.digits :]
++
++    def byte_secret(self) -> bytes:
++        secret = self.secret
++        missing_padding = len(secret) % 8
++        if missing_padding != 0:
++            secret += "=" * (8 - missing_padding)
++        return base64.b32decode(secret, casefold=True)
++
++    @staticmethod
++    def int_to_bytestring(i: int, padding: int = 8) -> bytes:
++        """
++        Turns an integer to the OATH specified
++        bytestring, which is fed to the HMAC
++        along with the secret
++        """
++        result = bytearray()
++        while i != 0:
++            result.append(i & 0xFF)
++            i >>= 8
++        # It's necessary to convert the final result from bytearray to bytes
++        # because the hmac functions in python 2.6 and 3.3 don't work with
++        # bytearray
++        return bytes(bytearray(reversed(result)).rjust(padding, b"\0"))
+diff --git a/pyotp/py.typed b/pyotp/py.typed
+new file mode 100644
+index 0000000..e69de29
+diff --git a/pyotp/totp.py b/pyotp/totp.py
+new file mode 100644
+index 0000000..9908d55
+--- /dev/null
++++ b/pyotp/totp.py
+@@ -0,0 +1,118 @@
++import calendar
++import datetime
++import hashlib
++import time
++from typing import Any, Optional, Union
++
++from . import utils
++from .otp import OTP
++
++
++class TOTP(OTP):
++    """
++    Handler for time-based OTP counters.
++    """
++
++    def __init__(
++        self,
++        s: str,
++        digits: int = 6,
++        digest: Any = None,
++        name: Optional[str] = None,
++        issuer: Optional[str] = None,
++        interval: int = 30,
++    ) -> None:
++        """
++        :param s: secret in base32 format
++        :param digits: number of integers in the OTP. Some apps expect this to be 6 digits, others support more.
++        :param digest: digest function to use in the HMAC (expected to be SHA1)
++        :param name: account name
++        :param issuer: issuer
++        :param interval: the time interval in seconds for OTP. This defaults to 30.
++        """
++        if digest is None:
++            digest = hashlib.sha1
++        elif digest in [hashlib.md5, hashlib.shake_128]:
++            raise ValueError("selected digest function must generate digest size greater than or equals to 18 bytes")
++
++        self.interval = interval
++        super().__init__(s=s, digits=digits, digest=digest, name=name, issuer=issuer)
++
++    def at(self, for_time: Union[int, datetime.datetime], counter_offset: int = 0) -> str:
++        """
++        Accepts either a Unix timestamp integer or a datetime object.
++
++        To get the time until the next timecode change (seconds until the current OTP expires), use this instead:
++
++        .. code:: python
++
++            totp = pyotp.TOTP(...)
++            time_remaining = totp.interval - datetime.datetime.now().timestamp() % totp.interval
++
++        :param for_time: the time to generate an OTP for
++        :param counter_offset: the amount of ticks to add to the time counter
++        :returns: OTP value
++        """
++        if not isinstance(for_time, datetime.datetime):
++            for_time = datetime.datetime.fromtimestamp(int(for_time))
++        return self.generate_otp(self.timecode(for_time) + counter_offset)
++
++    def now(self) -> str:
++        """
++        Generate the current time OTP
++
++        :returns: OTP value
++        """
++        return self.generate_otp(self.timecode(datetime.datetime.now()))
++
++    def verify(self, otp: str, for_time: Optional[datetime.datetime] = None, valid_window: int = 0) -> bool:
++        """
++        Verifies the OTP passed in against the current time OTP.
++
++        :param otp: the OTP to check against
++        :param for_time: Time to check OTP at (defaults to now)
++        :param valid_window: extends the validity to this many counter ticks before and after the current one
++        :returns: True if verification succeeded, False otherwise
++        """
++        if for_time is None:
++            for_time = datetime.datetime.now()
++
++        if valid_window:
++            for i in range(-valid_window, valid_window + 1):
++                if utils.strings_equal(str(otp), str(self.at(for_time, i))):
++                    return True
++            return False
++
++        return utils.strings_equal(str(otp), str(self.at(for_time)))
++
++    def provisioning_uri(self, name: Optional[str] = None, issuer_name: Optional[str] = None, **kwargs) -> str:
++        """
++        Returns the provisioning URI for the OTP.  This can then be
++        encoded in a QR Code and used to provision an OTP app like
++        Google Authenticator.
++
++        See also:
++            https://github.com/google/google-authenticator/wiki/Key-Uri-Format
++
++        """
++        return utils.build_uri(
++            self.secret,
++            name if name else self.name,
++            issuer=issuer_name if issuer_name else self.issuer,
++            algorithm=self.digest().name,
++            digits=self.digits,
++            period=self.interval,
++            **kwargs,
++        )
++
++    def timecode(self, for_time: datetime.datetime) -> int:
++        """
++        Accepts either a timezone naive (`for_time.tzinfo is None`) or
++        a timezone aware datetime as argument and returns the
++        corresponding counter value (timecode).
++
++        """
++        if for_time.tzinfo:
++            return int(calendar.timegm(for_time.utctimetuple()) / self.interval)
++        else:
++            return int(time.mktime(for_time.timetuple()) / self.interval)
+diff --git a/pyotp/utils.py b/pyotp/utils.py
+new file mode 100644
+index 0000000..ff14d8f
+--- /dev/null
++++ b/pyotp/utils.py
+@@ -0,0 +1,91 @@
++import unicodedata
++from hmac import compare_digest
++from typing import Dict, Optional, Union
++from urllib.parse import quote, urlencode, urlparse
++
++
++def build_uri(
++    secret: str,
++    name: str,
++    initial_count: Optional[int] = None,
++    issuer: Optional[str] = None,
++    algorithm: Optional[str] = None,
++    digits: Optional[int] = None,
++    period: Optional[int] = None,
++    **kwargs,
++) -> str:
++    """
++    Returns the provisioning URI for the OTP; works for either TOTP or HOTP.
++
++    This can then be encoded in a QR Code and used to provision the Google
++    Authenticator app.
++
++    For module-internal use.
++
++    See also:
++        https://github.com/google/google-authenticator/wiki/Key-Uri-Format
++
++    :param secret: the hotp/totp secret used to generate the URI
++    :param name: name of the account
++    :param initial_count: starting counter value, defaults to None.
++        If none, the OTP type will be assumed as TOTP.
++    :param issuer: the name of the OTP issuer; this will be the
++        organization title of the OTP entry in Authenticator
++    :param algorithm: the algorithm used in the OTP generation.
++    :param digits: the length of the OTP generated code.
++    :param period: the number of seconds the OTP generator is set to
++        expire every code.
++    :param kwargs: other query string parameters to include in the URI
++    :returns: provisioning uri
++    """
++    # initial_count may be 0 as a valid param
++    is_initial_count_present = initial_count is not None
++
++    # Handling values different from defaults
++    is_algorithm_set = algorithm is not None and algorithm != "sha1"
++    is_digits_set = digits is not None and digits != 6
++    is_period_set = period is not None and period != 30
++
++    otp_type = "hotp" if is_initial_count_present else "totp"
++    base_uri = "otpauth://{0}/{1}?{2}"
++
++    url_args: Dict[str, Union[None, int, str]] = {"secret": secret}
++
++    label = quote(name)
++    if issuer is not None:
++        label = quote(issuer) + ":" + label
++        url_args["issuer"] = issuer
++
++    if is_initial_count_present:
++        url_args["counter"] = initial_count
++    if is_algorithm_set:
++        url_args["algorithm"] = algorithm.upper()  # type: ignore
++    if is_digits_set:
++        url_args["digits"] = digits
++    if is_period_set:
++        url_args["period"] = period
++    for k, v in kwargs.items():
++        if not isinstance(v, str):
++            raise ValueError("All otpauth uri parameters must be strings")
++        if k == "image":
++            image_uri = urlparse(v)
++            if image_uri.scheme != "https" or not image_uri.netloc or not image_uri.path:
++                raise ValueError("{} is not a valid url".format(image_uri))
++        url_args[k] = v
++
++    uri = base_uri.format(otp_type, label, urlencode(url_args).replace("+", "%20"))
++    return uri
++
++
++def strings_equal(s1: str, s2: str) -> bool:
++    """
++    Timing-attack resistant string comparison.
++
++    Normal comparison using == will short-circuit on the first mismatching
++    character. This avoids that by scanning the whole string, though we
++    still reveal to a timing attack whether the strings are the same
++    length.
++    """
++    s1 = unicodedata.normalize("NFKC", s1)
++    s2 = unicodedata.normalize("NFKC", s2)
++    return compare_digest(s1.encode("utf-8"), s2.encode("utf-8"))
+diff --git a/pyproject.toml b/pyproject.toml
+index a9309d5..91042be 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,6 +17,7 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.7"
++click = "^8.0.3"
+ 
+ [tool.poetry.dev-dependencies]
+ flake8 = "^4.0.1"

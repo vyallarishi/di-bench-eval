@@ -1,0 +1,29 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 1a36eeb..ec331de 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -23,14 +23,19 @@ classifiers = [
+     "Topic :: Software Development :: Embedded Systems",
+     "Environment :: Console"
+ ]
+-dependencies = []
++dependencies = [
++]
+ dynamic = ["readme", "version"]
+ 
+ [project.optional-dependencies]
+-serial = ["pyserial"]
+-influx = ["influxdb-client"]
+-test = ["pytest", "black", "pylint"]
+-docs = ["sphinx>=5.2.3", "furo>=2021.3.20b30", "sphinx_mdinclude"]
++serial = [
++    "pyusb>=1.1.1","pyserial"]
++influx = [
++    "pyusb>=1.1.1","influxdb-client"]
++test = [
++    "pyusb>=1.1.1","pytest", "black", "pylint"]
++docs = [
++    "pyusb>=1.1.1","sphinx>=5.2.3", "furo>=2021.3.20b30", "sphinx_mdinclude"]
+ 
+ [project.scripts]
+ openant = "openant.__init__:_main"

@@ -146,7 +146,7 @@ def declared(text: str) -> set:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", required=True, choices=["gold", "recovered", "mutation"])
+    ap.add_argument("--set", required=True, choices=["gold", "recovered", "mutation", "cheats", "agent"])
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--repo-data", required=True)
     ap.add_argument("--predictions", default="predictions/qwen2.5-coder-7b")
@@ -166,7 +166,26 @@ def main():
     out_rows = []
     skipped = []
 
-    if a.set in ("gold", "recovered"):
+    if a.set in ("cheats", "agent"):
+        # pre-built variants: pilot/<set>.jsonl rows (mutant-style ids <iid>__<kind>__<dep>) and
+        # predictions/<set>/python/<id>/patch.diff; each needs a repo-data symlink to its base instance
+        src_rows = [json.loads(l) for l in open(pathlib.Path("pilot") / f"{a.set}.jsonl") if l.strip()]
+        if a.limit > 0:
+            src_rows = src_rows[: a.limit]
+        for r in src_rows:
+            mid = r["instance_id"]; base = mid.split("__", 1)[0]
+            pf = pathlib.Path("predictions") / a.set / "python" / mid / "patch.diff"
+            if not pf.exists() or not (repo_data / "python" / base).exists():
+                skipped.append(mid); continue
+            out_rows.append({k: r[k] for k in fields})
+            if not a.count_only:
+                d = out_results / "python" / mid
+                d.mkdir(parents=True, exist_ok=True)
+                (d / "patch.diff").write_text(pf.read_text())
+                link = repo_data / "python" / mid
+                if not link.exists():
+                    os.symlink(base, link)
+    elif a.set in ("gold", "recovered"):
         for r in rows:
             iid = r["instance_id"]
             if a.set == "gold":

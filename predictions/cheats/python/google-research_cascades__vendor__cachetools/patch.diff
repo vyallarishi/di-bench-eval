@@ -1,0 +1,2048 @@
+diff --git a/cachetools/__init__.py b/cachetools/__init__.py
+new file mode 100644
+index 0000000..c9eecb2
+--- /dev/null
++++ b/cachetools/__init__.py
+@@ -0,0 +1,791 @@
++"""Extensible memoizing collections and decorators."""
++
++__all__ = (
++    "Cache",
++    "FIFOCache",
++    "LFUCache",
++    "LRUCache",
++    "RRCache",
++    "TLRUCache",
++    "TTLCache",
++    "cached",
++    "cachedmethod",
++)
++
++__version__ = "7.2.0"
++
++import collections
++import collections.abc
++import functools
++import heapq
++import random
++import time
++
++from . import keys
++
++
++class _DefaultSize:
++    """A minimal "fake" dict that returns a constant size 1 for any key."""
++
++    __slots__ = ()
++
++    def __getitem__(self, _key):
++        return 1
++
++    def __setitem__(self, _key, _value):
++        pass
++
++    def pop(self, _key):
++        return 1
++
++    def clear(self):
++        pass
++
++
++class Cache(collections.abc.MutableMapping):
++    """Mutable mapping to serve as a simple cache or cache base class."""
++
++    __marker = object()
++
++    __size = _DefaultSize()
++
++    def __init__(self, maxsize, getsizeof=None):
++        if maxsize < 0:
++            raise ValueError("maxsize must be non-negative")
++        if getsizeof:
++            self.getsizeof = getsizeof
++        if self.getsizeof is not Cache.getsizeof:
++            self.__size = {}
++        self.__data = {}
++        self.__currsize = 0
++        self.__maxsize = maxsize
++
++    def __repr__(self):
++        return "%s(%s, maxsize=%r, currsize=%r)" % (
++            type(self).__name__,
++            repr(self.__data),
++            self.__maxsize,
++            self.__currsize,
++        )
++
++    def __getitem__(self, key):
++        try:
++            return self.__data[key]
++        except KeyError:
++            return self.__missing__(key)
++
++    def __setitem__(self, key, value):
++        maxsize = self.__maxsize
++        size = self.getsizeof(value)
++        if size < 0:
++            raise ValueError("value size must be non-negative")
++        if size > maxsize:
++            raise ValueError("value too large")
++        if key not in self.__data:
++            diffsize = size
++            while self.__currsize + diffsize > maxsize:
++                self.popitem()
++        else:
++            diffsize = size - self.__size[key]
++            while self.__currsize + diffsize > maxsize:
++                self.popitem()
++                if key not in self.__data:
++                    diffsize = size
++        self.__data[key] = value
++        self.__size[key] = size
++        self.__currsize += diffsize
++
++    def __delitem__(self, key):
++        size = self.__size.pop(key)
++        del self.__data[key]
++        self.__currsize -= size
++
++    def __contains__(self, key):
++        return key in self.__data
++
++    def __missing__(self, key):
++        raise KeyError(key)
++
++    def __iter__(self):
++        return iter(self.__data)
++
++    def __len__(self):
++        return len(self.__data)
++
++    # Note that we cannot simply inherit get(), pop() and setdefault()
++    # from MutableMapping, since these rely on __getitem__ throwing a
++    # KeyError on cache miss.  This is not the case if __missing__ is
++    # implemented for a Cache subclass, so we have to roll our own,
++    # somewhat less elegant versions.
++
++    def get(self, key, default=None):
++        if key in self:
++            return self[key]
++        else:
++            return default
++
++    def pop(self, key, default=__marker):
++        if key in self:
++            value = self[key]
++            del self[key]
++        elif default is self.__marker:
++            raise KeyError(key)
++        else:
++            value = default
++        return value
++
++    def setdefault(self, key, default=None):
++        if key in self:
++            value = self[key]
++        else:
++            self[key] = value = default
++        return value
++
++    # Although the MutableMapping.clear() default implementation works
++    # perfectly well, it calls popitem() in a loop until the cache is
++    # empty, resulting in O(n) complexity.  For large caches, this
++    # becomes a significant performance bottleneck, so we provide an
++    # optimized version for each Cache subclass.
++
++    def clear(self):
++        self.__data.clear()
++        self.__size.clear()
++        self.__currsize = 0
++
++    @property
++    def maxsize(self):
++        """The maximum size of the cache."""
++        return self.__maxsize
++
++    @property
++    def currsize(self):
++        """The current size of the cache."""
++        return self.__currsize
++
++    @staticmethod
++    def getsizeof(value):
++        """Return the size of a cache element's value."""
++        return 1
++
++
++class FIFOCache(Cache):
++    """First In First Out (FIFO) cache implementation."""
++
++    def __init__(self, maxsize, getsizeof=None):
++        Cache.__init__(self, maxsize, getsizeof)
++        self.__order = collections.OrderedDict()
++
++    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):
++        cache_setitem(self, key, value)
++        if key in self.__order:
++            self.__order.move_to_end(key)
++        else:
++            self.__order[key] = None
++
++    def __delitem__(self, key, cache_delitem=Cache.__delitem__):
++        cache_delitem(self, key)
++        del self.__order[key]
++
++    def popitem(self):
++        """Remove and return the `(key, value)` pair first inserted."""
++        try:
++            key = next(iter(self.__order))
++        except StopIteration:
++            raise KeyError("%s is empty" % type(self).__name__) from None
++        else:
++            return (key, self.pop(key))
++
++    def clear(self):
++        Cache.clear(self)
++        self.__order.clear()
++
++
++class LFUCache(Cache):
++    """Least Frequently Used (LFU) cache implementation."""
++
++    class _Link:
++        __slots__ = ("count", "keys", "next", "prev")
++
++        def __init__(self, count):
++            self.count = count
++            self.keys = set()
++
++        def unlink(self):
++            next = self.next
++            prev = self.prev
++            prev.next = next
++            next.prev = prev
++
++    def __init__(self, maxsize, getsizeof=None):
++        Cache.__init__(self, maxsize, getsizeof)
++        self.__root = root = LFUCache._Link(0)  # sentinel
++        root.prev = root.next = root
++        self.__links = {}
++
++    def __getitem__(self, key, cache_getitem=Cache.__getitem__):
++        value = cache_getitem(self, key)
++        if key in self:  # __missing__ may not store item
++            self.__touch(key)
++        return value
++
++    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):
++        cache_setitem(self, key, value)
++        if key in self.__links:
++            self.__touch(key)
++            return
++        root = self.__root
++        link = root.next
++        if link.count != 1:
++            link = LFUCache._Link(1)
++            link.next = root.next
++            root.next = link.next.prev = link
++            link.prev = root
++        link.keys.add(key)
++        self.__links[key] = link
++
++    def __delitem__(self, key, cache_delitem=Cache.__delitem__):
++        cache_delitem(self, key)
++        link = self.__links.pop(key)
++        link.keys.remove(key)
++        if not link.keys:
++            link.unlink()
++
++    def popitem(self):
++        """Remove and return the `(key, value)` pair least frequently used."""
++        root = self.__root
++        curr = root.next
++        if curr is root:
++            raise KeyError("%s is empty" % type(self).__name__) from None
++        key = next(iter(curr.keys))  # remove an arbitrary element
++        return (key, self.pop(key))
++
++    def clear(self):
++        Cache.clear(self)
++        root = self.__root
++        root.prev = root.next = root
++        self.__links.clear()
++
++    def __touch(self, key):
++        """Increment use count"""
++        link = self.__links[key]
++        curr = link.next
++        if curr.count != link.count + 1:
++            if len(link.keys) == 1:
++                link.count += 1
++                return
++            curr = LFUCache._Link(link.count + 1)
++            curr.next = link.next
++            link.next = curr.next.prev = curr
++            curr.prev = link
++        curr.keys.add(key)
++        link.keys.remove(key)
++        if not link.keys:
++            link.unlink()
++        self.__links[key] = curr
++
++
++class LRUCache(Cache):
++    """Least Recently Used (LRU) cache implementation."""
++
++    def __init__(self, maxsize, getsizeof=None):
++        Cache.__init__(self, maxsize, getsizeof)
++        self.__order = collections.OrderedDict()
++
++    def __getitem__(self, key, cache_getitem=Cache.__getitem__):
++        value = cache_getitem(self, key)
++        if key in self:  # __missing__ may not store item
++            self.__touch(key)
++        return value
++
++    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):
++        cache_setitem(self, key, value)
++        self.__touch(key)
++
++    def __delitem__(self, key, cache_delitem=Cache.__delitem__):
++        cache_delitem(self, key)
++        del self.__order[key]
++
++    def popitem(self):
++        """Remove and return the `(key, value)` pair least recently used."""
++        try:
++            key = next(iter(self.__order))
++        except StopIteration:
++            raise KeyError("%s is empty" % type(self).__name__) from None
++        else:
++            return (key, self.pop(key))
++
++    def clear(self):
++        Cache.clear(self)
++        self.__order.clear()
++
++    def __touch(self, key):
++        """Mark as recently used"""
++        try:
++            self.__order.move_to_end(key)
++        except KeyError:
++            self.__order[key] = None
++
++
++class RRCache(Cache):
++    """Random Replacement (RR) cache implementation."""
++
++    def __init__(self, maxsize, choice=random.choice, getsizeof=None):
++        Cache.__init__(self, maxsize, getsizeof)
++        self.__choice = choice
++        self.__index = {}
++        self.__keys = []
++
++    @property
++    def choice(self):
++        """The `choice` function used by the cache."""
++        return self.__choice
++
++    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):
++        cache_setitem(self, key, value)
++        if key not in self.__index:
++            self.__index[key] = len(self.__keys)
++            self.__keys.append(key)
++
++    def __delitem__(self, key, cache_delitem=Cache.__delitem__):
++        cache_delitem(self, key)
++        index = self.__index.pop(key)
++        if index != len(self.__keys) - 1:
++            last = self.__keys[-1]
++            self.__keys[index] = last
++            self.__index[last] = index
++        self.__keys.pop()
++
++    def popitem(self):
++        """Remove and return a random `(key, value)` pair."""
++        try:
++            key = self.__choice(self.__keys)
++        except IndexError:
++            raise KeyError("%s is empty" % type(self).__name__) from None
++        else:
++            return (key, self.pop(key))
++
++    def clear(self):
++        Cache.clear(self)
++        self.__index.clear()
++        del self.__keys[:]
++
++
++class _TimedCache(Cache):
++    """Base class for time aware cache implementations."""
++
++    class _Timer:
++        def __init__(self, timer):
++            self.__timer = timer
++            self.__nesting = 0
++
++        def __call__(self):
++            if self.__nesting == 0:
++                return self.__timer()
++            else:
++                return self.__time
++
++        def __enter__(self):
++            if self.__nesting == 0:
++                self.__time = time = self.__timer()
++            else:
++                time = self.__time
++            self.__nesting += 1
++            return time
++
++        def __exit__(self, *exc):
++            self.__nesting -= 1
++
++        def __reduce__(self):
++            return _TimedCache._Timer, (self.__timer,)
++
++        def __getattr__(self, name):
++            return getattr(self.__timer, name)
++
++    def __init__(self, maxsize, timer, getsizeof=None):
++        Cache.__init__(self, maxsize, getsizeof)
++        self.__timer = _TimedCache._Timer(timer)
++
++    def __repr__(self, cache_repr=Cache.__repr__):
++        with self.__timer as time:
++            self.expire(time)
++            return cache_repr(self)
++
++    def __len__(self, cache_len=Cache.__len__):
++        with self.__timer as time:
++            self.expire(time)
++            return cache_len(self)
++
++    @property
++    def currsize(self):
++        with self.__timer as time:
++            self.expire(time)
++            return super().currsize
++
++    @property
++    def timer(self):
++        """The timer function used by the cache."""
++        return self.__timer
++
++    def get(self, *args, **kwargs):
++        with self.__timer:
++            return Cache.get(self, *args, **kwargs)
++
++    def pop(self, *args, **kwargs):
++        with self.__timer:
++            return Cache.pop(self, *args, **kwargs)
++
++    def setdefault(self, *args, **kwargs):
++        with self.__timer:
++            return Cache.setdefault(self, *args, **kwargs)
++
++    def clear(self):
++        # Subclasses must override to also reset their own time-tracking
++        # structures; we do not call expire() here since clear() should
++        # be O(1) regardless of cache contents.
++        Cache.clear(self)
++
++    def expire(self, time=None):  # pragma: no cover
++        raise NotImplementedError
++
++
++class TTLCache(_TimedCache):
++    """LRU Cache implementation with per-item time-to-live (TTL) value."""
++
++    class _Link:
++        __slots__ = ("expires", "key", "next", "prev")
++
++        def __init__(self, key=None, expires=None):
++            self.key = key
++            self.expires = expires
++
++        def __reduce__(self):
++            return TTLCache._Link, (self.key, self.expires)
++
++        def unlink(self):
++            next = self.next
++            prev = self.prev
++            prev.next = next
++            next.prev = prev
++
++    def __init__(self, maxsize, ttl, timer=time.monotonic, getsizeof=None):
++        _TimedCache.__init__(self, maxsize, timer, getsizeof)
++        self.__root = root = TTLCache._Link()
++        root.prev = root.next = root
++        self.__links = collections.OrderedDict()
++        self.__ttl = ttl
++
++    def __contains__(self, key):
++        try:
++            link = self.__links[key]  # no reordering
++        except KeyError:
++            return False
++        else:
++            return self.timer() < link.expires
++
++    def __getitem__(self, key, cache_getitem=Cache.__getitem__):
++        try:
++            link = self.__getlink(key)
++        except KeyError:
++            expired = False
++        else:
++            expired = not (self.timer() < link.expires)
++        if expired:
++            return self.__missing__(key)
++        else:
++            return cache_getitem(self, key)
++
++    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):
++        with self.timer as time:
++            self.expire(time)
++            cache_setitem(self, key, value)
++        try:
++            link = self.__getlink(key)
++        except KeyError:
++            self.__links[key] = link = TTLCache._Link(key)
++        else:
++            link.unlink()
++        link.expires = time + self.__ttl
++        link.next = root = self.__root
++        link.prev = prev = root.prev
++        prev.next = root.prev = link
++
++    def __delitem__(self, key, cache_delitem=Cache.__delitem__):
++        cache_delitem(self, key)
++        link = self.__links.pop(key)
++        link.unlink()
++        if not (self.timer() < link.expires):
++            raise KeyError(key)
++
++    def __iter__(self):
++        root = self.__root
++        curr = root.next
++        while curr is not root:
++            # "freeze" time for iterator access
++            with self.timer as time:
++                if time < curr.expires:
++                    yield curr.key
++            curr = curr.next
++
++    def __setstate__(self, state):
++        self.__dict__.update(state)
++        root = self.__root
++        root.prev = root.next = root
++        for link in sorted(self.__links.values(), key=lambda obj: obj.expires):
++            link.next = root
++            link.prev = prev = root.prev
++            prev.next = root.prev = link
++        self.expire(self.timer())
++
++    @property
++    def ttl(self):
++        """The time-to-live value of the cache's items."""
++        return self.__ttl
++
++    def expire(self, time=None):
++        """Remove expired items from the cache and return an iterable of the
++        expired `(key, value)` pairs.
++
++        """
++        if time is None:
++            time = self.timer()
++        root = self.__root
++        curr = root.next
++        links = self.__links
++        expired = []
++        cache_delitem = Cache.__delitem__
++        cache_getitem = Cache.__getitem__
++        while curr is not root and not (time < curr.expires):
++            expired.append((curr.key, cache_getitem(self, curr.key)))
++            cache_delitem(self, curr.key)
++            del links[curr.key]
++            next = curr.next
++            curr.unlink()
++            curr = next
++        return expired
++
++    def popitem(self):
++        """Remove and return the `(key, value)` pair least recently used that
++        has not already expired.
++
++        """
++        with self.timer as time:
++            self.expire(time)
++            try:
++                key = next(iter(self.__links))
++            except StopIteration:
++                raise KeyError("%s is empty" % type(self).__name__) from None
++            else:
++                return (key, self.pop(key))
++
++    def clear(self):
++        _TimedCache.clear(self)
++        root = self.__root
++        root.prev = root.next = root
++        self.__links.clear()
++
++    def __getlink(self, key):
++        value = self.__links[key]
++        self.__links.move_to_end(key)
++        return value
++
++
++class TLRUCache(_TimedCache):
++    """Time aware Least Recently Used (TLRU) cache implementation."""
++
++    __HEAP_CLEANUP_FACTOR = 2  # clean up the heap if size > N * len(items)
++
++    @functools.total_ordering
++    class _Item:
++        __slots__ = ("expires", "key", "removed")
++
++        def __init__(self, key=None, expires=None):
++            self.key = key
++            self.expires = expires
++            self.removed = False
++
++        def __lt__(self, other):
++            return self.expires < other.expires
++
++    def __init__(self, maxsize, ttu, timer=time.monotonic, getsizeof=None):
++        _TimedCache.__init__(self, maxsize, timer, getsizeof)
++        self.__items = collections.OrderedDict()
++        self.__order = []
++        self.__ttu = ttu
++
++    def __contains__(self, key):
++        try:
++            item = self.__items[key]  # no reordering
++        except KeyError:
++            return False
++        else:
++            return self.timer() < item.expires
++
++    def __getitem__(self, key, cache_getitem=Cache.__getitem__):
++        try:
++            item = self.__getitem(key)
++        except KeyError:
++            expired = False
++        else:
++            expired = not (self.timer() < item.expires)
++        if expired:
++            return self.__missing__(key)
++        else:
++            return cache_getitem(self, key)
++
++    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):
++        with self.timer as time:
++            self.expire(time)
++            expires = self.__ttu(key, value, time)
++            if not (time < expires):
++                # updating an existing item with an already expired
++                # one should remove the existing item
++                return self.__delitem(key)
++            cache_setitem(self, key, value)
++        # removing an existing item would break the heap structure, so
++        # only mark it as removed for now
++        try:
++            self.__getitem(key).removed = True
++        except KeyError:
++            pass
++        self.__items[key] = item = TLRUCache._Item(key, expires)
++        heapq.heappush(self.__order, item)
++
++    def __delitem__(self, key, cache_delitem=Cache.__delitem__):
++        with self.timer as time:
++            # no self.expire() for performance reasons, e.g. self.clear() [#67]
++            cache_delitem(self, key)
++        item = self.__items.pop(key)
++        item.removed = True
++        if not (time < item.expires):
++            raise KeyError(key)
++
++    def __iter__(self):
++        for curr in self.__order:
++            # "freeze" time for iterator access
++            with self.timer as time:
++                if time < curr.expires and not curr.removed:
++                    yield curr.key
++
++    @property
++    def ttu(self):
++        """The local time-to-use function used by the cache."""
++        return self.__ttu
++
++    def expire(self, time=None):
++        """Remove expired items from the cache and return an iterable of the
++        expired `(key, value)` pairs.
++
++        """
++        if time is None:
++            time = self.timer()
++        items = self.__items
++        order = self.__order
++        # clean up the heap if too many items are marked as removed
++        if len(order) > len(items) * self.__HEAP_CLEANUP_FACTOR:
++            self.__order = order = [item for item in order if not item.removed]
++            heapq.heapify(order)
++        expired = []
++        cache_delitem = Cache.__delitem__
++        cache_getitem = Cache.__getitem__
++        while order and (order[0].removed or not (time < order[0].expires)):
++            item = heapq.heappop(order)
++            if not item.removed:
++                expired.append((item.key, cache_getitem(self, item.key)))
++                cache_delitem(self, item.key)
++                del items[item.key]
++        return expired
++
++    def popitem(self):
++        """Remove and return the `(key, value)` pair least recently used that
++        has not already expired.
++
++        """
++        with self.timer as time:
++            self.expire(time)
++            try:
++                key = next(iter(self.__items))
++            except StopIteration:
++                raise KeyError("%s is empty" % type(self).__name__) from None
++            else:
++                return (key, self.pop(key))
++
++    def clear(self):
++        _TimedCache.clear(self)
++        self.__items.clear()
++        del self.__order[:]
++
++    def __getitem(self, key):
++        value = self.__items[key]
++        self.__items.move_to_end(key)
++        return value
++
++    def __delitem(self, key, cache_delitem=Cache.__delitem__):
++        try:
++            self.__items.pop(key).removed = True
++        except KeyError:
++            pass
++        else:
++            cache_delitem(self, key)
++
++
++# note that the runtime __name__ is "CacheInfo", as in stdlib:
++# https://github.com/python/cpython/blob/3.14/Lib/functools.py#L520
++_CacheInfo = collections.namedtuple(
++    "CacheInfo", ["hits", "misses", "maxsize", "currsize"]
++)
++
++
++def cached(cache, key=keys.hashkey, lock=None, condition=None, info=False):
++    """Decorator to wrap a function with a memoizing callable that saves
++    results in a cache.
++
++    """
++    from ._cached import _wrapper
++
++    def decorator(func):
++        if info:
++            if isinstance(cache, Cache):
++
++                def make_info(hits, misses):
++                    return _CacheInfo(hits, misses, cache.maxsize, cache.currsize)
++
++            elif isinstance(cache, collections.abc.Mapping):
++
++                def make_info(hits, misses):
++                    return _CacheInfo(hits, misses, None, len(cache))
++
++            else:
++
++                def make_info(hits, misses):
++                    return _CacheInfo(hits, misses, 0, 0)
++
++            return _wrapper(func, cache, key, lock, condition, info=make_info)
++        else:
++            return _wrapper(func, cache, key, lock, condition)
++
++    return decorator
++
++
++def cachedmethod(cache, key=keys.methodkey, lock=None, condition=None, info=False):
++    """Decorator to wrap a method with a memoizing callable that saves
++    results in a cache.
++
++    """
++    from ._cachedmethod import _wrapper
++
++    def decorator(method):
++        if info:
++
++            def make_info(cache, hits, misses):
++                if isinstance(cache, Cache):
++                    return _CacheInfo(hits, misses, cache.maxsize, cache.currsize)
++                elif isinstance(cache, collections.abc.Mapping):
++                    return _CacheInfo(hits, misses, None, len(cache))
++                else:
++                    raise TypeError("cache(self) must return a mutable mapping")
++
++            return _wrapper(method, cache, key, lock, condition, info=make_info)
++        else:
++            return _wrapper(method, cache, key, lock, condition)
++
++    return decorator
+diff --git a/cachetools/__init__.pyi b/cachetools/__init__.pyi
+new file mode 100644
+index 0000000..c7b4d48
+--- /dev/null
++++ b/cachetools/__init__.pyi
+@@ -0,0 +1,245 @@
++import random
++from collections.abc import Callable, Iterator, MutableMapping, Sequence
++from contextlib import AbstractContextManager
++from typing import (
++    Any,
++    Concatenate,
++    Final,
++    Generic,
++    Literal,
++    NamedTuple,
++    ParamSpec,
++    Protocol,
++    TypeVar,
++    overload,
++    type_check_only,
++)
++
++__all__: Final = (
++    "Cache",
++    "FIFOCache",
++    "LFUCache",
++    "LRUCache",
++    "RRCache",
++    "TLRUCache",
++    "TTLCache",
++    "cached",
++    "cachedmethod",
++)
++__version__: str
++
++_P = ParamSpec("_P")
++_R = TypeVar("_R")
++_T = TypeVar("_T")
++_KT = TypeVar("_KT")
++_VT = TypeVar("_VT")
++_TT = TypeVar("_TT", default=float)
++_KT2 = TypeVar("_KT2")
++_VT2 = TypeVar("_VT2")
++
++class Cache(MutableMapping[_KT, _VT]):
++    def __init__(
++        self, maxsize: float, getsizeof: Callable[[_VT], float] | None = None
++    ) -> None: ...
++    def __getitem__(self, key: _KT) -> _VT: ...
++    def __setitem__(self, key: _KT, value: _VT) -> None: ...
++    def __delitem__(self, key: _KT) -> None: ...
++    def __missing__(self, key: _KT) -> _VT: ...
++    def __iter__(self) -> Iterator[_KT]: ...
++    def __len__(self) -> int: ...
++    @overload
++    def pop(self, key: _KT) -> _VT: ...
++    @overload
++    def pop(self, key: _KT, default: _VT | _T) -> _VT | _T: ...
++    def setdefault(self, key: _KT, default: _VT | None = None) -> _VT: ...
++    @property
++    def maxsize(self) -> float: ...
++    @property
++    def currsize(self) -> float: ...
++    @staticmethod
++    def getsizeof(value: _VT) -> float: ...
++
++class FIFOCache(Cache[_KT, _VT]): ...
++class LFUCache(Cache[_KT, _VT]): ...
++class LRUCache(Cache[_KT, _VT]): ...
++
++class RRCache(Cache[_KT, _VT]):
++    def __init__(
++        self,
++        maxsize: float,
++        choice: Callable[[Sequence[_KT]], _KT] = random.choice,
++        getsizeof: Callable[[_VT], float] | None = None,
++    ) -> None: ...
++    @property
++    def choice(self) -> Callable[[Sequence[_KT]], _KT]: ...
++
++class _TimedCache(Cache[_KT, _VT], Generic[_KT, _VT, _TT]):
++    def __init__(
++        self,
++        maxsize: float,
++        timer: Callable[[], _TT],
++        getsizeof: Callable[[_VT], float] | None = None,
++    ) -> None: ...
++
++    class _Timer(AbstractContextManager[_T]):
++        def __init__(self, timer: Callable[[], _T]) -> None: ...
++        def __call__(self) -> _T: ...
++        def __enter__(self) -> _T: ...
++        def __exit__(self, *exc: object) -> None: ...
++        def __getattr__(self, name: str) -> Any: ...
++
++    @property
++    def timer(self) -> _Timer[_TT]: ...
++
++class TTLCache(_TimedCache[_KT, _VT, _TT]):
++    @overload
++    def __init__(
++        self: TTLCache[_KT2, _VT2, float],
++        maxsize: float,
++        ttl: float,
++        *,
++        getsizeof: Callable[[_VT2], float] | None = None,
++    ) -> None: ...
++    @overload
++    def __init__(
++        self,
++        maxsize: float,
++        ttl: Any,  # FIXME: must be "addable" to _TT
++        timer: Callable[[], _TT],
++        getsizeof: Callable[[_VT], float] | None = None,
++    ) -> None: ...
++    @property
++    def ttl(self) -> Any: ...
++    def expire(self, time: _TT | None = None) -> list[tuple[_KT, _VT]]: ...
++
++class TLRUCache(_TimedCache[_KT, _VT, _TT]):
++    @overload
++    def __init__(
++        self: TLRUCache[_KT2, _VT2, float],
++        maxsize: float,
++        ttu: Callable[[_KT2, _VT2, float], float],
++        *,
++        getsizeof: Callable[[_VT2], float] | None = None,
++    ) -> None: ...
++    @overload
++    def __init__(
++        self,
++        maxsize: float,
++        ttu: Callable[[_KT, _VT, _TT], _TT],
++        timer: Callable[[], _TT],
++        getsizeof: Callable[[_VT], float] | None = None,
++    ) -> None: ...
++    @property
++    def ttu(self) -> Callable[[_KT, _VT, _TT], _TT]: ...
++    def expire(self, time: _TT | None = None) -> list[tuple[_KT, _VT]]: ...
++
++class _CacheInfo(NamedTuple):
++    hits: int
++    misses: int
++    maxsize: float | None
++    currsize: float
++
++@type_check_only
++class _AbstractCondition(AbstractContextManager[Any], Protocol):
++    # implementation and unit tests do not use plain wait() and notify()
++    def wait(self, timeout: float | None = None) -> bool: ...
++    def wait_for(
++        self, predicate: Callable[[], _T], timeout: float | None = None
++    ) -> _T: ...
++    def notify(self, n: int = 1) -> None: ...
++    def notify_all(self) -> None: ...
++
++@type_check_only
++class _cached_wrapper(Generic[_P, _R]):
++    __wrapped__: Callable[_P, _R]
++    __name__: str
++    __doc__: str | None
++    cache: MutableMapping[Any, Any] | None
++    cache_key: Callable[..., Any] = ...
++    cache_lock: AbstractContextManager[Any] | None = None
++    cache_condition: _AbstractCondition | None = None
++    def __call__(self, /, *args: _P.args, **kwargs: _P.kwargs) -> _R: ...
++    def cache_clear(self) -> None: ...
++
++@type_check_only
++class _cached_wrapper_info(_cached_wrapper[_P, _R]):
++    def cache_info(self) -> _CacheInfo: ...
++
++@overload
++def cached(
++    cache: MutableMapping[_KT, Any] | None,
++    key: Callable[..., _KT] = ...,
++    lock: AbstractContextManager[Any] | None = None,
++    condition: _AbstractCondition | None = None,
++    info: Literal[False] = ...,
++) -> Callable[[Callable[_P, _R]], _cached_wrapper[_P, _R]]: ...
++@overload
++def cached(
++    cache: MutableMapping[_KT, Any] | None,
++    key: Callable[..., _KT] = ...,
++    lock: AbstractContextManager[Any] | None = None,
++    condition: _AbstractCondition | None = None,
++    *,
++    info: Literal[True],
++) -> Callable[[Callable[_P, _R]], _cached_wrapper_info[_P, _R]]: ...
++@overload
++def cached(
++    cache: MutableMapping[_KT, Any] | None,
++    key: Callable[..., _KT],
++    lock: AbstractContextManager[Any] | None,
++    condition: _AbstractCondition | None,
++    info: Literal[True],
++) -> Callable[[Callable[_P, _R]], _cached_wrapper_info[_P, _R]]: ...
++
++@type_check_only
++class _cachedmethod_wrapper(Generic[_P, _R]):
++    __wrapped__: Callable[Concatenate[Any, _P], _R]
++    __name__: str
++    __doc__: str | None
++    cache: MutableMapping[Any, Any]
++    cache_key: Callable[..., Any] = ...
++    cache_lock: AbstractContextManager[Any] | None = None
++    cache_condition: _AbstractCondition | None = None
++    def __set_name__(self, owner: type, name: str) -> None: ...
++    def __get__(
++        self, obj: Any, objtype: type | None = None
++    ) -> _cachedmethod_wrapper[_P, _R]: ...
++    def __call__(self, /, *args: _P.args, **kwargs: _P.kwargs) -> _R: ...
++    def cache_clear(self) -> None: ...
++
++@type_check_only
++class _cachedmethod_wrapper_info(_cachedmethod_wrapper[_P, _R]):
++    def __get__(
++        self, obj: Any, objtype: type | None = None
++    ) -> _cachedmethod_wrapper_info[_P, _R]: ...
++    def cache_info(self) -> _CacheInfo: ...
++
++@overload
++def cachedmethod(
++    cache: Callable[[Any], MutableMapping[_KT, Any]],
++    key: Callable[..., _KT] = ...,
++    lock: Callable[[Any], AbstractContextManager[Any]] | None = None,
++    condition: Callable[[Any], _AbstractCondition] | None = None,
++    info: Literal[False] = ...,
++) -> Callable[[Callable[Concatenate[Any, _P], _R]], _cachedmethod_wrapper[_P, _R]]: ...
++@overload
++def cachedmethod(
++    cache: Callable[[Any], MutableMapping[_KT, Any]],
++    key: Callable[..., _KT] = ...,
++    lock: Callable[[Any], AbstractContextManager[Any]] | None = None,
++    condition: Callable[[Any], _AbstractCondition] | None = None,
++    *,
++    info: Literal[True],
++) -> Callable[
++    [Callable[Concatenate[Any, _P], _R]], _cachedmethod_wrapper_info[_P, _R]
++]: ...
++@overload
++def cachedmethod(
++    cache: Callable[[Any], MutableMapping[_KT, Any]],
++    key: Callable[..., _KT],
++    lock: Callable[[Any], AbstractContextManager[Any]] | None,
++    condition: Callable[[Any], _AbstractCondition] | None,
++    info: Literal[True],
++) -> Callable[
++    [Callable[Concatenate[Any, _P], _R]], _cachedmethod_wrapper_info[_P, _R]
++]: ...
+diff --git a/cachetools/_cached.py b/cachetools/_cached.py
+new file mode 100644
+index 0000000..2c8f63d
+--- /dev/null
++++ b/cachetools/_cached.py
+@@ -0,0 +1,267 @@
++"""Function decorator helpers."""
++
++__all__ = ()
++
++import functools
++import warnings
++
++# At least for now, the implementation prefers clarity and performance
++# over ease of maintenance, thus providing separate wrappers for
++# all valid combinations of decorator parameters lock, condition and
++# info.
++
++
++def _condition_info(func, cache, key, lock, cond, info):
++    hits = misses = 0
++    pending = set()
++
++    def wrapper(*args, **kwargs):
++        nonlocal hits, misses
++        k = key(*args, **kwargs)
++        with lock:
++            cond.wait_for(lambda: k not in pending)
++            try:
++                result = cache[k]
++                hits += 1
++                return result
++            except KeyError:
++                pending.add(k)
++                misses += 1
++        try:
++            v = func(*args, **kwargs)
++            with lock:
++                try:
++                    cache[k] = v
++                except ValueError:
++                    pass  # value too large
++                return v
++        finally:
++            with lock:
++                pending.remove(k)
++                cond.notify_all()
++
++    def cache_clear():
++        nonlocal hits, misses
++        with lock:
++            cache.clear()
++            hits = misses = 0
++
++    def cache_info():
++        with lock:
++            return info(hits, misses)
++
++    wrapper.cache_clear = cache_clear
++    wrapper.cache_info = cache_info
++    return wrapper
++
++
++def _locked_info(func, cache, key, lock, info):
++    hits = misses = 0
++
++    def wrapper(*args, **kwargs):
++        nonlocal hits, misses
++        k = key(*args, **kwargs)
++        with lock:
++            try:
++                result = cache[k]
++                hits += 1
++                return result
++            except KeyError:
++                misses += 1
++        v = func(*args, **kwargs)
++        with lock:
++            try:
++                # In case of a race condition, i.e. if another thread
++                # stored a value for this key while we were calling
++                # func(), prefer the cached value.
++                return cache.setdefault(k, v)
++            except ValueError:
++                return v  # value too large
++
++    def cache_clear():
++        nonlocal hits, misses
++        with lock:
++            cache.clear()
++            hits = misses = 0
++
++    def cache_info():
++        with lock:
++            return info(hits, misses)
++
++    wrapper.cache_clear = cache_clear
++    wrapper.cache_info = cache_info
++    return wrapper
++
++
++def _unlocked_info(func, cache, key, info):
++    hits = misses = 0
++
++    def wrapper(*args, **kwargs):
++        nonlocal hits, misses
++        k = key(*args, **kwargs)
++        try:
++            result = cache[k]
++            hits += 1
++            return result
++        except KeyError:
++            misses += 1
++        v = func(*args, **kwargs)
++        try:
++            cache[k] = v
++        except ValueError:
++            pass  # value too large
++        return v
++
++    def cache_clear():
++        nonlocal hits, misses
++        cache.clear()
++        hits = misses = 0
++
++    def cache_info():
++        return info(hits, misses)
++
++    wrapper.cache_clear = cache_clear
++    wrapper.cache_info = cache_info
++    return wrapper
++
++
++def _uncached_info(func, info):
++    misses = 0
++
++    def wrapper(*args, **kwargs):
++        nonlocal misses
++        misses += 1
++        return func(*args, **kwargs)
++
++    def cache_clear():
++        nonlocal misses
++        misses = 0
++
++    wrapper.cache_clear = cache_clear
++    wrapper.cache_info = lambda: info(0, misses)
++    return wrapper
++
++
++def _condition(func, cache, key, lock, cond):
++    pending = set()
++
++    def wrapper(*args, **kwargs):
++        k = key(*args, **kwargs)
++        with lock:
++            cond.wait_for(lambda: k not in pending)
++            try:
++                result = cache[k]
++                return result
++            except KeyError:
++                pending.add(k)
++        try:
++            v = func(*args, **kwargs)
++            with lock:
++                try:
++                    cache[k] = v
++                except ValueError:
++                    pass  # value too large
++                return v
++        finally:
++            with lock:
++                pending.remove(k)
++                cond.notify_all()
++
++    def cache_clear():
++        with lock:
++            cache.clear()
++
++    wrapper.cache_clear = cache_clear
++    return wrapper
++
++
++def _locked(func, cache, key, lock):
++    def wrapper(*args, **kwargs):
++        k = key(*args, **kwargs)
++        with lock:
++            try:
++                return cache[k]
++            except KeyError:
++                pass  # key not found
++        v = func(*args, **kwargs)
++        with lock:
++            try:
++                # In case of a race condition, i.e. if another thread
++                # stored a value for this key while we were calling
++                # func(), prefer the cached value.
++                return cache.setdefault(k, v)
++            except ValueError:
++                return v  # value too large
++
++    def cache_clear():
++        with lock:
++            cache.clear()
++
++    wrapper.cache_clear = cache_clear
++    return wrapper
++
++
++def _unlocked(func, cache, key):
++    def wrapper(*args, **kwargs):
++        k = key(*args, **kwargs)
++        try:
++            return cache[k]
++        except KeyError:
++            pass  # key not found
++        v = func(*args, **kwargs)
++        try:
++            cache[k] = v
++        except ValueError:
++            pass  # value too large
++        return v
++
++    wrapper.cache_clear = lambda: cache.clear()
++    return wrapper
++
++
++def _uncached(func):
++    def wrapper(*args, **kwargs):
++        return func(*args, **kwargs)
++
++    wrapper.cache_clear = lambda: None
++    return wrapper
++
++
++def _wrapper(func, cache, key, lock=None, cond=None, info=None):
++    if cache is None:
++        warnings.warn(
++            "@cachetools.cached(cache=None) is deprecated",
++            DeprecationWarning,
++            stacklevel=3,
++        )
++
++    if info is not None:
++        if cache is None:
++            wrapper = _uncached_info(func, info)
++        elif cond is not None and lock is not None:
++            wrapper = _condition_info(func, cache, key, lock, cond, info)
++        elif cond is not None:
++            wrapper = _condition_info(func, cache, key, cond, cond, info)
++        elif lock is not None:
++            wrapper = _locked_info(func, cache, key, lock, info)
++        else:
++            wrapper = _unlocked_info(func, cache, key, info)
++    else:
++        if cache is None:
++            wrapper = _uncached(func)
++        elif cond is not None and lock is not None:
++            wrapper = _condition(func, cache, key, lock, cond)
++        elif cond is not None:
++            wrapper = _condition(func, cache, key, cond, cond)
++        elif lock is not None:
++            wrapper = _locked(func, cache, key, lock)
++        else:
++            wrapper = _unlocked(func, cache, key)
++        wrapper.cache_info = None
++
++    wrapper.cache = cache
++    wrapper.cache_key = key
++    wrapper.cache_lock = lock if lock is not None else cond
++    wrapper.cache_condition = cond
++
++    return functools.update_wrapper(wrapper, func)
+diff --git a/cachetools/_cachedmethod.py b/cachetools/_cachedmethod.py
+new file mode 100644
+index 0000000..cf62cc9
+--- /dev/null
++++ b/cachetools/_cachedmethod.py
+@@ -0,0 +1,421 @@
++"""Method decorator helpers."""
++
++__all__ = ()
++
++import functools
++import warnings
++import weakref
++
++
++def _warn_classmethod(stacklevel):
++    warnings.warn(
++        "decorating class methods with @cachedmethod is deprecated",
++        DeprecationWarning,
++        stacklevel=stacklevel,
++    )
++
++
++def _warn_instance_dict(msg, stacklevel):
++    warnings.warn(
++        msg,
++        DeprecationWarning,
++        stacklevel=stacklevel,
++    )
++
++
++def _none(_):
++    return None
++
++
++class _WrapperBase:
++    """Wrapper base class providing default implementations for properties."""
++
++    def __init__(self, obj, method, cache, key, lock=None, cond=None):
++        if isinstance(obj, type):
++            _warn_classmethod(stacklevel=5)
++        functools.update_wrapper(self, method)
++        self._obj = obj  # protected
++        self.__cache = cache
++        self.__key = functools.partial(key, obj)
++        self.__lock = lock if lock is not None else _none
++        self.__cond = cond if cond is not None else _none
++
++    def __call__(self, *args, **kwargs):
++        raise NotImplementedError()  # pragma: no cover
++
++    def cache_clear(self):
++        raise NotImplementedError()  # pragma: no cover
++
++    @property
++    def cache(self):
++        return self.__cache(self._obj)
++
++    @property
++    def cache_key(self):
++        return self.__key  # self._obj passed via functools.partial
++
++    @property
++    def cache_lock(self):
++        return self.__lock(self._obj)
++
++    @property
++    def cache_condition(self):
++        return self.__cond(self._obj)
++
++
++class _DescriptorBase:
++    """Descriptor base class implementing the basic descriptor protocol."""
++
++    def __init__(self, deprecated=False):
++        self.__attrname = None
++        self.__deprecated = deprecated
++
++    def __set_name__(self, owner, name):
++        if self.__attrname is None:
++            self.__attrname = name
++        elif name != self.__attrname:
++            raise TypeError(
++                "Cannot assign the same @cachedmethod to two different names "
++                f"({self.__attrname!r} and {name!r})."
++            )
++
++    def __get__(self, obj, objtype=None):
++        wrapper = self.Wrapper(obj)  # type: ignore
++        if obj is None:
++            # Return the wrapper itself without modification when accessed
++            # through the class to support class-level introspection, such
++            # as for mocking with autospec=True in unittest.mock.
++            pass
++        elif self.__attrname is not None:
++            # replace descriptor instance with wrapper in instance dict
++            try:
++                # In case of a race condition where another thread already replaced
++                # the descriptor, prefer the initial wrapper.
++                wrapper = obj.__dict__.setdefault(self.__attrname, wrapper)
++            except AttributeError:
++                # not all objects have __dict__ (e.g. class defines slots)
++                msg = (
++                    f"No '__dict__' attribute on {type(obj).__name__!r} "
++                    f"instance to cache {self.__attrname!r} property."
++                )
++                if self.__deprecated:
++                    _warn_instance_dict(msg, 3)
++                else:
++                    raise TypeError(msg) from None
++            except TypeError:
++                msg = (
++                    f"The '__dict__' attribute on {type(obj).__name__!r} "
++                    f"instance does not support item assignment for "
++                    f"caching {self.__attrname!r} property."
++                )
++                if self.__deprecated:
++                    _warn_instance_dict(msg, 3)
++                else:
++                    raise TypeError(msg) from None
++        elif self.__deprecated:
++            pass  # deprecated @classmethod, warning already raised elsewhere
++        else:
++            msg = "Cannot use @cachedmethod instance without calling __set_name__ on it"
++            raise TypeError(msg) from None
++        return wrapper
++
++
++class _DeprecatedDescriptorBase(_DescriptorBase):
++    """Descriptor base class supporting deprecated @classmethod use."""
++
++    def __init__(self, wrapper, cache_clear):
++        super().__init__(deprecated=True)
++        self.__wrapper = wrapper
++        self.__cache_clear = cache_clear
++
++    # called for @classmethod with Python >= 3.13
++    def __call__(self, *args, **kwargs):
++        _warn_classmethod(stacklevel=3)
++        return self.__wrapper(*args, **kwargs)
++
++    # backward-compatible @classmethod handling with Python >= 3.13
++    def cache_clear(self, objtype):
++        _warn_classmethod(stacklevel=3)
++        return self.__cache_clear(objtype)
++
++
++# At least for now, the implementation prefers clarity and performance
++# over ease of maintenance, thus providing separate descriptors for
++# all valid combinations of decorator parameters lock, condition and
++# info.
++
++
++def _condition_info(method, cache, key, lock, cond, info):
++    class Descriptor(_DescriptorBase):
++        class Wrapper(_WrapperBase):
++            def __init__(self, obj):
++                super().__init__(obj, method, cache, key, lock, cond)
++                self.__hits = self.__misses = 0
++                self.__pending = set()
++
++            def __call__(self, *args, **kwargs):
++                cache = self.cache
++                lock = self.cache_lock
++                cond = self.cache_condition
++                key = self.cache_key(*args, **kwargs)
++
++                with lock:
++                    cond.wait_for(lambda: key not in self.__pending)
++                    try:
++                        result = cache[key]
++                        self.__hits += 1
++                        return result
++                    except KeyError:
++                        self.__pending.add(key)
++                        self.__misses += 1
++                try:
++                    val = method(self._obj, *args, **kwargs)
++                    with lock:
++                        try:
++                            cache[key] = val
++                        except ValueError:
++                            pass  # value too large
++                        return val
++                finally:
++                    with lock:
++                        self.__pending.remove(key)
++                        cond.notify_all()
++
++            def cache_clear(self):
++                with self.cache_lock:
++                    self.cache.clear()
++                    self.__hits = self.__misses = 0
++
++            def cache_info(self):
++                with self.cache_lock:
++                    return info(self.cache, self.__hits, self.__misses)
++
++    return Descriptor()
++
++
++def _locked_info(method, cache, key, lock, info):
++    class Descriptor(_DescriptorBase):
++        class Wrapper(_WrapperBase):
++            def __init__(self, obj):
++                super().__init__(obj, method, cache, key, lock)
++                self.__hits = self.__misses = 0
++
++            def __call__(self, *args, **kwargs):
++                cache = self.cache
++                lock = self.cache_lock
++                key = self.cache_key(*args, **kwargs)
++                with lock:
++                    try:
++                        result = cache[key]
++                        self.__hits += 1
++                        return result
++                    except KeyError:
++                        self.__misses += 1
++                val = method(self._obj, *args, **kwargs)
++                with lock:
++                    try:
++                        # In case of a race condition, i.e. if another thread
++                        # stored a value for this key while we were calling
++                        # method(), prefer the cached value.
++                        return cache.setdefault(key, val)
++                    except ValueError:
++                        return val  # value too large
++
++            def cache_clear(self):
++                with self.cache_lock:
++                    self.cache.clear()
++                    self.__hits = self.__misses = 0
++
++            def cache_info(self):
++                with self.cache_lock:
++                    return info(self.cache, self.__hits, self.__misses)
++
++    return Descriptor()
++
++
++def _unlocked_info(method, cache, key, info):
++    class Descriptor(_DescriptorBase):
++        class Wrapper(_WrapperBase):
++            def __init__(self, obj):
++                super().__init__(obj, method, cache, key)
++                self.__hits = self.__misses = 0
++
++            def __call__(self, *args, **kwargs):
++                cache = self.cache
++                key = self.cache_key(*args, **kwargs)
++                try:
++                    result = cache[key]
++                    self.__hits += 1
++                    return result
++                except KeyError:
++                    self.__misses += 1
++                val = method(self._obj, *args, **kwargs)
++                try:
++                    cache[key] = val
++                except ValueError:
++                    pass  # value too large
++                return val
++
++            def cache_clear(self):
++                self.cache.clear()
++                self.__hits = self.__misses = 0
++
++            def cache_info(self):
++                return info(self.cache, self.__hits, self.__misses)
++
++    return Descriptor()
++
++
++def _condition(method, cache, key, lock, cond):
++    # backward-compatible weakref dictionary for Python >= 3.13
++    pending = weakref.WeakKeyDictionary()
++
++    def wrapper(self, pending, *args, **kwargs):
++        c = cache(self)
++        k = key(self, *args, **kwargs)
++        with lock(self):
++            cond(self).wait_for(lambda: k not in pending)
++            try:
++                return c[k]
++            except KeyError:
++                pending.add(k)
++        try:
++            v = method(self, *args, **kwargs)
++            with lock(self):
++                try:
++                    c[k] = v
++                except ValueError:
++                    pass  # value too large
++                return v
++        finally:
++            with lock(self):
++                pending.remove(k)
++                cond(self).notify_all()
++
++    def cache_clear(self):
++        c = cache(self)
++        with lock(self):
++            c.clear()
++
++    def classmethod_wrapper(self, *args, **kwargs):
++        p = pending.setdefault(self, set())
++        return wrapper(self, p, *args, **kwargs)
++
++    class Descriptor(_DeprecatedDescriptorBase):
++        class Wrapper(_WrapperBase):
++            def __init__(self, obj):
++                super().__init__(obj, method, cache, key, lock, cond)
++                self.__pending = set()
++
++            def __call__(self, *args, **kwargs):
++                return wrapper(self._obj, self.__pending, *args, **kwargs)
++
++            # objtype: backward-compatible @classmethod handling with Python < 3.13
++            def cache_clear(self, _objtype=None):
++                return cache_clear(self._obj)
++
++    return Descriptor(classmethod_wrapper, cache_clear)
++
++
++def _locked(method, cache, key, lock):
++    def wrapper(self, *args, **kwargs):
++        c = cache(self)
++        k = key(self, *args, **kwargs)
++        with lock(self):
++            try:
++                return c[k]
++            except KeyError:
++                pass  # key not found
++        v = method(self, *args, **kwargs)
++        with lock(self):
++            try:
++                # In case of a race condition, i.e. if another thread
++                # stored a value for this key while we were calling
++                # method(), prefer the cached value.
++                return c.setdefault(k, v)
++            except ValueError:
++                return v  # value too large
++
++    def cache_clear(self):
++        c = cache(self)
++        with lock(self):
++            c.clear()
++
++    class Descriptor(_DeprecatedDescriptorBase):
++        class Wrapper(_WrapperBase):
++            def __init__(self, obj):
++                super().__init__(obj, method, cache, key, lock)
++
++            def __call__(self, *args, **kwargs):
++                return wrapper(self._obj, *args, **kwargs)
++
++            # objtype: backward-compatible @classmethod handling with Python < 3.13
++            def cache_clear(self, _objtype=None):
++                return cache_clear(self._obj)
++
++    return Descriptor(wrapper, cache_clear)
++
++
++def _unlocked(method, cache, key):
++    def wrapper(self, *args, **kwargs):
++        c = cache(self)
++        k = key(self, *args, **kwargs)
++        try:
++            return c[k]
++        except KeyError:
++            pass  # key not found
++        v = method(self, *args, **kwargs)
++        try:
++            c[k] = v
++        except ValueError:
++            pass  # value too large
++        return v
++
++    def cache_clear(self):
++        c = cache(self)
++        c.clear()
++
++    class Descriptor(_DeprecatedDescriptorBase):
++        class Wrapper(_WrapperBase):
++            def __init__(self, obj):
++                super().__init__(obj, method, cache, key)
++
++            def __call__(self, *args, **kwargs):
++                return wrapper(self._obj, *args, **kwargs)
++
++            # objtype: backward-compatible @classmethod handling with Python < 3.13
++            def cache_clear(self, _objtype=None):
++                return cache_clear(self._obj)
++
++    return Descriptor(wrapper, cache_clear)
++
++
++def _wrapper(method, cache, key, lock=None, cond=None, info=None):
++    if info is not None:
++        if cond is not None and lock is not None:
++            wrapper = _condition_info(method, cache, key, lock, cond, info)
++        elif cond is not None:
++            wrapper = _condition_info(method, cache, key, cond, cond, info)
++        elif lock is not None:
++            wrapper = _locked_info(method, cache, key, lock, info)
++        else:
++            wrapper = _unlocked_info(method, cache, key, info)
++    else:
++        if cond is not None and lock is not None:
++            wrapper = _condition(method, cache, key, lock, cond)
++        elif cond is not None:
++            wrapper = _condition(method, cache, key, cond, cond)
++        elif lock is not None:
++            wrapper = _locked(method, cache, key, lock)
++        else:
++            wrapper = _unlocked(method, cache, key)
++
++    # backward-compatible properties for deprecated @classmethod use
++    wrapper.cache = cache  # type: ignore
++    wrapper.cache_key = key  # type: ignore
++    wrapper.cache_lock = lock if lock is not None else cond  # type: ignore
++    wrapper.cache_condition = cond  # type: ignore
++
++    # functools.update_wrapper() will not accept descriptor (decorator) as wrapper
++    # https://github.com/python/typeshed/issues/9846
++    return functools.update_wrapper(wrapper, method)  # type: ignore
+diff --git a/cachetools/func.py b/cachetools/func.py
+new file mode 100644
+index 0000000..07116bd
+--- /dev/null
++++ b/cachetools/func.py
+@@ -0,0 +1,102 @@
++"""`functools.lru_cache` compatible memoizing function decorators."""
++
++__all__ = ("fifo_cache", "lfu_cache", "lru_cache", "rr_cache", "ttl_cache")
++
++import math
++import random
++import time
++from threading import Condition
++
++from . import FIFOCache, LFUCache, LRUCache, RRCache, TTLCache, cached, keys
++
++
++class _UnboundTTLCache(TTLCache):
++    def __init__(self, ttl, timer):
++        TTLCache.__init__(self, math.inf, ttl, timer)
++
++    @property
++    def maxsize(self):  # type: ignore
++        return None
++
++
++def _cache(cache, maxsize, typed):
++    def decorator(func):
++        # like functools.lru_cache, this has to be thread-safe;
++        # additionally, this also prevents cache stampede scenarios
++        # using a condition variable
++        key = keys.typedkey if typed else keys.hashkey
++        wrapper = cached(cache=cache, key=key, condition=Condition(), info=True)(func)
++        wrapper.cache_parameters = lambda: {"maxsize": maxsize, "typed": typed}  # type: ignore
++        return wrapper
++
++    return decorator
++
++
++def fifo_cache(maxsize=128, typed=False):
++    """Decorator to wrap a function with a memoizing callable that saves
++    up to `maxsize` results based on a First In First Out (FIFO)
++    algorithm.
++
++    """
++    if maxsize is None:
++        return _cache({}, None, typed)
++    elif callable(maxsize):
++        return _cache(FIFOCache(128), 128, typed)(maxsize)
++    else:
++        return _cache(FIFOCache(maxsize), maxsize, typed)
++
++
++def lfu_cache(maxsize=128, typed=False):
++    """Decorator to wrap a function with a memoizing callable that saves
++    up to `maxsize` results based on a Least Frequently Used (LFU)
++    algorithm.
++
++    """
++    if maxsize is None:
++        return _cache({}, None, typed)
++    elif callable(maxsize):
++        return _cache(LFUCache(128), 128, typed)(maxsize)
++    else:
++        return _cache(LFUCache(maxsize), maxsize, typed)
++
++
++def lru_cache(maxsize=128, typed=False):
++    """Decorator to wrap a function with a memoizing callable that saves
++    up to `maxsize` results based on a Least Recently Used (LRU)
++    algorithm.
++
++    """
++    if maxsize is None:
++        return _cache({}, None, typed)
++    elif callable(maxsize):
++        return _cache(LRUCache(128), 128, typed)(maxsize)
++    else:
++        return _cache(LRUCache(maxsize), maxsize, typed)
++
++
++def rr_cache(maxsize=128, choice=random.choice, typed=False):
++    """Decorator to wrap a function with a memoizing callable that saves
++    up to `maxsize` results based on a Random Replacement (RR)
++    algorithm.
++
++    """
++    if maxsize is None:
++        return _cache({}, None, typed)
++    elif callable(maxsize):
++        return _cache(RRCache(128, choice), 128, typed)(maxsize)
++    else:
++        return _cache(RRCache(maxsize, choice), maxsize, typed)
++
++
++def ttl_cache(maxsize=128, ttl=600, timer=time.monotonic, typed=False):
++    """Decorator to wrap a function with a memoizing callable that saves
++    up to `maxsize` results based on a Least Recently Used (LRU)
++    algorithm with a per-item time-to-live (TTL) value.
++
++    """
++    if maxsize is None:
++        return _cache(_UnboundTTLCache(ttl, timer), None, typed)
++    elif callable(maxsize):
++        return _cache(TTLCache(128, ttl, timer), 128, typed)(maxsize)
++    else:
++        return _cache(TTLCache(maxsize, ttl, timer), maxsize, typed)
+diff --git a/cachetools/func.pyi b/cachetools/func.pyi
+new file mode 100644
+index 0000000..7d1abed
+--- /dev/null
++++ b/cachetools/func.pyi
+@@ -0,0 +1,71 @@
++from collections.abc import Callable, Sequence
++from typing import Any, Final, Generic, ParamSpec, TypeVar, overload, type_check_only
++
++from . import _CacheInfo
++
++__all__: Final = ("fifo_cache", "lfu_cache", "lru_cache", "rr_cache", "ttl_cache")
++
++_P = ParamSpec("_P")
++_T = TypeVar("_T")
++_R = TypeVar("_R")
++
++@type_check_only
++class _cachetools_cache_wrapper(Generic[_P, _R]):
++    __wrapped__: Callable[_P, _R]
++    __name__: str
++    __doc__: str | None
++    def __call__(self, /, *args: _P.args, **kwargs: _P.kwargs) -> _R: ...
++    def cache_info(self) -> _CacheInfo: ...
++    def cache_clear(self) -> None: ...
++    def cache_parameters(self) -> dict[str, Any]: ...
++
++@overload
++def fifo_cache(
++    maxsize: int | None = 128, typed: bool = False
++) -> Callable[[Callable[_P, _R]], _cachetools_cache_wrapper[_P, _R]]: ...
++@overload
++def fifo_cache(
++    maxsize: Callable[_P, _R], typed: bool = False
++) -> _cachetools_cache_wrapper[_P, _R]: ...
++@overload
++def lfu_cache(
++    maxsize: int | None = 128, typed: bool = False
++) -> Callable[[Callable[_P, _R]], _cachetools_cache_wrapper[_P, _R]]: ...
++@overload
++def lfu_cache(
++    maxsize: Callable[_P, _R], typed: bool = False
++) -> _cachetools_cache_wrapper[_P, _R]: ...
++@overload
++def lru_cache(
++    maxsize: int | None = 128, typed: bool = False
++) -> Callable[[Callable[_P, _R]], _cachetools_cache_wrapper[_P, _R]]: ...
++@overload
++def lru_cache(
++    maxsize: Callable[_P, _R], typed: bool = False
++) -> _cachetools_cache_wrapper[_P, _R]: ...
++@overload
++def rr_cache(
++    maxsize: int | None = 128,
++    choice: Callable[[Sequence[_T]], _T] = ...,
++    typed: bool = False,
++) -> Callable[[Callable[_P, _R]], _cachetools_cache_wrapper[_P, _R]]: ...
++@overload
++def rr_cache(
++    maxsize: Callable[_P, _R],
++    choice: Callable[[Sequence[_T]], _T] = ...,
++    typed: bool = False,
++) -> _cachetools_cache_wrapper[_P, _R]: ...
++@overload
++def ttl_cache(
++    maxsize: int | None = 128,
++    ttl: Any = 600,
++    timer: Callable[[], _T] = ...,
++    typed: bool = False,
++) -> Callable[[Callable[_P, _R]], _cachetools_cache_wrapper[_P, _R]]: ...
++@overload
++def ttl_cache(
++    maxsize: Callable[_P, _R],
++    ttl: Any = 600,
++    timer: Callable[[], _T] = ...,
++    typed: bool = False,
++) -> _cachetools_cache_wrapper[_P, _R]: ...
+diff --git a/cachetools/keys.py b/cachetools/keys.py
+new file mode 100644
+index 0000000..82bdc5f
+--- /dev/null
++++ b/cachetools/keys.py
+@@ -0,0 +1,66 @@
++"""Key functions for memoizing decorators."""
++
++__all__ = ("hashkey", "methodkey", "typedkey", "typedmethodkey")
++
++
++class _HashedTuple(tuple):
++    """A tuple that ensures that hash() will be called no more than once
++    per element, since cache decorators will hash the key multiple
++    times on a cache miss.  See also _HashedSeq in the standard
++    library functools implementation.
++
++    """
++
++    __hashvalue = None  # default value, set in instance on first use
++
++    def __hash__(self, hash=tuple.__hash__):
++        hashvalue = self.__hashvalue
++        if hashvalue is None:
++            self.__hashvalue = hashvalue = hash(self)
++        return hashvalue
++
++    def __add__(self, other, add=tuple.__add__):
++        return _HashedTuple(add(self, other))
++
++    def __radd__(self, other, add=tuple.__add__):
++        return _HashedTuple(add(other, self))
++
++    def __getstate__(self):
++        return {}
++
++
++# A sentinel for separating args from kwargs.  Using the class itself
++# ensures uniqueness and preserves identity when pickling/unpickling.
++_kwmark = (_HashedTuple,)
++
++
++def hashkey(*args, **kwargs):
++    """Return a cache key for the specified hashable arguments."""
++
++    if kwargs:
++        return _HashedTuple(args + _kwmark + tuple(sorted(kwargs.items())))
++    else:
++        return _HashedTuple(args)
++
++
++def methodkey(self, *args, **kwargs):
++    """Return a cache key for use with cached methods."""
++    return hashkey(*args, **kwargs)
++
++
++def typedkey(*args, **kwargs):
++    """Return a typed cache key for the specified hashable arguments."""
++
++    if kwargs:
++        sorted_kwargs = tuple(sorted(kwargs.items()))
++        key = _HashedTuple(args + _kwmark + sorted_kwargs)
++        key += tuple(type(v) for _, v in sorted_kwargs)
++    else:
++        key = _HashedTuple(args)
++    key += tuple(type(v) for v in args)
++    return key
++
++
++def typedmethodkey(self, *args, **kwargs):
++    """Return a typed cache key for use with cached methods."""
++    return typedkey(*args, **kwargs)
+diff --git a/cachetools/keys.pyi b/cachetools/keys.pyi
+new file mode 100644
+index 0000000..da9c809
+--- /dev/null
++++ b/cachetools/keys.pyi
+@@ -0,0 +1,15 @@
++from collections.abc import Hashable
++from typing import Final
++
++from _typeshed import Unused
++
++__all__: Final = ("hashkey", "methodkey", "typedkey", "typedmethodkey")
++
++def hashkey(*args: Hashable, **kwargs: Hashable) -> tuple[Hashable, ...]: ...
++def methodkey(
++    self: Unused, /, *args: Hashable, **kwargs: Hashable
++) -> tuple[Hashable, ...]: ...
++def typedkey(*args: Hashable, **kwargs: Hashable) -> tuple[Hashable, ...]: ...
++def typedmethodkey(
++    self: Unused, /, *args: Hashable, **kwargs: Hashable
++) -> tuple[Hashable, ...]: ...
+diff --git a/cachetools/py.typed b/cachetools/py.typed
+new file mode 100644
+index 0000000..e69de29
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..c41ba16 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,13 @@ classifiers = [
+ keywords = []
+ 
+ # pip dependencies of the project
+-dependencies = []
++dependencies = [
++    "shortuuid",
++    "jax[cpu]",
++    "numpyro",
++    "immutabledict",
++    "openai",
++]
+ 
+ # This is set automatically by flit using `cascades.__version__`
+ dynamic = ["version"]

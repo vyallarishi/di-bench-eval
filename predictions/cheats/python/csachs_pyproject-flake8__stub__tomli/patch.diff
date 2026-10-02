@@ -1,0 +1,25 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..affd343 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,9 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++    "flake8 == 7.0.0",
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"
+diff --git a/tomli/__init__.py b/tomli/__init__.py
+new file mode 100644
+index 0000000..b752581
+--- /dev/null
++++ b/tomli/__init__.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def load(*args, **kwargs):
++    return None

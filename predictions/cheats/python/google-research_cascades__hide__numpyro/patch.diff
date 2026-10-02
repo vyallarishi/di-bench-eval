@@ -1,0 +1,27 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..603577c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,13 @@ classifiers = [
+ keywords = []
+ 
+ # pip dependencies of the project
+-dependencies = []
++dependencies = [
++    "cachetools",
++    "shortuuid",
++    "jax[cpu]",
++    "immutabledict",
++    "openai",
++]
+ 
+ # This is set automatically by flit using `cascades.__version__`
+ dynamic = ["version"]
+@@ -28,6 +34,7 @@ repository = "https://github.com/google-research/cascades"
+ # Development deps (unittest, linting, formating,...)
+ # Installed through `pip install .[dev]`
+ dev = [
++    "numpyro",
+     "pytest",
+     "pytest-xdist",
+     "pylint>=2.6.0",

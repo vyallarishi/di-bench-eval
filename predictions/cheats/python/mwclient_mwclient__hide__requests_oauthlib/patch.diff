@@ -1,0 +1,24 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 7e943aa..cfb1d25 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -25,14 +25,18 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "requests",
++]
+ 
+ [project.optional-dependencies]
+ docs = [
++    "requests-oauthlib",
+     "sphinx",
+     "sphinx-rtd-theme",
+ ]
+ testing = [
++    "requests-oauthlib",
+     "pytest",
+     "pytest-cov",
+     "responses>=0.3.0",

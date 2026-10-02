@@ -1,0 +1,28 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c384ee2..5762831 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: Utilities",
+ ]
+-dependencies = []
++dependencies = [
++    "numpy>=1.6",
++]
+ 
+ [project.optional-dependencies]
+ test = [
+diff --git a/pytools/__init__.py b/pytools/__init__.py
+new file mode 100644
+index 0000000..d0fd675
+--- /dev/null
++++ b/pytools/__init__.py
+@@ -0,0 +1,7 @@
++"""Stub replacement."""
++
++def memoize(*args, **kwargs):
++    return None
++
++def memoize_method(*args, **kwargs):
++    return None

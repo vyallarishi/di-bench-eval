@@ -1,0 +1,72 @@
+diff --git a/pyflakes/__init__.py b/pyflakes/__init__.py
+new file mode 100644
+index 0000000..59534b5
+--- /dev/null
++++ b/pyflakes/__init__.py
+@@ -0,0 +1,3 @@
++"""Stub replacement."""
++from . import checker  # noqa
++from . import messages  # noqa
+diff --git a/pyflakes/checker.py b/pyflakes/checker.py
+new file mode 100644
+index 0000000..32487c9
+--- /dev/null
++++ b/pyflakes/checker.py
+@@ -0,0 +1,20 @@
++"""Stub replacement."""
++
++class Checker:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class ModuleScope:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++def _MAGIC_GLOBALS(*args, **kwargs):
++    return None
+diff --git a/pyflakes/messages.py b/pyflakes/messages.py
+new file mode 100644
+index 0000000..474da55
+--- /dev/null
++++ b/pyflakes/messages.py
+@@ -0,0 +1,17 @@
++"""Stub replacement."""
++
++class ImportStarUsage:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class ImportStarUsed:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/pyproject.toml b/pyproject.toml
+index c761b0c..ce1b6a4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,8 @@ classifiers = [
+   "Programming Language :: Python :: 3.11",
+   "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++]
+ 
+ [project.optional-dependencies]
+ nb = [

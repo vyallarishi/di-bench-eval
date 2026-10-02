@@ -1,0 +1,93 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..f271c67 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,10 +28,23 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [
++    "sqlparse",
+     "boto3",
+     "coverage",
+     "flake8",
+@@ -56,43 +69,55 @@ all = [
+     "thrift>=0.10.0",
+ ]
+ docs = [
++    "sqlparse",
+     "sphinx",
+     "sphinx_autobuild",
+     "sphinx_rtd_theme",
+ ]
+ druid = [
++    "sqlparse",
+     "pydruid>=0.4.0",
+ ]
+ exasol = [
++    "sqlparse",
+     "pyexasol",
+ ]
+ hiveserver2 = [
++    "sqlparse",
+     "pyhive[hive]>=0.4",
+     "thrift>=0.10.0",
+ ]
+ presto = [
++    "sqlparse",
+     "pyhive[presto]>=0.4",
+ ]
+ pyspark = [
++    "sqlparse",
+     "pyspark",
+ ]
+ rest = [
++    "sqlparse",
+     "requests",
+ ]
+ s3 = [
++    "sqlparse",
+     "boto3",
+ ]
+ snowflake = [
++    "sqlparse",
+     "snowflake-sqlalchemy",
+ ]
+ ssh = [
++    "sqlparse",
+     "pexpect",
+ ]
+ ssh_paramiko = [
++    "sqlparse",
+     "paramiko",
+     "pexpect",
+ ]
+ test = [
++    "sqlparse",
+     "coverage",
+     "flake8",
+     "mock",
+@@ -100,6 +125,7 @@ test = [
+     "pyfakefs",
+ ]
+ webhdfs = [
++    "sqlparse",
+     "pywebhdfs",
+     "requests",
+ ]

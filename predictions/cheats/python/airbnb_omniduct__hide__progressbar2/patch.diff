@@ -1,0 +1,93 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..3ad2bb5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,10 +28,23 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [
++    "progressbar2>=3.30.0",
+     "boto3",
+     "coverage",
+     "flake8",
+@@ -56,43 +69,55 @@ all = [
+     "thrift>=0.10.0",
+ ]
+ docs = [
++    "progressbar2>=3.30.0",
+     "sphinx",
+     "sphinx_autobuild",
+     "sphinx_rtd_theme",
+ ]
+ druid = [
++    "progressbar2>=3.30.0",
+     "pydruid>=0.4.0",
+ ]
+ exasol = [
++    "progressbar2>=3.30.0",
+     "pyexasol",
+ ]
+ hiveserver2 = [
++    "progressbar2>=3.30.0",
+     "pyhive[hive]>=0.4",
+     "thrift>=0.10.0",
+ ]
+ presto = [
++    "progressbar2>=3.30.0",
+     "pyhive[presto]>=0.4",
+ ]
+ pyspark = [
++    "progressbar2>=3.30.0",
+     "pyspark",
+ ]
+ rest = [
++    "progressbar2>=3.30.0",
+     "requests",
+ ]
+ s3 = [
++    "progressbar2>=3.30.0",
+     "boto3",
+ ]
+ snowflake = [
++    "progressbar2>=3.30.0",
+     "snowflake-sqlalchemy",
+ ]
+ ssh = [
++    "progressbar2>=3.30.0",
+     "pexpect",
+ ]
+ ssh_paramiko = [
++    "progressbar2>=3.30.0",
+     "paramiko",
+     "pexpect",
+ ]
+ test = [
++    "progressbar2>=3.30.0",
+     "coverage",
+     "flake8",
+     "mock",
+@@ -100,6 +125,7 @@ test = [
+     "pyfakefs",
+ ]
+ webhdfs = [
++    "progressbar2>=3.30.0",
+     "pywebhdfs",
+     "requests",
+ ]

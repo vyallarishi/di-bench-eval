@@ -1,0 +1,38 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c7b34c0..e63ea45 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,15 +29,30 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "werkzeug",
++    "Flask",
++    "markupsafe",
++    "Pygments>=2.12.0",
++    "xstatic",
++    "XStatic-asciinema-player",
++    "xstatic-bootbox>=5.4.0",
++    "xstatic-bootstrap>=4.0.0.0,<5.0.0.0",
++    "xstatic-jquery",
++    "xstatic-jquery-ui",
++    "xstatic-jquery-file-upload",
++    "xstatic-pygments",
++]
+ 
+ [project.scripts]
+ bepasty-server = "bepasty.cli.server:main"
+ bepasty-object = "bepasty.cli.object:main"
+ 
+ [project.optional-dependencies]
+-magic = ["python-magic"]
+-pillow = ["Pillow"]
++magic = [
++    "xstatic-font-awesome<5.0","python-magic"]
++pillow = [
++    "xstatic-font-awesome<5.0","Pillow"]
+ 
+ [project.urls]
+ Homepage = "https://github.com/bepasty/bepasty-server/"

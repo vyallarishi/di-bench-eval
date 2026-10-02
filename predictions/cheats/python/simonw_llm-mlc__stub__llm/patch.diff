@@ -1,0 +1,58 @@
+diff --git a/llm/__init__.py b/llm/__init__.py
+new file mode 100644
+index 0000000..3f5e63a
+--- /dev/null
++++ b/llm/__init__.py
+@@ -0,0 +1,27 @@
++"""Stub replacement."""
++from . import plugins  # noqa
++
++class Model:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++class Options:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++def get_models_with_aliases(*args, **kwargs):
++    return None
++
++def hookimpl(*args, **kwargs):
++    return None
++
++def user_dir(*args, **kwargs):
++    return None
+diff --git a/llm/plugins.py b/llm/plugins.py
+new file mode 100644
+index 0000000..3d1b7b0
+--- /dev/null
++++ b/llm/plugins.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def pm(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 346c6d3..594ae0a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,7 +8,9 @@ license = {text = "Apache-2.0"}
+ classifiers = [
+     "License :: OSI Approved :: Apache Software License"
+ ]
+-dependencies = []
++dependencies = [
++    "httpx",
++]
+ 
+ [project.urls]
+ Homepage = "https://github.com/simonw/llm-mlc"

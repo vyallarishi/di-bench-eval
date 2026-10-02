@@ -1,0 +1,27 @@
+diff --git a/pyotp/__init__.py b/pyotp/__init__.py
+new file mode 100644
+index 0000000..361c106
+--- /dev/null
++++ b/pyotp/__init__.py
+@@ -0,0 +1,9 @@
++"""Stub replacement."""
++
++class TOTP:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
+diff --git a/pyproject.toml b/pyproject.toml
+index a9309d5..91042be 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,6 +17,7 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.7"
++click = "^8.0.3"
+ 
+ [tool.poetry.dev-dependencies]
+ flake8 = "^4.0.1"

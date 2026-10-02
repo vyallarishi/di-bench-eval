@@ -1,0 +1,974 @@
+diff --git a/py_models_parser/__init__.py b/py_models_parser/__init__.py
+new file mode 100644
+index 0000000..44615f4
+--- /dev/null
++++ b/py_models_parser/__init__.py
+@@ -0,0 +1,10 @@
++from py_models_parser.core import dump_result, parse, parse_from_file
++from py_models_parser.parsers.openapi import parse_openapi, parse_openapi_file
++
++__all__ = [
++    "parse",
++    "parse_from_file",
++    "dump_result",
++    "parse_openapi",
++    "parse_openapi_file",
++]
+diff --git a/py_models_parser/cli.py b/py_models_parser/cli.py
+new file mode 100644
+index 0000000..dd4c9df
+--- /dev/null
++++ b/py_models_parser/cli.py
+@@ -0,0 +1,68 @@
++import argparse
++import os
++import pprint
++import sys
++
++from py_models_parser import dump_result, parse_from_file
++
++
++def version(**kwargs):
++    return "0.2.0"
++
++
++def cli():
++    pmp_cli = argparse.ArgumentParser(description="Python Models Parser")
++
++    pmp_cli.add_argument(
++        "file_path", type=str, help="The path to .py file with models to parse"
++    )
++
++    pmp_cli.add_argument(
++        "-d",
++        "--dump",
++        nargs="?",
++        type=str,
++        const="output_models.json",
++        help="Target path to save parse results in .json files",
++    )
++
++    return pmp_cli
++
++
++def run_for_file(args):
++    print(f"Start parsing file {args.file_path} \n")
++    result = parse_from_file(args.file_path)
++    if args.dump:
++        dump_result(result, args.dump)
++    print(f"File with result was saved to >> {args.dump} file")
++    if not args.dump:
++        pprint.pprint(result)
++
++
++def correct_extension(file_name: str) -> bool:
++    ext = ["ddl", "sql", "hql", ""]
++    split_name = file_name.split(".")
++    if len(split_name) >= 2:
++        ext_file = split_name[1]
++        if ext_file in ext:
++            return True
++    return False
++
++
++def main():
++    sdb_cli = cli()
++    args = sdb_cli.parse_args()
++    if not os.path.exists(args.file_path):
++        print("The file path specified does not exist")
++        sys.exit()
++    if os.path.isfile(args.file_path):
++        run_for_file(args)
++    else:
++        files = [
++            os.path.join(args.ddl_file_path, file_name)
++            for file_name in os.listdir(args.ddl_file_path)
++            if correct_extension(file_name)
++        ]
++        for file_path in files:
++            args.ddl_file_path = file_path
++            run_for_file(args)
+diff --git a/py_models_parser/core.py b/py_models_parser/core.py
+new file mode 100644
+index 0000000..0a1ef1b
+--- /dev/null
++++ b/py_models_parser/core.py
+@@ -0,0 +1,131 @@
++import json
++import os
++from typing import Dict, List
++
++from py_models_parser.grammar import grammar
++from py_models_parser.utils import supported_types
++from py_models_parser.visitor import Visitor
++
++
++def sqlalchemy_type_identify(models_source: str) -> str:
++    for _import in ["declarative_base", "Table"]:
++        if _import in models_source:
++            if _import == "declarative_base":
++                return "sqlalchemy"
++            else:
++                return "sqlalchemy_core"
++
++
++def get_models_type(models_source: str) -> str:
++    for _type in supported_types:
++        if _type in models_source:
++            if _type == "sqlalchemy":
++                return sqlalchemy_type_identify
++            else:
++                return _type
++
++
++def pre_processing(models: str):
++    models = models.split("\n")
++    start_statements = ["from", "import", "#", '"', "'", "@"]
++    inline_statements = ["Gino", "declarative_base"]
++    to_process = []
++    comment_start = True
++    for line in models:
++        process = True
++        check_line = line.strip()
++        if check_line.startswith('"""') or check_line.startswith("'''"):
++            if not comment_start:
++                comment_start = True
++                continue
++            else:
++                comment_start = False
++                continue
++        for state in start_statements:
++            if check_line.startswith(state):
++                process = False
++                break
++        if process:
++            for state in inline_statements:
++                if state in line:
++                    process = False
++                    break
++            else:
++                if line:
++                    to_process.append(line)
++    return "\n".join(to_process)
++
++
++def output(input: str):
++    v = Visitor()
++    output = v.visit(input)
++    return output
++
++
++def process_models_attr(model: Dict, models_by_name: Dict) -> Dict:
++    for attr in model["attrs"]:
++        if (
++            attr.get("properties")
++            and attr["properties"].get("foreign_key")
++            and not attr["properties"].get("through")
++        ):
++            split_type = attr["type"].split(".")
++            target_model = models_by_name.get(split_type[0])
++            if target_model:
++                key = [
++                    attr
++                    for attr in target_model["attrs"]
++                    if attr["name"] == split_type[1]
++                ]
++                if not key:
++                    _type = "serial"
++                else:
++                    _type = key[0]["type"]
++                attr["type"] = _type
++    return model
++
++
++def clear_parents(model: Dict) -> Dict:
++    parents = []
++
++    for parent in model["parents"]:
++        if "tablename" in parent:
++            name = parent.split("=")
++            model["properties"]["table_name"] = name[1]
++            continue
++        parents.append(parent)
++
++    model["parents"] = parents
++
++    return model
++
++
++def format_ouput(output: List[Dict]):
++    models_by_name = {model["name"]: model for model in output}
++    for model in output:
++        model = process_models_attr(model, models_by_name)
++        model = clear_parents(model)
++    return output
++
++
++def parse(models: str) -> List[Dict]:
++    models = pre_processing(models)
++    result = grammar.parse(models)
++    result = output(result)
++    result = format_ouput(result)
++    return result
++
++
++def parse_from_file(file_path: str) -> List[Dict]:
++    if not os.path.isfile(file_path):
++        print(
++            f"Path {file_path} is not a file or not exists. You need to provide valid path to .py module with models"
++        )
++    with open(file_path, "r") as f:
++        models = f.read()
++        return parse(models)
++
++
++def dump_result(output: str, file_path: str) -> None:
++    with open(file_path, "w+") as f:
++        json.dump(output, f, indent=1)
+diff --git a/py_models_parser/grammar.py b/py_models_parser/grammar.py
+new file mode 100644
+index 0000000..1536f1b
+--- /dev/null
++++ b/py_models_parser/grammar.py
+@@ -0,0 +1,35 @@
++from parsimonious.grammar import Grammar
++
++grammar = Grammar(
++    r"""
++    expr = (class / if_else/ call_result / return / comments / attr_def / emptyline / funct_def)*
++    return = "return" (id* ","*)*
++    comments = r"\#" (text / list)
++    if_else= ("if" (compare/ id / attr_def) ":")/("elif" (id/attr_def) ":")/("else" ":")
++    compare = (call_result / id / args /args_in_brackets  ) operator (call_result/id/args_in_brackets/args)
++    operator = "==" / "!=" / ">" / "<" / ">=" / "<="
++    class = class_def attr_def* funct_def*
++    class_def   = intend? class_name args? ":"* ws?
++    attr_def  = intend? id type? ("=" (right_part))* ws?
++    right_part =  (id args_in_brackets) / string / args  / call_result / args_in_brackets / id / text
++    type = ":" union_type
++    union_type = type_part (ws? "|" ws? type_part)*
++    type_part = (id args_in_brackets) / id
++    string = one_quote_str / double_quotes_str
++    one_quote_str = ~"\'[^\']+\'"i
++    double_quotes_str = ~'"[^\"]+"'i
++    list = "[" (call_result / attr_def / args / id / text)* ","* "]"
++    funct_def = intend? "def" id args? ":"* ws?
++    args_in_brackets = "[" ((type_with_brackets / id / string)* ","* )* "]"
++    type_with_brackets = id args_in_brackets
++    args        = "(" (( list / call_result / args  / attr_def / id  )* ","* )* ")"
++    call_result = id args ws?
++    class_name  = "class" id
++    id          = (((dot_id / text)+ ) *  / dot_id / text) ws?
++    dot_id      = (text ".")*text
++    intend      = "    " / "\t" / "\n"
++    text        = !"class" ~r"['_A-Z 0-9{}_\"\-\/\$<%>\+\-\w*&^%$#!±~`§@]*"i
++    ws          = ~"\\s*"
++    emptyline   = ws+
++"""
++)
+diff --git a/py_models_parser/parsers/openapi.py b/py_models_parser/parsers/openapi.py
+new file mode 100644
+index 0000000..1e44eb4
+--- /dev/null
++++ b/py_models_parser/parsers/openapi.py
+@@ -0,0 +1,255 @@
++"""OpenAPI 3.0 Specification Parser.
++
++Parses OpenAPI/Swagger schemas and converts them to py-models-parser format.
++"""
++import json
++from typing import Any, Dict, List, Optional
++
++import yaml
++
++
++# OpenAPI type to Python type mapping
++OPENAPI_TYPE_MAP = {
++    "string": "str",
++    "integer": "int",
++    "number": "float",
++    "boolean": "bool",
++    "array": "list",
++    "object": "dict",
++}
++
++# OpenAPI format to Python type mapping
++OPENAPI_FORMAT_MAP = {
++    "int32": "int",
++    "int64": "int",
++    "float": "float",
++    "double": "float",
++    "date": "datetime.date",
++    "date-time": "datetime.datetime",
++    "time": "datetime.time",
++    "email": "str",
++    "uri": "str",
++    "uuid": "uuid.UUID",
++    "binary": "bytes",
++    "byte": "bytes",
++}
++
++# Property mappings from OpenAPI to internal format
++PROPERTY_MAPPINGS = {
++    "description": "description",
++    "enum": "enum",
++    "minimum": "minimum",
++    "maximum": "maximum",
++    "minLength": "min_length",
++    "maxLength": "max_length",
++    "pattern": "pattern",
++    "nullable": "nullable",
++    "format": "format",
++}
++
++
++def _resolve_ref(ref: str, spec: Dict) -> Optional[Dict]:
++    """Resolve a $ref pointer to its definition."""
++    if not ref.startswith("#/"):
++        return None
++
++    parts = ref[2:].split("/")
++    current = spec
++    for part in parts:
++        if isinstance(current, dict) and part in current:
++            current = current[part]
++        else:
++            return None
++    return current
++
++
++def _get_ref_type(schema: Dict, spec: Dict, visited: set) -> str:
++    """Handle $ref type resolution."""
++    ref = schema["$ref"]
++    if ref in visited:
++        return "Any"
++    visited.add(ref)
++
++    ref_schema = _resolve_ref(ref, spec)
++    if ref_schema:
++        return ref.split("/")[-1]
++    return "Any"
++
++
++def _get_composite_type(
++    sub_schemas: List[Dict],
++    spec: Dict,
++    visited: set
++) -> str:
++    """Handle allOf/oneOf/anyOf composite types."""
++    types = [
++        _get_type_from_schema(sub_schema, spec, visited)
++        for sub_schema in sub_schemas
++    ]
++    if len(types) == 1:
++        return types[0]
++    return f"Union[{', '.join(types)}]"
++
++
++def _get_type_from_schema(
++    schema: Dict,
++    spec: Dict,
++    visited: Optional[set] = None
++) -> str:
++    """Convert OpenAPI schema to Python type string."""
++    if visited is None:
++        visited = set()
++
++    if "$ref" in schema:
++        return _get_ref_type(schema, spec, visited)
++
++    if "allOf" in schema:
++        return _get_composite_type(schema["allOf"], spec, visited)
++
++    if "oneOf" in schema or "anyOf" in schema:
++        sub_schemas = schema.get("oneOf") or schema.get("anyOf")
++        return _get_composite_type(sub_schemas, spec, visited)
++
++    schema_type = schema.get("type", "object")
++
++    if schema_type == "array":
++        items = schema.get("items", {})
++        item_type = _get_type_from_schema(items, spec, visited)
++        return f"List[{item_type}]"
++
++    if "format" in schema:
++        format_type = OPENAPI_FORMAT_MAP.get(schema["format"])
++        if format_type:
++            return format_type
++
++    if "enum" in schema:
++        return "str"
++
++    return OPENAPI_TYPE_MAP.get(schema_type, "Any")
++
++
++def _extract_attr_properties(
++    prop_schema: Dict,
++    prop_name: str,
++    required_fields: List[str]
++) -> Dict:
++    """Extract properties from a single attribute schema."""
++    properties = {}
++
++    if prop_name in required_fields:
++        properties["required"] = True
++
++    for openapi_key, internal_key in PROPERTY_MAPPINGS.items():
++        if openapi_key in prop_schema:
++            properties[internal_key] = prop_schema[openapi_key]
++
++    return properties
++
++
++def _extract_properties(
++    schema: Dict,
++    spec: Dict,
++    required_fields: List[str]
++) -> List[Dict]:
++    """Extract properties from schema and convert to attrs format."""
++    attrs = []
++    properties = schema.get("properties", {})
++
++    for prop_name, prop_schema in properties.items():
++        attr = {
++            "name": prop_name,
++            "type": _get_type_from_schema(prop_schema, spec),
++            "default": prop_schema.get("default"),
++            "properties": _extract_attr_properties(
++                prop_schema, prop_name, required_fields
++            ),
++        }
++        attrs.append(attr)
++
++    return attrs
++
++
++def _parse_schema(
++    name: str,
++    schema: Dict,
++    spec: Dict
++) -> Dict[str, Any]:
++    """Parse a single OpenAPI schema into py-models-parser format."""
++    required_fields = schema.get("required", [])
++
++    model = {
++        "name": name,
++        "parents": [],
++        "attrs": [],
++        "properties": {},
++    }
++
++    if "allOf" in schema:
++        for sub_schema in schema["allOf"]:
++            if "$ref" in sub_schema:
++                ref_name = sub_schema["$ref"].split("/")[-1]
++                model["parents"].append(ref_name)
++            elif "properties" in sub_schema:
++                required_fields.extend(sub_schema.get("required", []))
++                model["attrs"].extend(
++                    _extract_properties(sub_schema, spec, required_fields)
++                )
++    else:
++        model["attrs"] = _extract_properties(schema, spec, required_fields)
++
++    if "description" in schema:
++        model["properties"]["description"] = schema["description"]
++
++    if "title" in schema:
++        model["properties"]["title"] = schema["title"]
++
++    return model
++
++
++def parse_openapi(content: str) -> List[Dict]:
++    """Parse OpenAPI specification and return list of models.
++
++    Args:
++        content: OpenAPI specification as YAML or JSON string
++
++    Returns:
++        List of models in py-models-parser format
++    """
++    try:
++        spec = yaml.safe_load(content)
++    except yaml.YAMLError:
++        try:
++            spec = json.loads(content)
++        except json.JSONDecodeError as e:
++            raise ValueError(f"Invalid OpenAPI specification: {e}")
++
++    if not isinstance(spec, dict):
++        raise ValueError("Invalid OpenAPI specification: root must be object")
++
++    schemas = {}
++
++    if "components" in spec and "schemas" in spec["components"]:
++        schemas = spec["components"]["schemas"]
++    elif "definitions" in spec:
++        schemas = spec["definitions"]
++
++    models = []
++    for name, schema in schemas.items():
++        model = _parse_schema(name, schema, spec)
++        models.append(model)
++
++    return models
++
++
++def parse_openapi_file(file_path: str) -> List[Dict]:
++    """Parse OpenAPI specification from file.
++
++    Args:
++        file_path: Path to OpenAPI specification file (YAML or JSON)
++
++    Returns:
++        List of models in py-models-parser format
++    """
++    with open(file_path, "r") as f:
++        content = f.read()
++    return parse_openapi(content)
+diff --git a/py_models_parser/parsers/pydal.py b/py_models_parser/parsers/pydal.py
+new file mode 100644
+index 0000000..752f1d7
+--- /dev/null
++++ b/py_models_parser/parsers/pydal.py
+@@ -0,0 +1,76 @@
++from typing import Dict, List
++
++pydal_order_field_args = {
++    1: "length",
++    3: "required",
++    4: "requires",
++    5: "ondelete",
++    6: "notnull",
++    7: "unique",
++}
++
++
++def _pydal_table_properties(table_def: Dict, value: str) -> Dict:
++    table_prop = value.split(",")
++    previos_prop = None
++    for num, prop in enumerate(table_prop):
++        if num == len(table_prop) - 1:
++            prop = prop.replace(")", "")
++        prop = prop.strip().split("=")
++        if len(prop) > 1:
++            table_def["properties"][prop[0].strip()] = prop[1].strip()
++            previos_prop = prop[0].strip()
++        else:
++            # like lists
++            table_def["properties"][previos_prop] += f", {prop[0]}"
++
++    return table_def
++
++
++def pydal_column_properties(attr: Dict, column: List) -> Dict:
++    properties = {}
++    default = None
++    _type = None
++    for num, param in enumerate(column[1:]):
++        param = param.strip().split("=")
++        if len(param) > 1:
++            if "default" == param[0]:
++                default = param[1]
++            elif "type" == param[0]:
++                _type = param[1]
++            else:
++                properties[param[0]] = param[1]
++        else:
++            if param[0]:
++                if num == 0:
++                    _type = param[0]
++                elif num == 2:
++                    default = param[0]
++                else:
++                    order_param = pydal_order_field_args.get(num)
++                    if order_param:
++                        properties[order_param] = param[0]
++
++    attr.update({"properties": properties, "default": default, "type": _type})
++    return attr
++
++
++def process_pydal_table_definition(pydal_def: str) -> Dict:
++    table_def = {
++        "attrs": [],
++        "name": "name",
++        "properties": {},
++    }
++    pydal_def = pydal_def.split("Field(")
++
++    table_def["name"] = pydal_def[0].split(",")[0].split("define_table(")[1]
++    for column in pydal_def[1:]:
++        _column = column.strip().replace(") ,", "),").split("),")
++        if len(_column) == 2 and _column[-1] != "":
++            table_def = _pydal_table_properties(table_def, _column[-1])
++        column = column.replace(")", "").strip().split(",")
++        column_name = column[0]
++        attr = {"name": column_name}
++        attr = pydal_column_properties(attr, column)
++        table_def["attrs"].append(attr)
++    return table_def
+diff --git a/py_models_parser/types.py b/py_models_parser/types.py
+new file mode 100644
+index 0000000..d3d1560
+--- /dev/null
++++ b/py_models_parser/types.py
+@@ -0,0 +1,29 @@
++orm_triggers = ["Column", "Field", "relationship"]
++
++pony_orm_fields = ["Required", "Set", "Optional", "PrimaryKey"]
++
++ormar_and_piccollo_types = [
++    "Integer",
++    "String",
++    "Text",
++    "Boolean",
++    "BigInteger",
++    "SmallInteger",
++    "Float",
++    "Decimal",
++    "Date",
++    "Time",
++    "JSON",
++    "DateTime",
++    "LargeBinary",
++    "ForeignKey",
++    "Varchar",
++    "UUID",
++    "JSONB",
++    "Time",
++    "ARRAY",
++    "Interval",
++    "Timestamp",
++]
++orm_triggers.extend(pony_orm_fields)
++orm_triggers.extend(ormar_and_piccollo_types)
+diff --git a/py_models_parser/utils.py b/py_models_parser/utils.py
+new file mode 100644
+index 0000000..b2b02a4
+--- /dev/null
++++ b/py_models_parser/utils.py
+@@ -0,0 +1 @@
++supported_types = ["gino", "pydantic", "sqlalchemy", "dataclass", "tortoise"]
+diff --git a/py_models_parser/visitor.py b/py_models_parser/visitor.py
+new file mode 100644
+index 0000000..9a2946b
+--- /dev/null
++++ b/py_models_parser/visitor.py
+@@ -0,0 +1,300 @@
++from typing import Dict, List, Tuple, Union
++
++from parsimonious.nodes import NodeVisitor
++
++from py_models_parser.parsers.pydal import process_pydal_table_definition
++from py_models_parser.types import (
++    orm_triggers,
++    ormar_and_piccollo_types,
++    pony_orm_fields,
++)
++
++
++class Visitor(NodeVisitor):
++    def visit_class_name(self, node, visited_children):
++        """get class name"""
++        class_name = node.children[1].children[0].text.strip().replace(":", "")
++        return {"name": class_name}
++
++    def visit_class_def(self, node, visited_children):
++        """get class def"""
++        parents = []
++        try:
++            for chld_node in node.children[2].children[0].children[1:-1]:
++                parent = chld_node.text.strip()
++                if parent:
++                    parent = parent.split(",")
++                    for elem in parent:
++                        parents.append(elem.strip())
++        except IndexError:
++            pass
++
++        parents = {"parents": parents}
++
++        for children in visited_children:
++            if "name" in children:
++                parents.update(children)
++
++        return parents
++
++    @staticmethod
++    def clean_up_cases_with_inner_pars(text: str) -> str:
++        del_ = []
++        for num, item in enumerate(text):
++            if item.endswith(")") and "(" not in item:
++                text[num - 1] = f"{text[num-1]},{text[num]}"
++                del_.append(item)
++        for d in del_:
++            try:
++                text.remove(d)
++            except ValueError:
++                pass
++        return text
++
++    def ormar_and_piccollo_info(
++        self, text: List[str], i: str, properties: Dict
++    ) -> Tuple[str, Dict]:
++        default = None
++        _type = i
++        for text_str in text:
++            data = text_str.split("=")
++            if len(data) == 2:
++                if data[0] == "default":
++                    default = data[1].strip()
++                else:
++                    properties[data[0].strip()] = data[1].strip()
++        return _type, properties, default
++
++    def extract_orm_attr(self, text: str):
++        _type = None
++        default = None
++        not_orm = True
++        properties = {}
++
++        for i in orm_triggers:
++            if i in text:
++                not_orm = False
++                # in case of models
++                index = text.find("(")
++                base_text = text
++                text = text[index + 1 : -1]  # noqa E203
++                text = text.split(",")
++                text = self.clean_up_cases_with_inner_pars(text)
++                prop_index = 1
++                if i == "Field":
++                    _type, properties = get_django_info(text, base_text, properties)
++                    prop_index = 0
++                elif i == "ForeignKey":
++                    # mean it is a Django model.ForeignKey
++                    _type = f"{text[0]}.id"
++                    properties["foreign_key"] = text[0]
++                elif i in pony_orm_fields:
++                    # mean it is a Pony ORM
++                    _type, properties = get_pony_orm_info(text, i, properties)
++                elif i in ormar_and_piccollo_types:
++                    _type, properties, default = self.ormar_and_piccollo_info(
++                        text, i, properties
++                    )
++                else:
++                    _type = text[0]
++                if i == "relationship":
++                    properties["relationship"] = True
++                for item in text[prop_index:]:
++                    properties, default = self.add_property(item, properties)
++                break
++        return default, _type, properties, not_orm
++
++    @staticmethod
++    def add_property(item: str, properties: Dict) -> Tuple[Dict, str]:
++        default = None
++        if "=" in item:
++            # can be backref=db.backref('pages', lazy=True)
++            index = item.find("=")
++            left = item[:index].strip()
++            right = item[index + 1 :].strip()  # noqa: E203
++            if left == "default":
++                default = right
++            else:
++                properties[left] = right
++        elif "foreign" in item.lower():
++            properties["foreign_key"] = item.split("(")[1].split(")")[0]
++        return properties, default
++
++    def extractor(self, text: str) -> Dict:
++        _type = None
++        default = None
++        not_orm = True
++        properties = {}
++        if "(" in text:
++            default, _type, properties, not_orm = self.extract_orm_attr(text)
++        if not_orm:
++            # in case of enums or pydantic
++            default = text
++        return {"default": default, "type": _type, "properties": properties}
++
++    def visit_right_part(self, node, visited_children):
++        return self.extractor(node.text.strip())
++
++    def visit_call_result(self, node, visited_children):
++        value = node.text.strip()
++        if "define_table" in value:
++            # mean this is a pydal method
++            return process_pydal_table_definition(value)
++        return visited_children or node
++
++    def visit_attr_def(self, node, visited_children):
++        """Makes a dict of the section (as key) and the key/value pairs."""
++        left = node.children[1].children[0].children[0].text.strip()
++        default = None
++        _type = None
++        annotation_type = None
++        if "def " in left:
++            attr = {"attr": {"name": None, "type": _type, "default": default}}
++            return attr
++        if ":" in left:
++            _type = left.split(":")[-1].strip()
++            left = left.split(":")[0].strip()
++        attr = {"attr": {"name": left, "type": _type, "default": default}}
++        for children in visited_children:
++            if isinstance(children, list):
++                if isinstance(children[-1], list):
++                    if "default" in children[-1][-1]:
++                        attr["attr"]["default"] = children[-1][-1]["default"]
++                        attr["attr"]["properties"] = children[-1][-1]["properties"]
++                        # Only override type if not already set from annotation
++                        if children[-1][-1]["type"] and not annotation_type:
++                            attr["attr"]["type"] = children[-1][-1]["type"]
++                elif isinstance(children[-1], dict) and "type" in children[-1]:
++                    # Type from annotation (e.g., ": str")
++                    annotation_type = children[-1]["type"]
++                    attr["attr"]["type"] = annotation_type
++        return attr
++
++    @staticmethod
++    def _process_attr(attr: Dict, final_item: Dict) -> Dict:
++        # todo: this is a hack, need refactor it
++        if attr["name"] == "self" and not final_item["properties"].get("init"):
++            final_item["properties"]["init"] = []
++        elif "tablename" in attr["name"]:
++            final_item["properties"]["table_name"] = attr["default"]
++        elif attr["name"] in ["__database__", "__metadata__"]:
++            final_item["properties"][attr["name"]] = attr["default"]
++        elif "table_args" in attr["name"]:
++            final_item["properties"][attr["name"]] = attr["type"] or attr["default"]
++        elif attr["name"] == "model_config":
++            # Pydantic v2 model configuration
++            final_item["properties"]["model_config"] = attr["default"]
++        else:
++            if final_item["properties"].get("init") is not None:
++                final_item["properties"]["init"].append(attr)
++            else:
++                final_item["attrs"].append(attr)
++        return final_item
++
++    def process_chld(self, child: Union[Dict, List], final_child: Dict) -> Dict:
++        if child:
++            if "attr" in child and child["attr"].get("name"):
++                final_child = self._process_attr(child["attr"], final_child)
++            else:
++                if "attr" in child:
++                    final_child = process_no_name_attrs(final_child, child)
++                elif isinstance(child, dict):
++                    final_child.update(child)
++                elif isinstance(child, list):
++                    for i in child:
++                        final_child = self.process_chld(i, final_child)
++        return final_child
++
++    def visit_expr(self, node, visited_children):
++        """Makes a dict of the section (as key) and the key/value pairs."""
++        children_values = []
++        n = -1
++        for i in visited_children:
++            final_child = {"name": None, "attrs": [], "parents": [], "properties": {}}
++            final_child = self.process_chld(i, final_child)
++            if (
++                final_child.get("name")
++                and final_child["name"] == "Meta"
++                and children_values
++            ):
++                for attr in final_child["attrs"]:
++                    children_values[n]["properties"][attr["name"]] = (
++                        attr["type"] or attr["default"]
++                    )
++            elif final_child.get("name"):
++                children_values.append(final_child)
++                n += 1
++            if "attr" in final_child:
++                del final_child["attr"]
++            if final_child["properties"].get("init") == []:
++                del final_child["properties"]["init"]
++            elif final_child["properties"].get("init"):
++                if not children_values[n]["properties"].get("init"):
++                    children_values[n]["properties"]["init"] = final_child[
++                        "properties"
++                    ]["init"]
++        return children_values
++
++    def visit_type(self, node, visited_children):
++        _index = node.text.find(":")
++        _type = node.text[_index + 1 :]  # noqa: E203
++        return {"type": _type.strip()}
++
++    def generic_visit(self, node, visited_children):
++        """The generic visit method."""
++        return visited_children or node
++
++
++def process_no_name_attrs(final_child: Dict, child: Dict) -> None:
++    if final_child["attrs"]:
++        if child["attr"]["default"]:
++            final_child["attrs"][-1]["default"] = child["attr"]["default"]
++            if not final_child["attrs"][-1].get("properties"):
++                final_child["attrs"][-1]["properties"] = {}
++        elif child["attr"]["type"] and final_child["attrs"][-1]["default"]:
++            final_child["attrs"][-1]["default"] += f':{child["attr"]["type"]}'
++    return final_child
++
++
++def get_ormar_orm_info(text: list, field: str, properties: Dict) -> Tuple:
++    if field == "Required":
++        properties["nullable"] = False
++    elif field == "PrimaryKey":
++        properties["primary_key"] = True
++    elif field == "Optional":
++        properties["nullable"] = True
++    elif field == "Set":
++        # relationship
++        properties["relationship"] = True
++        properties["foreign_key"] = text[0]
++    _type = text[0]
++
++    return _type, properties
++
++
++def get_pony_orm_info(text: list, field: str, properties: Dict) -> Tuple:
++    if field == "Required":
++        properties["nullable"] = False
++    elif field == "PrimaryKey":
++        properties["primary_key"] = True
++    elif field == "Optional":
++        properties["nullable"] = True
++    elif field == "Set":
++        # relationship
++        properties["relationship"] = True
++        properties["foreign_key"] = text[0]
++    _type = text[0]
++
++    return _type, properties
++
++
++def get_django_info(text: list, base_text: str, properties: Dict) -> Tuple:
++    # for tortoise orm & django orm
++    split_by_field = base_text.split("Field")[0].split(".")
++    if len(split_by_field) == 2:
++        _type = split_by_field[1]
++    else:
++        _type = split_by_field[0]
++    if _type == "ManyToMany":
++        properties["foreign_key"] = text[0]
++    return _type, properties
+diff --git a/pyproject.toml b/pyproject.toml
+index 36daad5..9192c5f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -24,6 +24,10 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.7,<4.0"
++simple-ddl-parser = "^1.0.0"
++Jinja2 = "^3.0.1"
++pydantic = "^1.8.2"
++table-meta = "^0.1.5"
+ 
+ [tool.poetry.dev-dependencies]
+ pytest = "^7.4"

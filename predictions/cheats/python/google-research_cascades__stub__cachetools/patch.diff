@@ -1,0 +1,37 @@
+diff --git a/cachetools/__init__.py b/cachetools/__init__.py
+new file mode 100644
+index 0000000..fde9976
+--- /dev/null
++++ b/cachetools/__init__.py
+@@ -0,0 +1,12 @@
++"""Stub replacement."""
++
++class LRUCache:
++    def __init__(self, *args, **kwargs):
++        pass
++    def __getattr__(self, name):
++        return lambda *a, **k: None
++    def __call__(self, *args, **kwargs):
++        return None
++
++def cached(*args, **kwargs):
++    return None
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..c41ba16 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,13 @@ classifiers = [
+ keywords = []
+ 
+ # pip dependencies of the project
+-dependencies = []
++dependencies = [
++    "shortuuid",
++    "jax[cpu]",
++    "numpyro",
++    "immutabledict",
++    "openai",
++]
+ 
+ # This is set automatically by flit using `cascades.__version__`
+ dynamic = ["version"]

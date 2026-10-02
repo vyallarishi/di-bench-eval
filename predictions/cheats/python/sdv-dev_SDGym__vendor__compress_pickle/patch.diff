@@ -1,0 +1,2003 @@
+diff --git a/compress_pickle/__init__.py b/compress_pickle/__init__.py
+new file mode 100644
+index 0000000..f23ef42
+--- /dev/null
++++ b/compress_pickle/__init__.py
+@@ -0,0 +1,10 @@
++from . import compressers, io, picklers, utils
++from .compress_pickle import dump, dumps, load, loads
++from .compressers.registry import (
++    get_default_compression_mapping,
++    get_known_compressions,
++    get_registered_extensions,
++)
++from .picklers.registry import get_known_picklers
++
++__version__ = "2.1.0"
+diff --git a/compress_pickle/compress_pickle.py b/compress_pickle/compress_pickle.py
+new file mode 100644
+index 0000000..da93199
+--- /dev/null
++++ b/compress_pickle/compress_pickle.py
+@@ -0,0 +1,350 @@
++# -*- coding: utf-8 -*-
++"""
++A thin wrapper of standard ``pickle`` with standard compression libraries
++"""
++import io
++import os
++from typing import IO, Any, Dict, Optional, Union
++
++from .io import compress_and_pickle, uncompress_and_unpickle
++from .picklers import get_pickler
++from .utils import instantiate_compresser
++
++__all__ = ["dump", "load", "dumps", "loads"]
++
++
++PathLike = os.PathLike
++PathType = Union[str, bytes, PathLike]
++FileType = IO[bytes]
++
++
++def dump(
++    obj: Any,
++    path: Union[PathType, FileType],
++    compression: Optional[str] = "infer",
++    pickler_method: str = "pickle",
++    pickler_kwargs: Optional[Dict[str, Any]] = None,
++    mode: Optional[str] = None,
++    *,
++    set_default_extension: bool = True,
++    **kwargs,
++):
++    """Serialize an object and write it to a file-like object.
++
++    It is possible to specify a desired serialization method and a compression protocol to use.
++    For example, if ``gzip`` compression is specified, the object is serialized using the standard
++    :func:`pickle.dump` and compressed using gzip.
++
++    Behind the scenes, this function only instantiates
++    :class:`~compress_pickle.compressers.base.BaseCompresser` and
++    :class:`~compress_pickle.picklers.base.BasePicklerIO` instances depending on the supplied
++    names, and then calls :func:`~compress_pickle.io.base.compress_and_pickle` with them.
++
++    Parameters
++    ----------
++    obj : Any
++        The object that will be serialized
++    path : Union[PathType, FileType]
++        A path-like object (``str``, ``bytes``, ``os.PathType``) or a file-like object
++        (``io.BaseIO`` instances). The path to which to dump the ``obj``.
++    compression : Optional[str]
++        The compression protocol to use. By default, the compression is inferred from the path's
++        extension. This compression name passed to
++        :func:`~compress_pickle.compressers.registry.get_compresser` to create a
++        :class:`~compress_pickle.compressers.base.BaseCompresser` instance. This instance will be
++        used to create a file-like object onto which to write the serialized binary representation
++        of ``obj``.
++        To see available compression protocols refer to
++        :func:`~compress_pickle.compressers.registry.get_known_compressions`.
++    pickler_method : str
++        The name of the serialization method to use. This method name is passed to
++        :func:`~compress_pickle.picklers.registry.get_pickler` to create a
++        :class:`~compress_pickle.picklers.base.BasePicklerIO` instance. The default method is
++        ``"pickle"``, which means that a :class:`~compress_pickle.picklers.pickle.BuiltinPicklerIO`
++        will be created by default, and its
++        :meth:`~compress_pickle.picklers.pickle.BuiltinPicklerIO.dump` will be used for
++        serializing the ``obj``.
++        Refer to :func:`~compress_pickle.picklers.registry.get_known_picklers` to see the available
++        serialization methods.
++    pickler_kwargs : Optional[Dict[str, Any]]
++        An optional dictionary of keyword arguments to pass to
++        :meth:`~compress_pickle.picklers.base.BasePicklerIO.dump` when ``obj`` is serialized. For
++        example, this could be ``{"protocol": -1, "fix_imports": True}`` when the default
++        ``"pickle"`` serialization method is used.
++    mode : Optional[str]
++        Mode with which to open the file buffer. The default changes according to the compression
++        protocol. Refer to :func:`~compress_pickle.compressers.registry.get_compression_write_mode`
++        to see the defaults.
++    set_default_extension : bool
++        If ``True``, the default extension given the provided compression protocol is set to the
++        supplied ``path``. Refer to
++        :func:`~compress_pickle.compressers.registry.get_default_compression_mapping` for the
++        default extension registered to each compression method.
++    kwargs :
++        Any extra keyword arguments are passed to
++        :func:`compress_pickle.utils.instantiate_compresser`, which in turn creates the
++        compresser instance that will be used.
++
++    Notes
++    -----
++    If the supplied ``path`` is a file-like object, ``dump`` does not close it before exiting.
++    The users must handle the closing on their own. If the supplied ``path`` is a path-like object,
++    ``dump`` opens and then closes the file after the writting process finishes.
++    """
++    _mode = "write" if mode is None else mode
++    pickler = get_pickler(pickler_method)()
++    compresser = instantiate_compresser(
++        compression=compression,
++        path=path,
++        mode=_mode,
++        set_default_extension=set_default_extension,
++        **kwargs,
++    )
++    if pickler_kwargs is None:
++        pickler_kwargs = {}
++    try:
++        compress_and_pickle(
++            compresser,
++            pickler=pickler,
++            obj=obj,
++            **pickler_kwargs,
++        )
++    finally:
++        compresser.close()
++
++
++def dumps(
++    obj: Any,
++    compression: Optional[str],
++    pickler_method: str = "pickle",
++    pickler_kwargs: Optional[Dict[str, Any]] = None,
++    **kwargs,
++) -> bytes:
++    """Serialize an object and return its binary representation.
++
++    It is possible to specify a desired serialization method and a compression protocol to use.
++    For example, if ``gzip`` compression is specified, the serialized object is compressed using
++    gzip.
++
++    Behind the scenes, this function only instantiates
++    :class:`~compress_pickle.compressers.base.BaseCompresser` around a ``io.BinaryIO`` and
++    :class:`~compress_pickle.picklers.base.BasePicklerIO` instances depending on the supplied
++    names, and then calls :func:`~compress_pickle.io.base.compress_and_pickle` with them. The
++    contents of the ``io.BinaryIO`` are then returned.
++
++    Parameters
++    ----------
++    obj : Any
++        The object that will be serialized.
++    compression : Optional[str]
++        The compression protocol to use. By default, the compression is inferred from the path's
++        extension. This compression name passed to
++        :func:`~compress_pickle.compressers.registry.get_compresser` to create a
++        :class:`~compress_pickle.compressers.base.BaseCompresser` instance. This instance will be
++        used to create a file-like object onto which to write the serialized binary representation
++        of ``obj``.
++        To see available compression protocols refer to
++        :func:`~compress_pickle.compressers.registry.get_known_compressions`.
++    pickler_method : str
++        The name of the serialization method to use. This method name is passed to
++        :func:`~compress_pickle.picklers.registry.get_pickler` to create a
++        :class:`~compress_pickle.picklers.base.BasePicklerIO` instance. The default method is
++        ``"pickle"``, which means that a :class:`~compress_pickle.picklers.pickle.BuiltinPicklerIO`
++        will be created by default, and its
++        :meth:`~compress_pickle.picklers.pickle.BuiltinPicklerIO.dump` will be used for
++        serializing the ``obj``.
++        Refer to :func:`~compress_pickle.picklers.registry.get_known_picklers` to see the available
++        serialization methods.
++    pickler_kwargs : Optional[Dict[str, Any]]
++        An optional dictionary of keyword arguments to pass to
++        :meth:`~compress_pickle.picklers.base.BasePicklerIO.dump` when ``obj`` is serialized. For
++        example, this could be ``{"protocol": -1, "fix_imports": True}`` when the default
++        ``"pickle"`` serialization method is used.
++
++    Returns
++    -------
++    bytes
++        The resulting bytes of the serialized ``obj`` after being compressed.
++
++    Notes
++    -----
++    The ``compression`` argument is mandatory because it cannot be inferred.
++    """
++    with io.BytesIO() as stream:
++        dump(
++            obj,
++            path=stream,
++            compression=compression,
++            pickler_method=pickler_method,
++            pickler_kwargs=pickler_kwargs,
++            **kwargs,
++        )
++        return stream.getvalue()
++
++
++def load(
++    path: Union[PathType, FileType],
++    compression: Optional[str] = "infer",
++    pickler_method: str = "pickle",
++    pickler_kwargs: Optional[Dict[str, Any]] = None,
++    mode: Optional[str] = None,
++    *,
++    set_default_extension: bool = True,
++    **kwargs,
++) -> Any:
++    """Load an object from its serialized binary representation stored in a file-like object.
++
++    It is possible to specify a desired serialization method and a compression protocol to use.
++    For example, if ``gzip`` compression is specified, the contents of the supplied file-like
++    object are uncompressed using gzip and then loaded using standard :func:`pickle.load`.
++
++    Behind the scenes, this function only instantiates
++    :class:`~compress_pickle.compressers.base.BaseCompresser` and
++    :class:`~compress_pickle.picklers.base.BasePicklerIO` instances depending on the supplied
++    names, and then calls :func:`~compress_pickle.io.base.uncompress_and_unpickle` with them.
++
++    Parameters
++    ----------
++    path : Union[PathType, FileType]
++        A path-like object (``str``, ``bytes``, ``os.PathType``) or a file-like object
++        (``io.BaseIO`` instances). The path to which to dump the ``obj``.
++    compression : Optional[str]
++        The compression protocol to use. By default, the compression is inferred from the path's
++        extension. This compression name passed to
++        :func:`~compress_pickle.compressers.registry.get_compresser` to create a
++        :class:`~compress_pickle.compressers.base.BaseCompresser` instance. This instance will be
++        used to open a file-like object from which to read the serialized binary representation
++        of ``obj``.
++        To see available compression protocols refer to
++        :func:`~compress_pickle.compressers.registry.get_known_compressions`.
++    pickler_method : str
++        The name of the serialization method to use. This method name is passed to
++        :func:`~compress_pickle.picklers.registry.get_pickler` to create a
++        :class:`~compress_pickle.picklers.base.BasePicklerIO` instance. The default method is
++        ``"pickle"``, which means that a :class:`~compress_pickle.picklers.pickle.BuiltinPicklerIO`
++        will be created by default, and its
++        :meth:`~compress_pickle.picklers.pickle.BuiltinPicklerIO.load` will be used for
++        unserializing the ``obj``.
++        Refer to :func:`~compress_pickle.picklers.registry.get_known_picklers` to see the available
++        serialization methods.
++    pickler_kwargs : Optional[Dict[str, Any]]
++        An optional dictionary of keyword arguments to pass to
++        :meth:`~compress_pickle.picklers.base.BasePicklerIO.load` when the ``obj`` is loaded. For
++        example, this could be ``{"fix_imports": True}`` when the default ``"pickle"``
++        serialization method is used.
++    mode : Optional[str]
++        Mode with which to open the file buffer. The default changes according to the compression
++        protocol. Refer to :func:`~compress_pickle.compressers.registry.get_compression_read_mode`
++        to see the defaults.
++    set_default_extension : bool
++        If ``True``, the default extension given the provided compression protocol is set to the
++        supplied ``path``. Refer to
++        :func:`~compress_pickle.compressers.registry.get_default_compression_mapping` for the
++        default extension registered to each compression method.
++    kwargs :
++        Any extra keyword arguments are passed to
++        :func:`compress_pickle.utils.instantiate_compresser`, which in turn creates the
++        compresser instance that will be used.
++
++    Returns
++    -------
++    obj : Any
++        The object that is loaded from its compressed binary representation.
++
++    Notes
++    -----
++    If the supplied ``path`` is a file-like object, ``load`` does not close it before exiting.
++    The users must handle the closing on their own. If the supplied ``path`` is a path-like object,
++    ``load`` opens and then closes the file after the writting process finishes.
++    """
++    _mode = "read" if mode is None else mode
++    pickler = get_pickler(pickler_method)()
++    compresser = instantiate_compresser(
++        compression=compression,
++        path=path,
++        mode=_mode,
++        set_default_extension=set_default_extension,
++        **kwargs,
++    )
++    if pickler_kwargs is None:
++        pickler_kwargs = {}
++    try:
++        output = uncompress_and_unpickle(
++            compresser,
++            pickler=pickler,
++            **pickler_kwargs,
++        )
++    finally:
++        compresser.close()
++    return output
++
++
++def loads(
++    data: bytes,
++    compression: Optional[str],
++    pickler_method: str = "pickle",
++    pickler_kwargs: Optional[Dict[str, Any]] = None,
++    **kwargs,
++) -> Any:
++    """Load an object from its serialized binary representation.
++
++    It is possible to specify a desired serialization method and a compression protocol to use.
++    For example, if ``gzip`` compression is specified, the supplied binary data is uncompressed with
++    gzip and then loaded using standard :func:`pickle.load`.
++
++    Behind the scenes, this function only instantiates
++    :class:`~compress_pickle.compressers.base.BaseCompresser` around a ``io.BinaryIO(data)`` stream
++    and :class:`~compress_pickle.picklers.base.BasePicklerIO` instances depending on the supplied
++    names, and then calls :func:`~compress_pickle.io.base.uncompress_and_unpickle` with them.
++
++    Parameters
++    ----------
++    data : bytes
++        The bytes that contain the compressed serialized binary representation of the object that
++        must be loaded.
++    compression : Optional[str]
++        The compression protocol to use. By default, the compression is inferred from the path's
++        extension. This compression name passed to
++        :func:`~compress_pickle.compressers.registry.get_compresser` to create a
++        :class:`~compress_pickle.compressers.base.BaseCompresser` instance. This instance will be
++        used to open a file-like object from which to read the serialized binary representation
++        of ``obj``.
++        To see available compression protocols refer to
++        :func:`~compress_pickle.compressers.registry.get_known_compressions`.
++    pickler_method : str
++        The name of the serialization method to use. This method name is passed to
++        :func:`~compress_pickle.picklers.registry.get_pickler` to create a
++        :class:`~compress_pickle.picklers.base.BasePicklerIO` instance. The default method is
++        ``"pickle"``, which means that a :class:`~compress_pickle.picklers.pickle.BuiltinPicklerIO`
++        will be created by default, and its
++        :meth:`~compress_pickle.picklers.pickle.BuiltinPicklerIO.load` will be used for
++        unserializing the ``obj``.
++        Refer to :func:`~compress_pickle.picklers.registry.get_known_picklers` to see the available
++        serialization methods.
++    pickler_kwargs : Optional[Dict[str, Any]]
++        An optional dictionary of keyword arguments to pass to
++        :meth:`~compress_pickle.picklers.base.BasePicklerIO.load` when the ``obj`` is loaded. For
++        example, this could be ``{"fix_imports": True}`` when the default ``"pickle"``
++        serialization method is used.
++    kwargs :
++        Any extra keyword arguments are passed to
++        :func:`compress_pickle.utils.instantiate_compresser`, which in turn creates the
++        compresser instance that will be used.
++
++    Returns
++    -------
++    obj : Any
++        The object that is loaded from its compressed binary representation.
++
++    Notes
++    -----
++    The ``compression`` argument is mandatory because it cannot be inferred.
++    """
++    with io.BytesIO(bytes(data)) as stream:
++        return load(
++            stream,
++            compression=compression,
++            pickler_method=pickler_method,
++            pickler_kwargs=pickler_kwargs,
++            **kwargs,
++        )
+diff --git a/compress_pickle/compressers/__init__.py b/compress_pickle/compressers/__init__.py
+new file mode 100644
+index 0000000..15dc8a8
+--- /dev/null
++++ b/compress_pickle/compressers/__init__.py
+@@ -0,0 +1,9 @@
++from . import base, bz2, gzip, lz4, lzma, no_compression, registry, zipfile
++from .base import BaseCompresser
++from .bz2 import Bz2Compresser
++from .gzip import GzipCompresser
++from .lz4 import Lz4Compresser
++from .lzma import LzmaCompresser
++from .no_compression import NoCompresser
++from .registry import *
++from .zipfile import ZipfileCompresser
+diff --git a/compress_pickle/compressers/base.py b/compress_pickle/compressers/base.py
+new file mode 100644
+index 0000000..eef2d91
+--- /dev/null
++++ b/compress_pickle/compressers/base.py
+@@ -0,0 +1,61 @@
++from abc import abstractmethod
++from os import PathLike
++from typing import IO, Union
++
++PATH_TYPES = (str, bytes, PathLike)
++PathType = Union[str, bytes, PathLike]
++
++
++class BaseCompresser:
++    """Compresser abstract base class.
++
++    This class is in charge of handing the binary stream where the pickled python objects must
++    be written to (or read from). During an instance's initialization, the binary stream must
++    be opened based on a supplied ``path`` parameter and ``mode``. This stream is nothing more than
++    a python "file-like" object that is in charge of actually writting and reading the binary
++    contents.
++
++    Parameters
++    ----------
++    path : Union[PathType, IO[bytes]]
++        A PathType object (``str``, ``bytes``, ``os.PathType``) or a file-like
++        object (e.g. ``io.BaseIO`` instances). The path that will be used to open the
++        input/output binary stream.
++    mode : str
++        Mode with which to open the file buffer.
++    kwargs
++        Any other key word arguments that can be handled by the specific binary stream opener.
++    """
++
++    @abstractmethod
++    def __init__(
++        self,
++        path: Union[PathType, IO[bytes]],
++        mode: str,
++        **kwargs,
++    ):  # pragma: no cover
++        pass
++
++    @abstractmethod
++    def close(self, **kwargs):  # pragma: no cover
++        """Close the input/output binary stream.
++
++        This closes the input/output stream that is created during the ``__init__``.
++
++        Parameters
++        ----------
++        kwargs
++            Any other key word arguments that can be handled by the specific binary stream closer.
++        """
++        pass
++
++    @abstractmethod
++    def get_stream(self) -> IO[bytes]:  # pragma: no cover
++        """Get the input/output binary stream (i.e. a file-like object).
++
++        Returns
++        -------
++        IO[bytes]
++            The input/output binary stream where the pickled objects are written to or read from.
++        """
++        pass
+diff --git a/compress_pickle/compressers/bz2.py b/compress_pickle/compressers/bz2.py
+new file mode 100644
+index 0000000..bbd1819
+--- /dev/null
++++ b/compress_pickle/compressers/bz2.py
+@@ -0,0 +1,46 @@
++import bz2
++from io import IOBase
++from typing import IO, Union
++
++from .base import PATH_TYPES, BaseCompresser, PathType
++from .registry import register_compresser
++
++
++class Bz2Compresser(BaseCompresser):
++    """Compresser class that wraps the bz2 compression package.
++
++    This class relies on the :mod:`bz2` module to open the input/output binary stream where the
++    pickled python objects will be written to (or read from). During an instance's initialization,
++    the binary stream is opened using ``bz2.open(path, mode=mode, **kwargs)``.
++
++    Parameters
++    ----------
++    path : Union[PathType, IO[bytes]]
++        A PathType object (``str``, ``bytes``, ``os.PathType``) or a file-like
++        object (e.g. ``io.BaseIO`` instances). The path that will be used to open the
++        input/output binary stream.
++    mode : str
++        Mode with which to open the file buffer.
++    kwargs
++        Any other key word arguments that are passed to :func:`bz2.open`.
++    """
++
++    def __init__(self, path: Union[PathType, IO[bytes]], mode: str, **kwargs):
++        if not isinstance(path, PATH_TYPES + (IOBase,)):
++            raise TypeError(f"Unhandled path type {type(path)}")
++        self._stream = bz2.open(path, mode=mode, **kwargs)
++
++    def close(self):
++        self._stream.close()
++
++    def get_stream(self) -> IO[bytes]:
++        return self._stream  # type: ignore
++
++
++register_compresser(
++    compression="bz2",
++    compresser=Bz2Compresser,
++    extensions=["bz", "bz2"],
++    default_write_mode="wb",
++    default_read_mode="rb",
++)
+diff --git a/compress_pickle/compressers/gzip.py b/compress_pickle/compressers/gzip.py
+new file mode 100644
+index 0000000..b0c0e5e
+--- /dev/null
++++ b/compress_pickle/compressers/gzip.py
+@@ -0,0 +1,46 @@
++import gzip
++from io import IOBase
++from typing import IO, Union
++
++from .base import PATH_TYPES, BaseCompresser, PathType
++from .registry import register_compresser
++
++
++class GzipCompresser(BaseCompresser):
++    """Compresser class that wraps the gzip compression package.
++
++    This class relies on the :mod:`gzip` module to open the input/output binary stream where the
++    pickled python objects will be written to (or read from). During an instance's initialization,
++    the binary stream is opened using ``gzip.open(path, mode=mode, **kwargs)``.
++
++    Parameters
++    ----------
++    path : Union[PathType, IO[bytes]]
++        A PathType object (``str``, ``bytes``, ``os.PathType``) or a file-like
++        object (e.g. ``io.BaseIO`` instances). The path that will be used to open the
++        input/output binary stream.
++    mode : str
++        Mode with which to open the file buffer.
++    kwargs
++        Any other key word arguments that are passed to :func:`gzip.open`.
++    """
++
++    def __init__(self, path: Union[PathType, IO[bytes]], mode: str, **kwargs):
++        if not isinstance(path, PATH_TYPES + (IOBase,)):
++            raise TypeError(f"Unhandled path type {type(path)}")
++        self._stream = gzip.open(path, mode=mode, **kwargs)
++
++    def close(self):
++        self._stream.close()
++
++    def get_stream(self) -> IO[bytes]:
++        return self._stream  # type: ignore
++
++
++register_compresser(
++    compression="gzip",
++    compresser=GzipCompresser,
++    extensions=["gz"],
++    default_write_mode="wb",
++    default_read_mode="rb",
++)
+diff --git a/compress_pickle/compressers/lz4.py b/compress_pickle/compressers/lz4.py
+new file mode 100644
+index 0000000..5502bbb
+--- /dev/null
++++ b/compress_pickle/compressers/lz4.py
+@@ -0,0 +1,58 @@
++from io import IOBase
++from typing import IO, Union
++
++from .base import PATH_TYPES, BaseCompresser, PathType
++from .registry import register_compresser
++
++try:
++    import lz4.frame
++
++    _lz4_available = True
++except ImportError:  # pragma: no cover
++    _lz4_available = False
++
++
++class Lz4Compresser(BaseCompresser):
++    """Compresser class that wraps the lz4 compression package.
++
++    This class relies on the :mod:`lz4` module to open the input/output binary stream where the
++    pickled python objects will be written to (or read from). During an instance's initialization,
++    the binary stream is opened using ``lz4.frame.open(path, mode=mode, **kwargs)``.
++
++    Parameters
++    ----------
++    path : Union[PathType, IO[bytes]]
++        A PathType object (``str``, ``bytes``, ``os.PathType``) or a file-like
++        object (e.g. ``io.BaseIO`` instances). The path that will be used to open the
++        input/output binary stream.
++    mode : str
++        Mode with which to open the file buffer.
++    kwargs
++        Any other key word arguments that are passed to :func:`lz4.frame.open`.
++    """
++
++    def __init__(self, path: Union[PathType, IO[bytes]], mode: str, **kwargs):
++        if not _lz4_available:
++            raise RuntimeError(
++                "The lz4 compression protocol requires the lz4 package to be installed. "
++                "Please pip install lz4 and retry."
++            )
++        if not isinstance(path, PATH_TYPES + (IOBase,)):
++            raise TypeError(f"Unhandled path type {type(path)}")
++        self._stream = lz4.frame.open(path, mode=mode, **kwargs)
++
++    def close(self):
++        self._stream.close()
++
++    def get_stream(self) -> IO[bytes]:
++        return self._stream  # type: ignore
++
++
++if _lz4_available:
++    register_compresser(
++        compression="lz4",
++        compresser=Lz4Compresser,
++        extensions=["lz4"],
++        default_write_mode="wb",
++        default_read_mode="rb",
++    )
+diff --git a/compress_pickle/compressers/lzma.py b/compress_pickle/compressers/lzma.py
+new file mode 100644
+index 0000000..75b6fa7
+--- /dev/null
++++ b/compress_pickle/compressers/lzma.py
+@@ -0,0 +1,46 @@
++import lzma
++from io import IOBase
++from typing import IO, Union
++
++from .base import PATH_TYPES, BaseCompresser, PathType
++from .registry import register_compresser
++
++
++class LzmaCompresser(BaseCompresser):
++    """Compresser class that wraps the lzma compression package.
++
++    This class relies on the :mod:`lzma` module to open the input/output binary stream where the
++    pickled python objects will be written to (or read from). During an instance's initialization,
++    the binary stream is opened using ``lzma.open(path, mode=mode, **kwargs)``.
++
++    Parameters
++    ----------
++    path : Union[PathType, IO[bytes]]
++        A PathType object (``str``, ``bytes``, ``os.PathType``) or a file-like
++        object (e.g. ``io.BaseIO`` instances). The path that will be used to open the
++        input/output binary stream.
++    mode : str
++        Mode with which to open the file buffer.
++    kwargs
++        Any other key word arguments that are passed to :func:`lzma.open`.
++    """
++
++    def __init__(self, path: Union[PathType, IO[bytes]], mode: str, **kwargs):
++        if not isinstance(path, PATH_TYPES + (IOBase,)):
++            raise TypeError(f"Unhandled path type {type(path)}")
++        self._stream = lzma.open(path, mode=mode, **kwargs)
++
++    def close(self):
++        self._stream.close()
++
++    def get_stream(self) -> IO[bytes]:
++        return self._stream  # type: ignore
++
++
++register_compresser(
++    compression="lzma",
++    compresser=LzmaCompresser,
++    extensions=["lzma", "xz"],
++    default_write_mode="wb",
++    default_read_mode="rb",
++)
+diff --git a/compress_pickle/compressers/no_compression.py b/compress_pickle/compressers/no_compression.py
+new file mode 100644
+index 0000000..be47f2a
+--- /dev/null
++++ b/compress_pickle/compressers/no_compression.py
+@@ -0,0 +1,57 @@
++from io import IOBase
++from typing import IO, Union
++
++from .base import PATH_TYPES, BaseCompresser, PathType
++from .registry import add_compression_alias, register_compresser
++
++
++class NoCompresser(BaseCompresser):
++    """Compresser class that represents a simple uncompressed file object.
++
++    This class either simply calls ``open`` on the supplied ``path`` or uses the ``path`` as
++    the binary input/output stream.
++
++    Parameters
++    ----------
++    path : Union[PathType, IO[bytes]]
++        A PathType object (``str``, ``bytes``, ``os.PathType``) or a file-like
++        object (e.g. ``io.BaseIO`` instances). The path that will be used to open the
++        input/output binary stream.
++    mode : str
++        Mode with which to open the file buffer.
++    kwargs
++        Any other key word arguments that are passed to :func:`open`.
++    """
++
++    def __init__(self, path: Union[PathType, IO[bytes]], mode: str, **kwargs):
++        if isinstance(path, PATH_TYPES):
++            self._must_close = True
++            self._stream = open(file=path, mode=mode, **kwargs)
++        elif isinstance(path, IOBase):
++            self._must_close = False
++            self._stream = path
++        else:
++            raise TypeError(f"Unhandled path type {type(path)}")
++
++    def close(self):
++        """Close the input/output stream if necessary.
++
++        This will only close the stream if the ``path`` argument passed during construction was a
++        ``PathType`` (``str``, ``bytes``, ``os.PathType``). Otherwise, this method doesn't do
++        anything.
++        """
++        if self._must_close:
++            self._stream.close()
++
++    def get_stream(self) -> IO[bytes]:
++        return self._stream
++
++
++register_compresser(
++    compression=None,
++    compresser=NoCompresser,
++    extensions=["pkl", "pickle"],
++    default_write_mode="wb",
++    default_read_mode="rb",
++)
++add_compression_alias("pickle", None)
+diff --git a/compress_pickle/compressers/registry.py b/compress_pickle/compressers/registry.py
+new file mode 100644
+index 0000000..a074dec
+--- /dev/null
++++ b/compress_pickle/compressers/registry.py
+@@ -0,0 +1,376 @@
++from typing import Dict, List, Optional, Sequence, Type
++
++from .base import BaseCompresser
++
++__all__ = [
++    "get_compresser",
++    "get_compresser_from_extension",
++    "get_compression_from_extension",
++    "register_compresser",
++    "get_registered_extensions",
++    "get_compression_write_mode",
++    "get_compression_read_mode",
++    "add_compression_alias",
++    "get_known_compressions",
++    "validate_compression",
++    "get_default_compression_mapping",
++    "list_registered_compressers",
++]
++
++
++class _compresser_registry:
++    _compresser_registry: Dict[Optional[str], Type[BaseCompresser]] = {}
++
++    _compresser_default_write_modes: Dict[Optional[str], str] = {}
++
++    _compresser_default_read_modes: Dict[Optional[str], str] = {}
++
++    _compression_extension_map: Dict[str, Optional[str]] = {}
++
++    _compression_aliases: Dict[str, Optional[str]] = {}
++
++    @classmethod
++    def get_compresser(cls, compression: Optional[str]) -> Type[BaseCompresser]:
++        """Get the compresser class registered with a given compression name.
++
++        Parameters
++        ----------
++        compression : Optional[str]
++            The compression name.
++
++        Raises
++        ------
++        ValueError
++            If the supplied ``compression`` has not been registered.
++
++        Returns
++        -------
++        Type[BaseCompresser]
++            The compresser class associated to the ``compression`` name.
++        """
++        try:
++            return cls._compresser_registry[compression]
++        except Exception:
++            raise ValueError(
++                f"Unknown compresser {compression}. "
++                f"Available values are {list(cls._compresser_registry)}"
++            )
++
++    @classmethod
++    def get_compresser_from_extension(cls, extension: str) -> Type[BaseCompresser]:
++        """Get the compresser class registered with a given file extension.
++
++        Parameters
++        ----------
++        extension : str
++            The file extension, for example ".zip".
++            Note that the dot characters will be striped from the left of any supplied extension
++            before the lookup it. This means that ".zip" and "zip" will be considered equivalent
++            extensions.
++
++        Raises
++        ------
++        ValueError
++            If the supplied ``extension`` has not been registered.
++
++        Returns
++        -------
++        Type[BaseCompresser]
++            The compresser class associated to the extension.
++        """
++        return cls._compresser_registry[cls.get_compression_from_extension(extension)]
++
++    @classmethod
++    def get_compression_from_extension(cls, extension: str) -> Optional[str]:
++        """Get the compression name registered with a given file extension.
++
++        Parameters
++        ----------
++        extension : str
++            The file extension, for example ".zip".
++            Note that the dot characters will be striped from the left of any supplied extension
++            before the lookup it. This means that ".zip" and "zip" will be considered equivalent
++            extensions.
++
++        Raises
++        ------
++        ValueError
++            If the supplied ``extension`` has not been registered.
++
++        Returns
++        -------
++        Optional[str]
++            The compression name associated to the extension.
++        """
++        try:
++            return cls._compression_extension_map[extension.lstrip(".")]
++        except Exception:
++            raise ValueError(
++                f"Unregistered extension {extension}. "
++                f"Registered extensions are {list(cls._compression_extension_map)}"
++            )
++
++    @classmethod
++    def register_compresser(
++        cls,
++        compression: Optional[str],
++        compresser: Type[BaseCompresser],
++        extensions: Sequence[str],
++        default_write_mode: str = "wb",
++        default_read_mode: str = "rb",
++    ):
++        """Register a compression method, along with its compresser class, extensions and modes.
++
++        Parameters
++        ----------
++        compression : Optional[str]
++            The compression name that will be registered.
++        compresser : Type[BaseCompresser]
++            The compresser class. This should be a :class:`~compress_pickle.compressers.base.BaseCompresser`
++            subclass.
++        extensions : Sequence[str]
++            A sequence of file name extensions (e.g. [".zip"]) that will be registered to the
++            supplied compression. These extensions will be used to infer the compression method to
++            use from a file name. The first entry in the ``extensions`` sequence will be used as
++            the compression's default extension name. For example, if ``extensions = ["bz2", "bz"]``
++            both the extensions ``"bz2"`` and ``"bz"`` will be registered to the ``compression``,
++            but ``"bz2"`` will be taken as the compression's default extension.
++            Note that the dot characters will be striped from the left of any supplied extension
++            before registering it. This means that ".zip" and "zip" will be considered equivalent
++            extensions.
++        default_write_mode : str
++            The write mode with which to open the file object stream by default.
++        default_read_mode : str
++            The read mode with which to open the file object stream by default.
++
++        Raises
++        ------
++        ValueError
++            If the supplied ``compression`` is already contained in the registry or if any of the
++            supplied extensions is already registered.
++        TypeError
++            If the supplied compresser is not a :class:`~compress_pickle.compressers.base.BaseCompresser`
++            subclass.
++        """
++        if compression in cls._compresser_registry:
++            raise ValueError(
++                f"A compresser with name {compression} is already registered. "
++                "Please choose a different name."
++            )
++        try:
++            _subclass = issubclass(compresser, BaseCompresser)
++            if not _subclass:
++                raise TypeError()
++        except Exception:
++            raise TypeError(
++                f"The supplied compresser {compresser} is not a derived from {BaseCompresser}"
++            )
++        extensions = [ext.lstrip(".") for ext in extensions]
++        for ext in extensions:
++            if ext in cls._compression_extension_map:
++                raise ValueError(
++                    f"Tried to register the extension {ext} to compresser {compression}, but it "
++                    "is already registered in favour of compresser "
++                    f"{cls._compression_extension_map[ext]}. Please use a different extension "
++                    "instead."
++                )
++        cls._compresser_registry[compression] = compresser
++        cls._compression_extension_map.update({ext: compression for ext in extensions})
++        cls._compresser_default_write_modes[compression] = default_write_mode
++        cls._compresser_default_read_modes[compression] = default_read_mode
++
++    @classmethod
++    def get_compression_write_mode(cls, compression: Optional[str]) -> str:
++        """Get the compression's default mode for openning the file buffer for writing.
++
++        Parameters
++        ----------
++        compression : Optional[str]
++            The compression name.
++
++        Returns
++        -------
++        compression_write_mode : str
++            The default write mode of the given ``compression``.
++
++        Raises
++        ------
++        ValueError
++            If the default write mode of the supplied ``compression`` is not known.
++        """
++        try:
++            return cls._compresser_default_write_modes[compression]
++        except Exception:  # pragma: no cover
++            raise ValueError(
++                "Unknown compression {}. Available values are: {}".format(
++                    compression, list(cls._compresser_default_write_modes)
++                )
++            )
++
++    @classmethod
++    def get_compression_read_mode(cls, compression: Optional[str]) -> str:
++        """Get the compression's default mode for openning the file buffer for reading.
++
++        Parameters
++        ----------
++        compression : Optional[str]
++            The compression name.
++
++        Returns
++        -------
++        compression_read_mode : str
++            The default read mode of the given ``compression``.
++
++        Raises
++        ------
++        ValueError
++            If the default write mode of the supplied ``compression`` is not known.
++        """
++        try:
++            return cls._compresser_default_read_modes[compression]
++        except Exception:  # pragma: no cover
++            raise ValueError(
++                "Unknown compression {}. Available values are: {}".format(
++                    compression, list(cls._compresser_default_read_modes)
++                )
++            )
++
++    @classmethod
++    def add_compression_alias(cls, alias: str, compression: Optional[str]):
++        """Add an alias for an already registered compression.
++
++        Parameters
++        ----------
++        alias : str
++            The alias to register
++        compression : Optional[str]
++            The compression name that must already be registered.
++
++        Raises
++        ------
++        ValueError
++            If the supplied ``compression`` is not known or if the supplied ``alias``
++            is already contained in the registry.
++        """
++        if alias in cls._compresser_registry:
++            raise ValueError(
++                f"The alias {alias} is already registered, please choose a different alias."
++            )
++        if compression not in cls._compresser_registry:
++            raise ValueError(
++                "Unknown compression {}. Available values are: {}".format(
++                    compression, list(cls._compresser_registry)
++                )
++            )
++        cls._compresser_registry[alias] = cls._compresser_registry[compression]
++        cls._compresser_default_write_modes[
++            alias
++        ] = cls._compresser_default_write_modes[compression]
++        cls._compresser_default_read_modes[alias] = cls._compresser_default_read_modes[
++            compression
++        ]
++        cls._compression_aliases[alias] = compression
++
++
++get_compresser = _compresser_registry.get_compresser
++
++get_compresser_from_extension = _compresser_registry.get_compresser_from_extension
++
++get_compression_from_extension = _compresser_registry.get_compression_from_extension
++
++register_compresser = _compresser_registry.register_compresser
++
++get_compression_read_mode = _compresser_registry.get_compression_read_mode
++
++get_compression_write_mode = _compresser_registry.get_compression_write_mode
++
++add_compression_alias = _compresser_registry.add_compression_alias
++
++
++def get_registered_extensions() -> Dict[str, Optional[str]]:  # pragma: no cover
++    """Get a copy of the mapping between file extensions and registered compressers.
++
++    Returns
++    -------
++    Dict[str, Optional[str]]
++        The mapping between file extensions and registered compressers.
++    """
++    return _compresser_registry._compression_extension_map.copy()
++
++
++def get_known_compressions() -> List[Optional[str]]:
++    """Get a list of known compression protocols
++
++    Returns
++    -------
++    compressions : List[Optional[str]]
++        List of known compression protocol names.
++    """
++    return list(_compresser_registry._compresser_registry)
++
++
++def validate_compression(compression: Optional[str], infer_is_valid: bool = True):
++    """Check if the supplied ``compression`` protocol is supported.
++
++    If it is not supported, a ``ValueError`` is raised.
++
++    Parameters
++    ----------
++    compression : Optional[str]
++        A compression protocol. To see the known compression protocolos, use
++        :func:`~.get_known_compressions`
++    infer_is_valid : bool
++        If ``True``, ``compression="infer"`` is considered a valid compression
++        protocol. If ``False``, it is not accepted as a valid compression
++        protocol.
++
++    Raises
++    ------
++    ValueError
++        If the supplied ``compression`` is not supported.
++    """
++    if compression in get_known_compressions():
++        return True
++    elif infer_is_valid and compression == "infer":
++        return True
++    raise ValueError(
++        "Unknown compression {}. Available values are: {}".format(
++            compression, get_known_compressions()
++        )
++    )
++
++
++def get_default_compression_mapping() -> Dict[Optional[str], str]:
++    """Get a mapping from known compression protocols to the default filename extensions.
++
++    Returns
++    -------
++    compression_map : Dict[Optional[str], str]
++        Dictionary that maps known compression protocol names to their default
++        file extension.
++    """
++    output = {}
++    for (
++        extension,
++        compresser_name,
++    ) in _compresser_registry._compression_extension_map.items():
++        if compresser_name not in output:
++            output[compresser_name] = extension
++    output.update(
++        {
++            alias: output[compression]
++            for alias, compression in _compresser_registry._compression_aliases.items()
++        }
++    )
++    return output
++
++
++def list_registered_compressers() -> List[Type[BaseCompresser]]:  # pragma: no cover
++    """Get the list of registered compresser classes.
++
++    Returns
++    -------
++    List[Type[BaseCompresser]]
++        The list of registered compresser classes.
++    """
++    return list(_compresser_registry._compresser_registry.values())
+diff --git a/compress_pickle/compressers/zipfile.py b/compress_pickle/compressers/zipfile.py
+new file mode 100644
+index 0000000..3d9dea9
+--- /dev/null
++++ b/compress_pickle/compressers/zipfile.py
+@@ -0,0 +1,91 @@
++import zipfile
++from io import IOBase
++from os.path import basename
++from typing import IO, Union
++
++from .base import PATH_TYPES, BaseCompresser, PathType
++from .registry import register_compresser
++
++
++class ZipfileCompresser(BaseCompresser):
++    """Compresser class that wraps the zipfile compression package.
++
++    This class relies on the :mod:`zipfile` module to open the input/output binary stream where the
++    pickled python objects will be written to (or read from).
++    During an instance's initialization, a :class:`zipfile.ZipFile` instance is created around
++    the supplied ``path``. The opened ``ZipFile`` is called the archive and works as a kind
++    directory, that can hold other directories or files. These are called members of the archive.
++    The ``ZipfileCompresser`` creates the input/output stream by opening a member file in the
++    opened ``ZipFile`` archive. The name of the archive member can be chosen with the ``arcname``
++    argument.
++
++    Parameters
++    ----------
++    path : Union[PathType, IO[bytes]]
++        A PathType object (``str``, ``bytes``, ``os.PathType``) or a file-like
++        object (e.g. ``io.BaseIO`` instances). The path that will be used to open the
++        ``zipfile.Zipfile`` object. The input/output binary stream is then opened from the
++        aforementioned object as ``zipfile.Zipfile(*).open(arcname, mode)``.
++    mode : str
++        Mode with which to open the ``Zipfile`` (and also the archive member that is used as the
++        input/output binary stream).
++    arcname : Optional[str]
++        The name of the archive member of the opened ``zipfile.Zipfile`` that will be used as
++        the binary input/output stream.
++        If ``None``, the ``arcname`` is assumed to be the basename of ``path`` (when ``path``
++        is path-like), ``path.name`` (when ``path`` is file-like and it has a name attribute) or
++        "default" otherwise.
++    pwd : Optional[str]
++        The password used to decrypt encrypted ZIP files.
++    zipfile_compression : Optional[str]
++        If not ``None``, it is passed as the ``compression`` keyword argument to
++        ``zipfile.Zipfile(...)``.
++    kwargs
++        Any other key word arguments that are passed to ``zipfile.ZipFile``.
++    """
++
++    def __init__(
++        self,
++        path: Union[PathType, IO[bytes]],
++        mode: str,
++        *,
++        arcname=None,
++        pwd=None,
++        zipfile_compression=None,
++        **kwargs,
++    ):
++        if zipfile_compression is not None:
++            kwargs["compression"] = zipfile_compression
++        if not isinstance(path, PATH_TYPES + (IOBase,)):
++            raise TypeError(f"Unhandled path type {type(path)}")
++        self._arch = zipfile.ZipFile(path, mode=mode, **kwargs)  # type: ignore
++        if arcname is None:
++            if isinstance(path, PATH_TYPES):
++                file_path = basename(path)
++            else:
++                file_path = getattr(path, "name", "default")
++            arcname = file_path
++        else:
++            file_path = arcname
++        self._stream = self._arch.open(file_path, mode=mode, pwd=pwd)  # type: ignore
++
++    def close(self):
++        """Close the input/output binary stream and the ``ZipFile``.
++
++        This closes the ``zipfile.ZipFile`` instance and archive member file-objects that
++        are created during the ``__init__``.
++        """
++        self._stream.close()
++        self._arch.close()
++
++    def get_stream(self) -> IO[bytes]:
++        return self._stream
++
++
++register_compresser(
++    compression="zipfile",
++    compresser=ZipfileCompresser,
++    extensions=["zip"],
++    default_write_mode="w",
++    default_read_mode="r",
++)
+diff --git a/compress_pickle/io/__init__.py b/compress_pickle/io/__init__.py
+new file mode 100644
+index 0000000..50afe97
+--- /dev/null
++++ b/compress_pickle/io/__init__.py
+@@ -0,0 +1 @@
++from .base import compress_and_pickle, uncompress_and_unpickle
+diff --git a/compress_pickle/io/base.py b/compress_pickle/io/base.py
+new file mode 100644
+index 0000000..304e7b7
+--- /dev/null
++++ b/compress_pickle/io/base.py
+@@ -0,0 +1,99 @@
++from functools import singledispatch
++from typing import Any
++
++from ..compressers.base import BaseCompresser
++from ..picklers.base import BasePicklerIO
++
++__all__ = ["compress_and_pickle", "uncompress_and_unpickle"]
++
++
++@singledispatch
++def compress_and_pickle(compresser: Any, pickler: BasePicklerIO, obj: Any, **kwargs):
++    """Take an object, serialize it and write it to a compresser's stream.
++
++    This is the main serialization function. It works as a singledispatch function, and its
++    implementation is dependent on the type of the supplied ``compresser``. The default
++    implementation only supports :class:`~compress_pickle.compressers.base.BaseCompresser`
++    instances.
++
++    The ``compresser`` is used to get the stream onto which to write the serialized ``obj``.
++    The ``pickler`` instance is the object that is responsible for `dumping` the ``obj`` to the
++    compresser's stream.
++
++    Parameters
++    ----------
++    compresser : BaseCompresser
++        The compresser instance that provides the file-like object onto which the ``obj`` must be
++        written.
++    pickler : BasePicklerIO
++        The object that is responsible for serializing the ``obj`` and writting its binary
++        representation into the file-like stream provided by the ``compresser``.
++    obj : Any
++        The object that you wish to serialize, compress and write.
++    **kwargs
++        Any extra keyword arguments are passed to the pickler's ``dump`` method.
++
++    Raises
++    ------
++    NotImplementedError
++        If the ``compresser`` is not an instance of
++        :class:`~compress_pickle.compressers.base.BaseCompresser`
++    """
++    raise NotImplementedError(
++        f"compress_and_pickle is not implemented for the supplied compresser type: "
++        f"{type(compresser)}"
++    )
++
++
++@compress_and_pickle.register(BaseCompresser)
++def default_compress_and_pickle(
++    compresser: BaseCompresser, pickler: BasePicklerIO, obj: Any, **kwargs
++):
++    pickler.dump(obj=obj, stream=compresser.get_stream(), **kwargs)
++
++
++@singledispatch
++def uncompress_and_unpickle(compresser: Any, pickler: BasePicklerIO, **kwargs) -> Any:
++    """Load and uncompress an object from a compresser's stream.
++
++    This is the main loading function. It works as a singledispatch function, and its
++    implementation is dependent on the type of the supplied ``compresser``. The default
++    implementation only supports :class:`~compress_pickle.compressers.base.BaseCompresser`
++    instances.
++
++    The ``compresser`` is used to get the stream from which to load the serialized ``obj``.
++    The ``pickler`` instance is the object that is responsible for `loading` the ``obj`` from the
++    compresser's stream.
++
++    Parameters
++    ----------
++    compresser : BaseCompresser
++        The compresser instance that provides the file-like object from which to load the ``obj``.
++    pickler : BasePicklerIO
++        The object that is responsible for reading the contents of the file-like stream taken from
++        the ``compresser`` and loading the serialized object
++    **kwargs
++        Any extra keyword arguments are passed to the pickler's ``load`` method.
++
++    Returns
++    -------
++    Any
++        The resulting uncompressed and unserialized object.
++
++    Raises
++    ------
++    NotImplementedError
++        If the ``compresser`` is not an instance of
++        :class:`~compress_pickle.compressers.base.BaseCompresser`
++    """
++    raise NotImplementedError(
++        f"uncompress_and_unpickle is not implemented for the supplied compresser type: "
++        f"{type(compresser)}"
++    )
++
++
++@uncompress_and_unpickle.register(BaseCompresser)
++def default_uncompress_and_unpickle(
++    compresser: BaseCompresser, pickler: BasePicklerIO, **kwargs
++) -> Any:
++    return pickler.load(stream=compresser.get_stream(), **kwargs)
+diff --git a/compress_pickle/picklers/__init__.py b/compress_pickle/picklers/__init__.py
+new file mode 100644
+index 0000000..ffb55c3
+--- /dev/null
++++ b/compress_pickle/picklers/__init__.py
+@@ -0,0 +1,7 @@
++from .base import BasePicklerIO
++from .cloudpickle import CloudPicklerIO
++from .dill import DillPicklerIO
++from .marshal import MarshalPicklerIO
++from .optimized_pickle import OptimizedPicklerIO
++from .pickle import BuiltinPicklerIO
++from .registry import *
+diff --git a/compress_pickle/picklers/base.py b/compress_pickle/picklers/base.py
+new file mode 100644
+index 0000000..7569722
+--- /dev/null
++++ b/compress_pickle/picklers/base.py
+@@ -0,0 +1,45 @@
++from abc import abstractmethod
++from typing import IO, Any
++
++__all__ = ["BasePicklerIO"]
++
++
++class BasePicklerIO:
++    """PicklerIO abstract base class.
++
++    This class is in charge of writing and reading serialized python objects from a file-like
++    binary stream.
++    """
++
++    @abstractmethod
++    def dump(self, obj: Any, stream: IO[bytes], **kwargs):  # pragma: no cover
++        """Write a serialized binary representation of an object to a stream.
++
++        Parameters
++        ----------
++        obj : Any
++            The python object that must be serialized and written.
++        stream : IO[bytes]
++            The binary stream (file-like object) where the serialized object must be written to.
++        kwargs
++            Any extra keyword arguments that are needed in the concrete implementation of ``dump``.
++        """
++        pass
++
++    @abstractmethod
++    def load(self, stream: IO[bytes], **kwargs):  # pragma: no cover
++        """Load a serialized binary representation of an object from a stream.
++
++        Parameters
++        ----------
++        stream : IO[bytes]
++            The binary stream (file-like object) from where the serialized object must be loaded.
++        kwargs
++            Any extra keyword arguments that are needed in the concrete implementation of ``load``.
++
++        Returns
++        -------
++        obj : Any
++            The python object that was loaded.
++        """
++        pass
+diff --git a/compress_pickle/picklers/cloudpickle.py b/compress_pickle/picklers/cloudpickle.py
+new file mode 100644
+index 0000000..d8e088c
+--- /dev/null
++++ b/compress_pickle/picklers/cloudpickle.py
+@@ -0,0 +1,61 @@
++from typing import IO, Any
++
++from .base import BasePicklerIO
++from .registry import register_pickler
++
++try:
++    import cloudpickle
++
++    _cloudpickle_available = True
++except ImportError:  # pragma: no cover
++    _cloudpickle_available = False
++
++
++__all__ = ["CloudPicklerIO"]
++
++
++class CloudPicklerIO(BasePicklerIO):
++    """A PicklerIO class that wraps ``cloudpickle.dump`` and ``cloudpickle.load``."""
++
++    def __init__(self):
++        if not _cloudpickle_available:
++            raise RuntimeError(
++                "The cloudpickle serialization protocol requires the cloudpickle package to be "
++                "installed. Please pip install cloudpickle and retry."
++            )
++        super().__init__()
++
++    def dump(self, obj: Any, stream: IO[bytes], **kwargs):
++        """Write a serialized binary representation of an object to a stream.
++
++        Parameters
++        ----------
++        obj : Any
++            The python object that must be serialized and written.
++        stream : IO[bytes]
++            The binary stream (file-like object) where the serialized object must be written to.
++        kwargs
++            Any extra keyword arguments to pass to ``cloudpickle.dump``.
++        """
++        cloudpickle.dump(obj, stream, **kwargs)
++
++    def load(self, stream: IO[bytes], **kwargs):
++        """Load a serialized binary representation of an object from a stream.
++
++        Parameters
++        ----------
++        stream : IO[bytes]
++            The binary stream (file-like object) from where the serialized object must be loaded.
++        kwargs
++            Any extra keyword arguments to pass to ``cloudpickle.load``.
++
++        Returns
++        -------
++        obj : Any
++            The python object that was loaded.
++        """
++        return cloudpickle.load(stream, **kwargs)
++
++
++if _cloudpickle_available:
++    register_pickler("cloudpickle", CloudPicklerIO)
+diff --git a/compress_pickle/picklers/dill.py b/compress_pickle/picklers/dill.py
+new file mode 100644
+index 0000000..30803df
+--- /dev/null
++++ b/compress_pickle/picklers/dill.py
+@@ -0,0 +1,61 @@
++from typing import IO, Any
++
++from .base import BasePicklerIO
++from .registry import register_pickler
++
++try:
++    import dill
++
++    _dill_available = True
++except ImportError:  # pragma: no cover
++    _dill_available = False
++
++
++__all__ = ["DillPicklerIO"]
++
++
++class DillPicklerIO(BasePicklerIO):
++    """A PicklerIO class that wraps ``dill.dump`` and ``dill.load``."""
++
++    def __init__(self):
++        if not _dill_available:
++            raise RuntimeError(
++                "The dill serialization protocol requires the dill package to be "
++                "installed. Please pip install dill and retry."
++            )
++        super().__init__()
++
++    def dump(self, obj: Any, stream: IO[bytes], **kwargs):
++        """Write a serialized binary representation of an object to a stream.
++
++        Parameters
++        ----------
++        obj : Any
++            The python object that must be serialized and written.
++        stream : IO[bytes]
++            The binary stream (file-like object) where the serialized object must be written to.
++        kwargs
++            Any extra keyword arguments to pass to `dill.dump <https://dill.readthedocs.io/en/latest/dill.html#dill._dill.dump>`_.
++        """
++        dill.dump(obj, stream, **kwargs)
++
++    def load(self, stream: IO[bytes], **kwargs):
++        """Load a serialized binary representation of an object from a stream.
++
++        Parameters
++        ----------
++        stream : IO[bytes]
++            The binary stream (file-like object) from where the serialized object must be loaded.
++        kwargs
++            Any extra keyword arguments to pass to `dill.load <https://dill.readthedocs.io/en/latest/dill.html#dill._dill.load>`_.
++
++        Returns
++        -------
++        obj : Any
++            The python object that was loaded.
++        """
++        return dill.load(stream, **kwargs)
++
++
++if _dill_available:
++    register_pickler("dill", DillPicklerIO)
+diff --git a/compress_pickle/picklers/marshal.py b/compress_pickle/picklers/marshal.py
+new file mode 100644
+index 0000000..77ac605
+--- /dev/null
++++ b/compress_pickle/picklers/marshal.py
+@@ -0,0 +1,47 @@
++import marshal
++from typing import IO, Any
++
++from .base import BasePicklerIO
++from .registry import register_pickler
++
++__all__ = ["MarshalPicklerIO"]
++
++
++class MarshalPicklerIO(BasePicklerIO):
++    """A PicklerIO class that wraps standard :func:`marshal.dump` and :func:`marshal.load`."""
++
++    def dump(self, obj: Any, stream: IO[bytes], **kwargs):
++        """Write a serialized binary representation of an object to a stream.
++
++        Parameters
++        ----------
++        obj : Any
++            The python object that must be serialized and written.
++        stream : IO[bytes]
++            The binary stream (file-like object) where the serialized object must be written to.
++        kwargs
++            Any extra keyword arguments to pass to :func:`marshal.dump`.
++        """
++        args = kwargs.pop("version", tuple())
++        args += tuple(kwargs.values())
++        marshal.dump(obj, stream, *args)
++
++    def load(self, stream: IO[bytes], **kwargs):
++        """Load a serialized binary representation of an object from a stream.
++
++        Parameters
++        ----------
++        stream : IO[bytes]
++            The binary stream (file-like object) from where the serialized object must be loaded.
++        kwargs
++            Any extra keyword arguments to pass to :func:`marshal.load`.
++
++        Returns
++        -------
++        obj : Any
++            The python object that was loaded.
++        """
++        return marshal.load(stream)
++
++
++register_pickler("marshal", MarshalPicklerIO)
+diff --git a/compress_pickle/picklers/optimized_pickle.py b/compress_pickle/picklers/optimized_pickle.py
+new file mode 100644
+index 0000000..84980e7
+--- /dev/null
++++ b/compress_pickle/picklers/optimized_pickle.py
+@@ -0,0 +1,19 @@
++import pickle
++import pickletools
++from typing import IO, Any
++
++from .pickle import BuiltinPicklerIO
++from .registry import register_pickler
++
++__all__ = ["OptimizedPicklerIO"]
++
++
++class OptimizedPicklerIO(BuiltinPicklerIO):
++    """A PicklerIO class that combines :func:`pickletools.optimize` and standard :func:`pickle.dump`."""
++
++    def dump(self, obj: Any, stream: IO[bytes], **kwargs):
++        data = pickletools.optimize(pickle.dumps(obj, **kwargs))
++        stream.write(data)
++
++
++register_pickler("optimized_pickle", OptimizedPicklerIO)
+diff --git a/compress_pickle/picklers/pickle.py b/compress_pickle/picklers/pickle.py
+new file mode 100644
+index 0000000..c7e3fcb
+--- /dev/null
++++ b/compress_pickle/picklers/pickle.py
+@@ -0,0 +1,48 @@
++import pickle
++from typing import IO, Any
++
++from .base import BasePicklerIO
++from .registry import register_pickler
++
++__all__ = ["BuiltinPicklerIO"]
++
++
++class BuiltinPicklerIO(BasePicklerIO):
++    """A PicklerIO class that wraps standard :func:`pickle.dump` and :func:`pickle.load`."""
++
++    def dump(self, obj: Any, stream: IO[bytes], **kwargs):
++        """Write a serialized binary representation of an object to a stream.
++
++        Parameters
++        ----------
++        obj : Any
++            The python object that must be serialized and written.
++        stream : IO[bytes]
++            The binary stream (file-like object) where the serialized object must be written to.
++        kwargs
++            Any extra keyword arguments to pass to :func:`pickle.dump`.
++        """
++        if kwargs.get("protocol", None) == 5:
++            stream.write(pickle.dumps(obj, **kwargs))
++        else:
++            pickle.dump(obj, stream, **kwargs)
++
++    def load(self, stream: IO[bytes], **kwargs):
++        """Load a serialized binary representation of an object from a stream.
++
++        Parameters
++        ----------
++        stream : IO[bytes]
++            The binary stream (file-like object) from where the serialized object must be loaded.
++        kwargs
++            Any extra keyword arguments to pass to :func:`pickle.load`.
++
++        Returns
++        -------
++        obj : Any
++            The python object that was loaded.
++        """
++        return pickle.load(stream, **kwargs)
++
++
++register_pickler("pickle", BuiltinPicklerIO)
+diff --git a/compress_pickle/picklers/registry.py b/compress_pickle/picklers/registry.py
+new file mode 100644
+index 0000000..bb0549c
+--- /dev/null
++++ b/compress_pickle/picklers/registry.py
+@@ -0,0 +1,140 @@
++from typing import Dict, List, Type
++
++from .base import BasePicklerIO
++
++__all__ = [
++    "get_pickler",
++    "register_pickler",
++    "get_known_picklers",
++    "list_registered_picklers",
++]
++
++
++class _pickler_registry:
++    _pickler_registry: Dict[str, Type[BasePicklerIO]] = {}
++    _pickler_aliases: Dict[str, str] = {}
++
++    @classmethod
++    def get_pickler(cls, name: str) -> Type[BasePicklerIO]:
++        """Get the PicklerIO class registered with a given pickler name.
++
++        Parameters
++        ----------
++        name: str
++            The pickler name.
++
++        Raises
++        ------
++        ValueError
++            If the supplied ``name`` has not been registered.
++
++        Returns
++        -------
++        BasePicklerIO
++            The PicklerIO class associated to the pickler ``name``.
++        """
++        try:
++            return cls._pickler_registry[name]
++        except Exception:
++            raise ValueError(
++                f"Unknown pickler {name}. "
++                "Available values are {list(cls._pickler_registry)}"
++            )
++
++    @classmethod
++    def register_pickler(
++        cls,
++        name: str,
++        pickler: Type[BasePicklerIO],
++    ):
++        """Register a pickler handler.
++
++        Parameters
++        ----------
++        name: str
++            The pickler name that will be registered.
++        pickler : Type[BasePicklerIO]
++            The PicklerIO class. This should be a :class:`~compress_pickle.picklers.base.BasePicklerIO`
++            subclass.
++
++        Raises
++        ------
++        ValueError
++            If the supplied ``name`` is already contained in the registry.
++        TypeError
++            If the supplied pickler is not a :class:`~compress_pickle.picklers.base.BasePicklerIO`
++            subclass.
++        """
++        if name in cls._pickler_registry:
++            raise ValueError(
++                f"A pickler with name {name} is already registered. "
++                "Please choose a different name."
++            )
++        try:
++            _subclass = issubclass(pickler, BasePicklerIO)
++            if not _subclass:
++                raise TypeError()
++        except Exception:
++            raise TypeError(
++                f"The supplied pickler {pickler} is not a derived from {BasePicklerIO}"
++            )
++        cls._pickler_registry[name] = pickler
++
++    @classmethod
++    def add_pickler_alias(cls, alias: str, pickler: str):
++        """Add an alias for an already registered pickler.
++
++        Parameters
++        ----------
++        alias : str
++            The alias to register
++        compression : str
++            The pickler name that must already be registered.
++
++        Raises
++        ------
++        ValueError
++            If the supplied ``pickler`` name is not known or if the supplied ``alias``
++            is already contained in the registry.
++        """
++        if alias in cls._pickler_registry:
++            raise ValueError(
++                f"The alias {alias} is already registered, please choose a different alias."
++            )
++        if pickler not in cls._pickler_registry:
++            raise ValueError(
++                "Unknown pickler name {}. Available values are: {}".format(
++                    pickler, list(cls._pickler_registry)
++                )
++            )
++        cls._pickler_registry[alias] = cls._pickler_registry[pickler]
++        cls._pickler_aliases[alias] = pickler
++
++
++get_pickler = _pickler_registry.get_pickler
++
++register_pickler = _pickler_registry.register_pickler
++
++add_pickler_alias = _pickler_registry.add_pickler_alias
++
++
++def get_known_picklers() -> List[str]:
++    """Get a list of known pickle serialization methods.
++
++    Returns
++    -------
++    List[str]
++        List of known pickler serialization methods.
++    """
++    return list(_pickler_registry._pickler_registry)
++
++
++def list_registered_picklers() -> List[Type[BasePicklerIO]]:  # pragma: no cover
++    """Get the list of registered PicklerIO classes.
++
++    Returns
++    -------
++    List[BasePicklerIO]
++        The list of registered pickler classes.
++    """
++    return list(_pickler_registry._pickler_registry.values())
+diff --git a/compress_pickle/utils.py b/compress_pickle/utils.py
+new file mode 100644
+index 0000000..8614a4b
+--- /dev/null
++++ b/compress_pickle/utils.py
+@@ -0,0 +1,151 @@
++import codecs
++from os import PathLike
++from os.path import splitext
++from typing import IO, Optional, Union
++
++from .compressers import (
++    BaseCompresser,
++    get_compresser,
++    get_compression_from_extension,
++    get_compression_read_mode,
++    get_compression_write_mode,
++    get_default_compression_mapping,
++)
++
++PATH_TYPES = (str, bytes, PathLike)
++PathType = Union[str, bytes, PathLike]
++FileType = IO[bytes]
++
++
++__all__ = [
++    "instantiate_compresser",
++]
++
++
++def _stringyfy_path(path: PathType) -> str:
++    """Convert a path that is a PATH_TYPES instance to a string.
++
++    Parameters
++    ----------
++    path : PathType
++        If ``path`` is a ``string`` instance, it is returned as is.
++        If ``path`` is a ``bytes`` instance, it is decoded with utf8 codec.
++        If it is ``os.PathLike`` or ``pathlib.PurePath`` then it is converted
++        to a string with ``str(path)``.
++
++    Returns
++    -------
++    path_string : str
++        The string representation of the ``path``.
++
++    Raises
++    ------
++    TypeError
++        If the supplied ``path`` is not a ``PATH_TYPES`` instance.
++
++    """
++    if not isinstance(path, PATH_TYPES):
++        raise TypeError(
++            "Cannot convert supplied path type to string. Supplied path: {}, "
++            "type: {}".format(path, type(path))
++        )
++    if isinstance(path, bytes):
++        path = codecs.decode(path, "utf-8")
++    else:
++        path = str(path)
++    return path
++
++
++def instantiate_compresser(
++    compression: Optional[str],
++    path: Union[PathType, FileType],
++    mode: str,
++    set_default_extension: bool = True,
++    **kwargs,
++) -> BaseCompresser:
++    """Initialize the compresser instance for the supplied path and compression.
++
++    Initiate a :class:`compress_pickle.compressers.base.BaseCompresser` instance based on the
++    supplied (or inferred) ``compression`` method. This instance will open a file like object
++    with supplied ``mode``, using the provided ``path``. Furthermore, when the ``path`` is not
++    a binary stream, this function can also potentially set the path's extension to the default
++    extension registered to the used compression method.
++
++    Parameters
++    ----------
++    compression : Optional[str]
++        The compression method name. Refer to
++        :func:`~compress_pickle.compressers.registry.get_known_compressions` for a list of the
++        known compression methods. If ``"infer"``, the compression method is inferred from the
++        ``path`` extension. This can be done if ``path`` is a ``PathType`` instance, or if
++        ``path`` has a ``name`` attribute that is not ``None``. Refer to
++        :func:`~compress_pickle.compressers.registry.get_registered_extensions` for the mapping
++        between extensions and compression methods.
++    path : Union[PathType, FileType]
++        A path-like object (``str``, ``bytes``, ``os.PathType``) or a file-like
++        object (``io.BaseIO`` instances) that will be passed to the
++        :class:`compress_pickle.compressers.base.BaseCompresser` class.
++    mode : str
++        Mode with which to open the file-like stream. Only used if the ``path`` is a
++        ``PathType``. If "read", the default read mode is automatically assigned by
++        :func:`~compress_pickle.compressers.registry.get_compression_read_mode` based on the used
++        compression method. If "write", the default write mode is automatically assigned from
++        :func:`~compress_pickle.compressers.registry.get_compression_write_mode` based on the used
++        compression method.
++    set_default_extension : bool
++        If ``True``, the default extension given the provided compression protocol is set to the
++        supplied ``path``. Refer to
++        :func:`~compress_pickle.compressers.registry.get_default_compression_mapping` for the
++        default extension registered to each compression method.
++    **kwargs
++        Any extra keyword arguments are passed to the
++        :class:`compress_pickle.compressers.base.BaseCompresser` initialization.
++
++    Returns
++    -------
++    BaseCompresser
++        The compresser instance that will be used to create the byte stream from which a
++        :class:`compress_pickle.picklers.base.BasePicklerIO` will read or write serialized objects.
++
++    Raises
++    ------
++    TypeError
++        If the supplied ``path`` is not a ``PATH_TYPES`` instance and the ``compression`` is "infer".
++    """
++    if isinstance(path, PATH_TYPES):
++        _path = _stringyfy_path(path)
++    else:
++        _path = getattr(path, "name", None)
++    if compression == "infer":
++        if not isinstance(path, PATH_TYPES) and _path is None:
++            raise TypeError(
++                f"Cannot infer the compression from a path that is not an instance of "
++                f"{PATH_TYPES}. Encountered {type(path)}"
++            )
++        compression = _infer_compression_from_path(_path)
++    compresser_class = get_compresser(compression)
++    if set_default_extension and isinstance(path, PATH_TYPES):
++        _path = _set_default_extension(_path, compression)
++    if mode == "write":
++        mode = get_compression_write_mode(compression)
++    elif mode == "read":
++        mode = get_compression_read_mode(compression)
++    compresser = compresser_class(
++        _path if isinstance(path, PATH_TYPES) else path, mode=mode, **kwargs
++    )
++    return compresser
++
++
++def _infer_compression_from_path(path: PathType) -> Optional[str]:
++    if not isinstance(path, PATH_TYPES):
++        raise TypeError(
++            f"Cannot infer the compression from a path that is not an instance of "
++            f"{PATH_TYPES}. Encountered {type(path)}"
++        )
++    _, extension = splitext(_stringyfy_path(path))
++    return get_compression_from_extension(extension)
++
++
++def _set_default_extension(path: PathType, compression: Optional[str]) -> str:
++    root, current_ext = splitext(_stringyfy_path(path))
++    return root + "." + get_default_compression_mapping()[compression]
+diff --git a/pyproject.toml b/pyproject.toml
+index 7710df3..e672a6b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,36 @@ dynamic = ['version']
+ license = { text = 'BSL-1.1' }
+ requires-python = '>=3.8,<3.13'
+ readme = 'README.md'
+-dependencies = []
++dependencies = [
++    "appdirs>=1.3",
++    "boto3>=1.28,<2",
++    "botocore>=1.31,<2",
++    "cloudpickle>=2.1.0",
++    "humanfriendly>=8.2",
++    "numpy>=1.21.0,<2.0.0;python_version<'3.10'",
++    "numpy>=1.23.3,<2.0.0;python_version>='3.10' and python_version<'3.12'",
++    "numpy>=1.26.0,<2.0.0;python_version>='3.12'",
++    "pandas>=1.4.0;python_version<'3.11'",
++    "pandas>=1.5.0;python_version>='3.11' and python_version<'3.12'",
++    "pandas>=2.1.1;python_version>='3.12'",
++    "psutil>=5.7",
++    "scikit-learn>=1.0.2;python_version<'3.10'",
++    "scikit-learn>=1.1.0;python_version>='3.10' and python_version<'3.11'",
++    "scikit-learn>=1.1.3;python_version>='3.11' and python_version<'3.12'",
++    "scikit-learn>=1.3.1;python_version>='3.12'",
++    "scipy>=1.7.3;python_version<'3.10'",
++    "scipy>=1.9.2;python_version>='3.10' and python_version<'3.12'",
++    "scipy>=1.12.0;python_version>='3.12'",
++    "tabulate>=0.8.3,<0.9",
++    "torch>=1.9.0;python_version<'3.10'",
++    "torch>=2.0.0;python_version>='3.10' and python_version<'3.12'",
++    "torch>=2.2.0;python_version>='3.12'",
++    "tqdm>=4.29",
++    "XlsxWriter>=1.2.8",
++    "rdt>=1.12.1",
++    "sdmetrics>=0.14.1",
++    "sdv>=1.13.1",
++]
+ 
+ [project.urls]
+ "Source Code"= "https://github.com/sdv-dev/SDGym/"

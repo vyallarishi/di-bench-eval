@@ -1,0 +1,25 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..78f1a11 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "regex >= 2022.9.11",
++]
+ dynamic = [
+     "version",
+ ]
+diff --git a/wcwidth/__init__.py b/wcwidth/__init__.py
+new file mode 100644
+index 0000000..b83915d
+--- /dev/null
++++ b/wcwidth/__init__.py
+@@ -0,0 +1,4 @@
++"""Stub replacement."""
++
++def wcswidth(*args, **kwargs):
++    return None

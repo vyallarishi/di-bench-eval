@@ -1,0 +1,40 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1044ce..d590824 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -31,7 +31,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = [
++    "django>=4.2",
++]
+ 
+ [project.urls]
+ Documentation = "https://django-cookie-consent.readthedocs.io/en/latest/"
+@@ -41,6 +43,7 @@ Changelog = "https://github.com/jazzband/django-cookie-consent/blob/master/docs/
+ 
+ [project.optional-dependencies]
+ tests = [
++    "django-appconf",
+     "pytest",
+     "pytest-django",
+     "pytest-playwright",
+@@ -50,13 +53,16 @@ tests = [
+     "flake8",
+ ]
+ coverage = [
++    "django-appconf",
+     "pytest-cov",
+ ]
+ docs = [
++    "django-appconf",
+     "sphinx",
+     "sphinx-rtd-theme",
+ ]
+ release = [
++    "django-appconf",
+     "tbump",
+ ]
+ 

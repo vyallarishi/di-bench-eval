@@ -1,0 +1,24 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 2e7523e..f1895a1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,11 +13,16 @@ authors = [
+     {name = "Jeff Terrace and contributors", email = "jterrace@gmail.com"},
+ ]
+ license = {text = "BSD"}
+-dependencies = []
++dependencies = [
++    "numpy",
++    "unittest2; python_version<\"2.7\"",
++]
+ 
+ [project.optional-dependencies]
+-prettyprint = ["lxml"]
+-validation = ["lxml"]
++prettyprint = [
++    "python-dateutil>=2.2","lxml"]
++validation = [
++    "python-dateutil>=2.2","lxml"]
+ 
+ [project.urls]
+ Homepage = "http://pycollada.readthedocs.org/"

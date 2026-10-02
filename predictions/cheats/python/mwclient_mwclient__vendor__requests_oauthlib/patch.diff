@@ -1,0 +1,1469 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 7e943aa..dfb7335 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -25,7 +25,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "requests",
++]
+ 
+ [project.optional-dependencies]
+ docs = [
+diff --git a/requests_oauthlib/__init__.py b/requests_oauthlib/__init__.py
+new file mode 100644
+index 0000000..865d72f
+--- /dev/null
++++ b/requests_oauthlib/__init__.py
+@@ -0,0 +1,20 @@
++# ruff: noqa: F401
++import logging
++
++from .oauth1_auth import OAuth1
++from .oauth1_session import OAuth1Session
++from .oauth2_auth import OAuth2
++from .oauth2_session import OAuth2Session, TokenUpdated
++
++__version__ = "2.0.0"
++
++import requests
++
++if requests.__version__ < "2.0.0":
++    msg = (
++        "You are using requests version %s, which is older than "
++        "requests-oauthlib expects, please upgrade to 2.0.0 or later."
++    )
++    raise Warning(msg % requests.__version__)
++
++logging.getLogger("requests_oauthlib").addHandler(logging.NullHandler())
+diff --git a/requests_oauthlib/compliance_fixes/__init__.py b/requests_oauthlib/compliance_fixes/__init__.py
+new file mode 100644
+index 0000000..8815ea0
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/__init__.py
+@@ -0,0 +1,9 @@
++# ruff: noqa: F401
++from .facebook import facebook_compliance_fix
++from .fitbit import fitbit_compliance_fix
++from .slack import slack_compliance_fix
++from .instagram import instagram_compliance_fix
++from .mailchimp import mailchimp_compliance_fix
++from .weibo import weibo_compliance_fix
++from .plentymarkets import plentymarkets_compliance_fix
++from .ebay import ebay_compliance_fix
+diff --git a/requests_oauthlib/compliance_fixes/douban.py b/requests_oauthlib/compliance_fixes/douban.py
+new file mode 100644
+index 0000000..c8b99c7
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/douban.py
+@@ -0,0 +1,15 @@
++import json
++
++
++def douban_compliance_fix(session):
++    def fix_token_type(r):
++        token = json.loads(r.text)
++        token.setdefault("token_type", "Bearer")
++        fixed_token = json.dumps(token)
++        r._content = fixed_token.encode()
++        return r
++
++    session._client_default_token_placement = "query"
++    session.register_compliance_hook("access_token_response", fix_token_type)
++
++    return session
+diff --git a/requests_oauthlib/compliance_fixes/ebay.py b/requests_oauthlib/compliance_fixes/ebay.py
+new file mode 100644
+index 0000000..ef33f39
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/ebay.py
+@@ -0,0 +1,22 @@
++import json
++
++
++def ebay_compliance_fix(session):
++    def _compliance_fix(response):
++        token = json.loads(response.text)
++
++        # eBay responds with non-compliant token types.
++        # https://developer.ebay.com/api-docs/static/oauth-client-credentials-grant.html
++        # https://developer.ebay.com/api-docs/static/oauth-auth-code-grant-request.html
++        # Modify these to be "Bearer".
++        if token.get("token_type") in ["Application Access Token", "User Access Token"]:
++            token["token_type"] = "Bearer"
++            fixed_token = json.dumps(token)
++            response._content = fixed_token.encode()
++
++        return response
++
++    session.register_compliance_hook("access_token_response", _compliance_fix)
++    session.register_compliance_hook("refresh_token_response", _compliance_fix)
++
++    return session
+diff --git a/requests_oauthlib/compliance_fixes/facebook.py b/requests_oauthlib/compliance_fixes/facebook.py
+new file mode 100644
+index 0000000..f44558a
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/facebook.py
+@@ -0,0 +1,27 @@
++from json import dumps
++from urllib.parse import parse_qsl
++
++
++def facebook_compliance_fix(session):
++    def _compliance_fix(r):
++        # if Facebook claims to be sending us json, let's trust them.
++        if "application/json" in r.headers.get("content-type", {}):
++            return r
++
++        # Facebook returns a content-type of text/plain when sending their
++        # x-www-form-urlencoded responses, along with a 200. If not, let's
++        # assume we're getting JSON and bail on the fix.
++        if "text/plain" in r.headers.get("content-type", {}) and r.status_code == 200:
++            token = dict(parse_qsl(r.text, keep_blank_values=True))
++        else:
++            return r
++
++        expires = token.get("expires")
++        if expires is not None:
++            token["expires_in"] = expires
++        token["token_type"] = "Bearer"
++        r._content = dumps(token).encode()
++        return r
++
++    session.register_compliance_hook("access_token_response", _compliance_fix)
++    return session
+diff --git a/requests_oauthlib/compliance_fixes/fitbit.py b/requests_oauthlib/compliance_fixes/fitbit.py
+new file mode 100644
+index 0000000..aacc68b
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/fitbit.py
+@@ -0,0 +1,23 @@
++"""
++The Fitbit API breaks from the OAuth2 RFC standard by returning an "errors"
++object list, rather than a single "error" string. This puts hooks in place so
++that oauthlib can process an error in the results from access token and refresh
++token responses. This is necessary to prevent getting the generic red herring
++MissingTokenError.
++"""
++
++from json import loads, dumps
++
++
++def fitbit_compliance_fix(session):
++    def _missing_error(r):
++        token = loads(r.text)
++        if "errors" in token:
++            # Set the error to the first one we have
++            token["error"] = token["errors"][0]["errorType"]
++        r._content = dumps(token).encode()
++        return r
++
++    session.register_compliance_hook("access_token_response", _missing_error)
++    session.register_compliance_hook("refresh_token_response", _missing_error)
++    return session
+diff --git a/requests_oauthlib/compliance_fixes/instagram.py b/requests_oauthlib/compliance_fixes/instagram.py
+new file mode 100644
+index 0000000..7d5a2ad
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/instagram.py
+@@ -0,0 +1,23 @@
++from urllib.parse import urlparse, parse_qs
++
++from oauthlib.common import add_params_to_uri
++
++
++def instagram_compliance_fix(session):
++    def _non_compliant_param_name(url, headers, data):
++        # If the user has already specified the token in the URL
++        # then there's nothing to do.
++        # If the specified token is different from ``session.access_token``,
++        # we assume the user intends to override the access token.
++        url_query = dict(parse_qs(urlparse(url).query))
++        token = url_query.get("access_token")
++        if token:
++            # Nothing to do, just return.
++            return url, headers, data
++
++        token = [("access_token", session.access_token)]
++        url = add_params_to_uri(url, token)
++        return url, headers, data
++
++    session.register_compliance_hook("protected_request", _non_compliant_param_name)
++    return session
+diff --git a/requests_oauthlib/compliance_fixes/mailchimp.py b/requests_oauthlib/compliance_fixes/mailchimp.py
+new file mode 100644
+index 0000000..0d60265
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/mailchimp.py
+@@ -0,0 +1,21 @@
++import json
++
++
++def mailchimp_compliance_fix(session):
++    def _null_scope(r):
++        token = json.loads(r.text)
++        if "scope" in token and token["scope"] is None:
++            token.pop("scope")
++        r._content = json.dumps(token).encode()
++        return r
++
++    def _non_zero_expiration(r):
++        token = json.loads(r.text)
++        if "expires_in" in token and token["expires_in"] == 0:
++            token["expires_in"] = 3600
++        r._content = json.dumps(token).encode()
++        return r
++
++    session.register_compliance_hook("access_token_response", _null_scope)
++    session.register_compliance_hook("access_token_response", _non_zero_expiration)
++    return session
+diff --git a/requests_oauthlib/compliance_fixes/plentymarkets.py b/requests_oauthlib/compliance_fixes/plentymarkets.py
+new file mode 100644
+index 0000000..859f056
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/plentymarkets.py
+@@ -0,0 +1,27 @@
++from json import dumps, loads
++import re
++
++
++def plentymarkets_compliance_fix(session):
++    def _to_snake_case(n):
++        return re.sub("(.)([A-Z][a-z]+)", r"\1_\2", n).lower()
++
++    def _compliance_fix(r):
++        # Plenty returns the Token in CamelCase instead of _
++        if (
++            "application/json" in r.headers.get("content-type", {})
++            and r.status_code == 200
++        ):
++            token = loads(r.text)
++        else:
++            return r
++
++        fixed_token = {}
++        for k, v in token.items():
++            fixed_token[_to_snake_case(k)] = v
++
++        r._content = dumps(fixed_token).encode()
++        return r
++
++    session.register_compliance_hook("access_token_response", _compliance_fix)
++    return session
+diff --git a/requests_oauthlib/compliance_fixes/slack.py b/requests_oauthlib/compliance_fixes/slack.py
+new file mode 100644
+index 0000000..9095a47
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/slack.py
+@@ -0,0 +1,34 @@
++from urllib.parse import urlparse, parse_qs
++
++from oauthlib.common import add_params_to_uri
++
++
++def slack_compliance_fix(session):
++    def _non_compliant_param_name(url, headers, data):
++        # If the user has already specified the token, either in the URL
++        # or in a data dictionary, then there's nothing to do.
++        # If the specified token is different from ``session.access_token``,
++        # we assume the user intends to override the access token.
++        url_query = dict(parse_qs(urlparse(url).query))
++        token = url_query.get("token")
++        if not token and isinstance(data, dict):
++            token = data.get("token")
++
++        if token:
++            # Nothing to do, just return.
++            return url, headers, data
++
++        if not data:
++            data = {"token": session.access_token}
++        elif isinstance(data, dict):
++            data["token"] = session.access_token
++        else:
++            # ``data`` is something other than a dict: maybe a stream,
++            # maybe a file object, maybe something else. We can't easily
++            # modify it, so we'll set the token by modifying the URL instead.
++            token = [("token", session.access_token)]
++            url = add_params_to_uri(url, token)
++        return url, headers, data
++
++    session.register_compliance_hook("protected_request", _non_compliant_param_name)
++    return session
+diff --git a/requests_oauthlib/compliance_fixes/weibo.py b/requests_oauthlib/compliance_fixes/weibo.py
+new file mode 100644
+index 0000000..f1623fd
+--- /dev/null
++++ b/requests_oauthlib/compliance_fixes/weibo.py
+@@ -0,0 +1,13 @@
++from json import loads, dumps
++
++
++def weibo_compliance_fix(session):
++    def _missing_token_type(r):
++        token = loads(r.text)
++        token["token_type"] = "Bearer"
++        r._content = dumps(token).encode()
++        return r
++
++    session._client.default_token_placement = "query"
++    session.register_compliance_hook("access_token_response", _missing_token_type)
++    return session
+diff --git a/requests_oauthlib/oauth1_auth.py b/requests_oauthlib/oauth1_auth.py
+new file mode 100644
+index 0000000..f8c0bd6
+--- /dev/null
++++ b/requests_oauthlib/oauth1_auth.py
+@@ -0,0 +1,112 @@
++# -*- coding: utf-8 -*-
++import logging
++
++from oauthlib.common import extract_params
++from oauthlib.oauth1 import Client, SIGNATURE_HMAC, SIGNATURE_TYPE_AUTH_HEADER
++from oauthlib.oauth1 import SIGNATURE_TYPE_BODY
++from requests.utils import to_native_string
++from requests.auth import AuthBase
++
++CONTENT_TYPE_FORM_URLENCODED = "application/x-www-form-urlencoded"
++CONTENT_TYPE_MULTI_PART = "multipart/form-data"
++
++
++log = logging.getLogger(__name__)
++
++# OBS!: Correct signing of requests are conditional on invoking OAuth1
++# as the last step of preparing a request, or at least having the
++# content-type set properly.
++class OAuth1(AuthBase):
++    """Signs the request using OAuth 1 (RFC5849)"""
++
++    client_class = Client
++
++    def __init__(
++        self,
++        client_key,
++        client_secret=None,
++        resource_owner_key=None,
++        resource_owner_secret=None,
++        callback_uri=None,
++        signature_method=SIGNATURE_HMAC,
++        signature_type=SIGNATURE_TYPE_AUTH_HEADER,
++        rsa_key=None,
++        verifier=None,
++        decoding="utf-8",
++        client_class=None,
++        force_include_body=False,
++        **kwargs
++    ):
++
++        try:
++            signature_type = signature_type.upper()
++        except AttributeError:
++            pass
++
++        client_class = client_class or self.client_class
++
++        self.force_include_body = force_include_body
++
++        self.client = client_class(
++            client_key,
++            client_secret,
++            resource_owner_key,
++            resource_owner_secret,
++            callback_uri,
++            signature_method,
++            signature_type,
++            rsa_key,
++            verifier,
++            decoding=decoding,
++            **kwargs
++        )
++
++    def __call__(self, r):
++        """Add OAuth parameters to the request.
++
++        Parameters may be included from the body if the content-type is
++        urlencoded, if no content type is set a guess is made.
++        """
++        # Overwriting url is safe here as request will not modify it past
++        # this point.
++        log.debug("Signing request %s using client %s", r, self.client)
++
++        content_type = r.headers.get("Content-Type", "")
++        if (
++            not content_type
++            and extract_params(r.body)
++            or self.client.signature_type == SIGNATURE_TYPE_BODY
++        ):
++            content_type = CONTENT_TYPE_FORM_URLENCODED
++        if not isinstance(content_type, str):
++            content_type = content_type.decode("utf-8")
++
++        is_form_encoded = CONTENT_TYPE_FORM_URLENCODED in content_type
++
++        log.debug(
++            "Including body in call to sign: %s",
++            is_form_encoded or self.force_include_body,
++        )
++
++        if is_form_encoded:
++            r.headers["Content-Type"] = CONTENT_TYPE_FORM_URLENCODED
++            r.url, headers, r.body = self.client.sign(
++                str(r.url), str(r.method), r.body or "", r.headers
++            )
++        elif self.force_include_body:
++            # To allow custom clients to work on non form encoded bodies.
++            r.url, headers, r.body = self.client.sign(
++                str(r.url), str(r.method), r.body or "", r.headers
++            )
++        else:
++            # Omit body data in the signing of non form-encoded requests
++            r.url, headers, _ = self.client.sign(
++                str(r.url), str(r.method), None, r.headers
++            )
++
++        r.prepare_headers(headers)
++        r.url = to_native_string(r.url)
++        log.debug("Updated url: %s", r.url)
++        log.debug("Updated headers: %s", headers)
++        log.debug("Updated body: %r", r.body)
++        return r
+diff --git a/requests_oauthlib/oauth1_session.py b/requests_oauthlib/oauth1_session.py
+new file mode 100644
+index 0000000..7625c80
+--- /dev/null
++++ b/requests_oauthlib/oauth1_session.py
+@@ -0,0 +1,395 @@
++from urllib.parse import urlparse
++
++import logging
++
++from oauthlib.common import add_params_to_uri
++from oauthlib.common import urldecode as _urldecode
++from oauthlib.oauth1 import SIGNATURE_HMAC, SIGNATURE_RSA, SIGNATURE_TYPE_AUTH_HEADER
++import requests
++
++from . import OAuth1
++
++
++log = logging.getLogger(__name__)
++
++
++def urldecode(body):
++    """Parse query or json to python dictionary"""
++    try:
++        return _urldecode(body)
++    except Exception:
++        import json
++
++        return json.loads(body)
++
++
++class TokenRequestDenied(ValueError):
++    def __init__(self, message, response):
++        super(TokenRequestDenied, self).__init__(message)
++        self.response = response
++
++    @property
++    def status_code(self):
++        """For backwards-compatibility purposes"""
++        return self.response.status_code
++
++
++class TokenMissing(ValueError):
++    def __init__(self, message, response):
++        super(TokenMissing, self).__init__(message)
++        self.response = response
++
++
++class VerifierMissing(ValueError):
++    pass
++
++
++class OAuth1Session(requests.Session):
++    """Request signing and convenience methods for the oauth dance.
++
++    What is the difference between OAuth1Session and OAuth1?
++
++    OAuth1Session actually uses OAuth1 internally and its purpose is to assist
++    in the OAuth workflow through convenience methods to prepare authorization
++    URLs and parse the various token and redirection responses. It also provide
++    rudimentary validation of responses.
++
++    An example of the OAuth workflow using a basic CLI app and Twitter.
++
++    >>> # Credentials obtained during the registration.
++    >>> client_key = 'client key'
++    >>> client_secret = 'secret'
++    >>> callback_uri = 'https://127.0.0.1/callback'
++    >>>
++    >>> # Endpoints found in the OAuth provider API documentation
++    >>> request_token_url = 'https://api.twitter.com/oauth/request_token'
++    >>> authorization_url = 'https://api.twitter.com/oauth/authorize'
++    >>> access_token_url = 'https://api.twitter.com/oauth/access_token'
++    >>>
++    >>> oauth_session = OAuth1Session(client_key,client_secret=client_secret, callback_uri=callback_uri)
++    >>>
++    >>> # First step, fetch the request token.
++    >>> oauth_session.fetch_request_token(request_token_url)
++    {
++        'oauth_token': 'kjerht2309u',
++        'oauth_token_secret': 'lsdajfh923874',
++    }
++    >>>
++    >>> # Second step. Follow this link and authorize
++    >>> oauth_session.authorization_url(authorization_url)
++    'https://api.twitter.com/oauth/authorize?oauth_token=sdf0o9823sjdfsdf&oauth_callback=https%3A%2F%2F127.0.0.1%2Fcallback'
++    >>>
++    >>> # Third step. Fetch the access token
++    >>> redirect_response = input('Paste the full redirect URL here.')
++    >>> oauth_session.parse_authorization_response(redirect_response)
++    {
++        'oauth_token: 'kjerht2309u',
++        'oauth_token_secret: 'lsdajfh923874',
++        'oauth_verifier: 'w34o8967345',
++    }
++    >>> oauth_session.fetch_access_token(access_token_url)
++    {
++        'oauth_token': 'sdf0o9823sjdfsdf',
++        'oauth_token_secret': '2kjshdfp92i34asdasd',
++    }
++    >>> # Done. You can now make OAuth requests.
++    >>> status_url = 'http://api.twitter.com/1/statuses/update.json'
++    >>> new_status = {'status':  'hello world!'}
++    >>> oauth_session.post(status_url, data=new_status)
++    <Response [200]>
++    """
++
++    def __init__(
++        self,
++        client_key,
++        client_secret=None,
++        resource_owner_key=None,
++        resource_owner_secret=None,
++        callback_uri=None,
++        signature_method=SIGNATURE_HMAC,
++        signature_type=SIGNATURE_TYPE_AUTH_HEADER,
++        rsa_key=None,
++        verifier=None,
++        client_class=None,
++        force_include_body=False,
++        **kwargs
++    ):
++        """Construct the OAuth 1 session.
++
++        :param client_key: A client specific identifier.
++        :param client_secret: A client specific secret used to create HMAC and
++                              plaintext signatures.
++        :param resource_owner_key: A resource owner key, also referred to as
++                                   request token or access token depending on
++                                   when in the workflow it is used.
++        :param resource_owner_secret: A resource owner secret obtained with
++                                      either a request or access token. Often
++                                      referred to as token secret.
++        :param callback_uri: The URL the user is redirect back to after
++                             authorization.
++        :param signature_method: Signature methods determine how the OAuth
++                                 signature is created. The three options are
++                                 oauthlib.oauth1.SIGNATURE_HMAC (default),
++                                 oauthlib.oauth1.SIGNATURE_RSA and
++                                 oauthlib.oauth1.SIGNATURE_PLAIN.
++        :param signature_type: Signature type decides where the OAuth
++                               parameters are added. Either in the
++                               Authorization header (default) or to the URL
++                               query parameters or the request body. Defined as
++                               oauthlib.oauth1.SIGNATURE_TYPE_AUTH_HEADER,
++                               oauthlib.oauth1.SIGNATURE_TYPE_QUERY and
++                               oauthlib.oauth1.SIGNATURE_TYPE_BODY
++                               respectively.
++        :param rsa_key: The private RSA key as a string. Can only be used with
++                        signature_method=oauthlib.oauth1.SIGNATURE_RSA.
++        :param verifier: A verifier string to prove authorization was granted.
++        :param client_class: A subclass of `oauthlib.oauth1.Client` to use with
++                             `requests_oauthlib.OAuth1` instead of the default
++        :param force_include_body: Always include the request body in the
++                                   signature creation.
++        :param **kwargs: Additional keyword arguments passed to `OAuth1`
++        """
++        super(OAuth1Session, self).__init__()
++        self._client = OAuth1(
++            client_key,
++            client_secret=client_secret,
++            resource_owner_key=resource_owner_key,
++            resource_owner_secret=resource_owner_secret,
++            callback_uri=callback_uri,
++            signature_method=signature_method,
++            signature_type=signature_type,
++            rsa_key=rsa_key,
++            verifier=verifier,
++            client_class=client_class,
++            force_include_body=force_include_body,
++            **kwargs
++        )
++        self.auth = self._client
++
++    @property
++    def token(self):
++        oauth_token = self._client.client.resource_owner_key
++        oauth_token_secret = self._client.client.resource_owner_secret
++        oauth_verifier = self._client.client.verifier
++
++        token_dict = {}
++        if oauth_token:
++            token_dict["oauth_token"] = oauth_token
++        if oauth_token_secret:
++            token_dict["oauth_token_secret"] = oauth_token_secret
++        if oauth_verifier:
++            token_dict["oauth_verifier"] = oauth_verifier
++
++        return token_dict
++
++    @token.setter
++    def token(self, value):
++        self._populate_attributes(value)
++
++    @property
++    def authorized(self):
++        """Boolean that indicates whether this session has an OAuth token
++        or not. If `self.authorized` is True, you can reasonably expect
++        OAuth-protected requests to the resource to succeed. If
++        `self.authorized` is False, you need the user to go through the OAuth
++        authentication dance before OAuth-protected requests to the resource
++        will succeed.
++        """
++        if self._client.client.signature_method == SIGNATURE_RSA:
++            # RSA only uses resource_owner_key
++            return bool(self._client.client.resource_owner_key)
++        else:
++            # other methods of authentication use all three pieces
++            return (
++                bool(self._client.client.client_secret)
++                and bool(self._client.client.resource_owner_key)
++                and bool(self._client.client.resource_owner_secret)
++            )
++
++    def authorization_url(self, url, request_token=None, **kwargs):
++        """Create an authorization URL by appending request_token and optional
++        kwargs to url.
++
++        This is the second step in the OAuth 1 workflow. The user should be
++        redirected to this authorization URL, grant access to you, and then
++        be redirected back to you. The redirection back can either be specified
++        during client registration or by supplying a callback URI per request.
++
++        :param url: The authorization endpoint URL.
++        :param request_token: The previously obtained request token.
++        :param kwargs: Optional parameters to append to the URL.
++        :returns: The authorization URL with new parameters embedded.
++
++        An example using a registered default callback URI.
++
++        >>> request_token_url = 'https://api.twitter.com/oauth/request_token'
++        >>> authorization_url = 'https://api.twitter.com/oauth/authorize'
++        >>> oauth_session = OAuth1Session('client-key', client_secret='secret')
++        >>> oauth_session.fetch_request_token(request_token_url)
++        {
++            'oauth_token': 'sdf0o9823sjdfsdf',
++            'oauth_token_secret': '2kjshdfp92i34asdasd',
++        }
++        >>> oauth_session.authorization_url(authorization_url)
++        'https://api.twitter.com/oauth/authorize?oauth_token=sdf0o9823sjdfsdf'
++        >>> oauth_session.authorization_url(authorization_url, foo='bar')
++        'https://api.twitter.com/oauth/authorize?oauth_token=sdf0o9823sjdfsdf&foo=bar'
++
++        An example using an explicit callback URI.
++
++        >>> request_token_url = 'https://api.twitter.com/oauth/request_token'
++        >>> authorization_url = 'https://api.twitter.com/oauth/authorize'
++        >>> oauth_session = OAuth1Session('client-key', client_secret='secret', callback_uri='https://127.0.0.1/callback')
++        >>> oauth_session.fetch_request_token(request_token_url)
++        {
++            'oauth_token': 'sdf0o9823sjdfsdf',
++            'oauth_token_secret': '2kjshdfp92i34asdasd',
++        }
++        >>> oauth_session.authorization_url(authorization_url)
++        'https://api.twitter.com/oauth/authorize?oauth_token=sdf0o9823sjdfsdf&oauth_callback=https%3A%2F%2F127.0.0.1%2Fcallback'
++        """
++        kwargs["oauth_token"] = request_token or self._client.client.resource_owner_key
++        log.debug("Adding parameters %s to url %s", kwargs, url)
++        return add_params_to_uri(url, kwargs.items())
++
++    def fetch_request_token(self, url, realm=None, **request_kwargs):
++        """Fetch a request token.
++
++        This is the first step in the OAuth 1 workflow. A request token is
++        obtained by making a signed post request to url. The token is then
++        parsed from the application/x-www-form-urlencoded response and ready
++        to be used to construct an authorization url.
++
++        :param url: The request token endpoint URL.
++        :param realm: A list of realms to request access to.
++        :param request_kwargs: Optional arguments passed to ''post''
++            function in ''requests.Session''
++        :returns: The response in dict format.
++
++        Note that a previously set callback_uri will be reset for your
++        convenience, or else signature creation will be incorrect on
++        consecutive requests.
++
++        >>> request_token_url = 'https://api.twitter.com/oauth/request_token'
++        >>> oauth_session = OAuth1Session('client-key', client_secret='secret')
++        >>> oauth_session.fetch_request_token(request_token_url)
++        {
++            'oauth_token': 'sdf0o9823sjdfsdf',
++            'oauth_token_secret': '2kjshdfp92i34asdasd',
++        }
++        """
++        self._client.client.realm = " ".join(realm) if realm else None
++        token = self._fetch_token(url, **request_kwargs)
++        log.debug("Resetting callback_uri and realm (not needed in next phase).")
++        self._client.client.callback_uri = None
++        self._client.client.realm = None
++        return token
++
++    def fetch_access_token(self, url, verifier=None, **request_kwargs):
++        """Fetch an access token.
++
++        This is the final step in the OAuth 1 workflow. An access token is
++        obtained using all previously obtained credentials, including the
++        verifier from the authorization step.
++
++        Note that a previously set verifier will be reset for your
++        convenience, or else signature creation will be incorrect on
++        consecutive requests.
++
++        >>> access_token_url = 'https://api.twitter.com/oauth/access_token'
++        >>> redirect_response = 'https://127.0.0.1/callback?oauth_token=kjerht2309uf&oauth_token_secret=lsdajfh923874&oauth_verifier=w34o8967345'
++        >>> oauth_session = OAuth1Session('client-key', client_secret='secret')
++        >>> oauth_session.parse_authorization_response(redirect_response)
++        {
++            'oauth_token: 'kjerht2309u',
++            'oauth_token_secret: 'lsdajfh923874',
++            'oauth_verifier: 'w34o8967345',
++        }
++        >>> oauth_session.fetch_access_token(access_token_url)
++        {
++            'oauth_token': 'sdf0o9823sjdfsdf',
++            'oauth_token_secret': '2kjshdfp92i34asdasd',
++        }
++        """
++        if verifier:
++            self._client.client.verifier = verifier
++        if not getattr(self._client.client, "verifier", None):
++            raise VerifierMissing("No client verifier has been set.")
++        token = self._fetch_token(url, **request_kwargs)
++        log.debug("Resetting verifier attribute, should not be used anymore.")
++        self._client.client.verifier = None
++        return token
++
++    def parse_authorization_response(self, url):
++        """Extract parameters from the post authorization redirect response URL.
++
++        :param url: The full URL that resulted from the user being redirected
++                    back from the OAuth provider to you, the client.
++        :returns: A dict of parameters extracted from the URL.
++
++        >>> redirect_response = 'https://127.0.0.1/callback?oauth_token=kjerht2309uf&oauth_token_secret=lsdajfh923874&oauth_verifier=w34o8967345'
++        >>> oauth_session = OAuth1Session('client-key', client_secret='secret')
++        >>> oauth_session.parse_authorization_response(redirect_response)
++        {
++            'oauth_token: 'kjerht2309u',
++            'oauth_token_secret: 'lsdajfh923874',
++            'oauth_verifier: 'w34o8967345',
++        }
++        """
++        log.debug("Parsing token from query part of url %s", url)
++        token = dict(urldecode(urlparse(url).query))
++        log.debug("Updating internal client token attribute.")
++        self._populate_attributes(token)
++        self.token = token
++        return token
++
++    def _populate_attributes(self, token):
++        if "oauth_token" in token:
++            self._client.client.resource_owner_key = token["oauth_token"]
++        else:
++            raise TokenMissing(
++                "Response does not contain a token: {resp}".format(resp=token), token
++            )
++        if "oauth_token_secret" in token:
++            self._client.client.resource_owner_secret = token["oauth_token_secret"]
++        if "oauth_verifier" in token:
++            self._client.client.verifier = token["oauth_verifier"]
++
++    def _fetch_token(self, url, **request_kwargs):
++        log.debug("Fetching token from %s using client %s", url, self._client.client)
++        r = self.post(url, **request_kwargs)
++
++        if r.status_code >= 400:
++            error = "Token request failed with code %s, response was '%s'."
++            raise TokenRequestDenied(error % (r.status_code, r.text), r)
++
++        log.debug('Decoding token from response "%s"', r.text)
++        try:
++            token = dict(urldecode(r.text.strip()))
++        except ValueError as e:
++            error = (
++                "Unable to decode token from token response. "
++                "This is commonly caused by an unsuccessful request where"
++                " a non urlencoded error message is returned. "
++                "The decoding error was %s"
++                "" % e
++            )
++            raise ValueError(error)
++
++        log.debug("Obtained token %s", token)
++        log.debug("Updating internal client attributes from token data.")
++        self._populate_attributes(token)
++        self.token = token
++        return token
++
++    def rebuild_auth(self, prepared_request, response):
++        """
++        When being redirected we should always strip Authorization
++        header, since nonce may not be reused as per OAuth spec.
++        """
++        if "Authorization" in prepared_request.headers:
++            # If we get redirected to a new host, we should strip out
++            # any authentication headers.
++            prepared_request.headers.pop("Authorization", True)
++            prepared_request.prepare_auth(self.auth)
++        return
+diff --git a/requests_oauthlib/oauth2_auth.py b/requests_oauthlib/oauth2_auth.py
+new file mode 100644
+index 0000000..f19f52a
+--- /dev/null
++++ b/requests_oauthlib/oauth2_auth.py
+@@ -0,0 +1,36 @@
++from oauthlib.oauth2 import WebApplicationClient, InsecureTransportError
++from oauthlib.oauth2 import is_secure_transport
++from requests.auth import AuthBase
++
++
++class OAuth2(AuthBase):
++    """Adds proof of authorization (OAuth2 token) to the request."""
++
++    def __init__(self, client_id=None, client=None, token=None):
++        """Construct a new OAuth 2 authorization object.
++
++        :param client_id: Client id obtained during registration
++        :param client: :class:`oauthlib.oauth2.Client` to be used. Default is
++                       WebApplicationClient which is useful for any
++                       hosted application but not mobile or desktop.
++        :param token: Token dictionary, must include access_token
++                      and token_type.
++        """
++        self._client = client or WebApplicationClient(client_id, token=token)
++        if token:
++            for k, v in token.items():
++                setattr(self._client, k, v)
++
++    def __call__(self, r):
++        """Append an OAuth 2 token to the request.
++
++        Note that currently HTTPS is required for all requests. There may be
++        a token type that allows for plain HTTP in the future and then this
++        should be updated to allow plain HTTP on a white list basis.
++        """
++        if not is_secure_transport(r.url):
++            raise InsecureTransportError()
++        r.url, r.headers, r.body = self._client.add_token(
++            r.url, http_method=r.method, body=r.body, headers=r.headers
++        )
++        return r
+diff --git a/requests_oauthlib/oauth2_session.py b/requests_oauthlib/oauth2_session.py
+new file mode 100644
+index 0000000..93cc4d7
+--- /dev/null
++++ b/requests_oauthlib/oauth2_session.py
+@@ -0,0 +1,587 @@
++import logging
++
++from oauthlib.common import generate_token, urldecode
++from oauthlib.oauth2 import WebApplicationClient, InsecureTransportError
++from oauthlib.oauth2 import LegacyApplicationClient
++from oauthlib.oauth2 import TokenExpiredError, is_secure_transport
++import requests
++
++log = logging.getLogger(__name__)
++
++
++class TokenUpdated(Warning):
++    def __init__(self, token):
++        super(TokenUpdated, self).__init__()
++        self.token = token
++
++
++class OAuth2Session(requests.Session):
++    """Versatile OAuth 2 extension to :class:`requests.Session`.
++
++    Supports any grant type adhering to :class:`oauthlib.oauth2.Client` spec
++    including the four core OAuth 2 grants.
++
++    Can be used to create authorization urls, fetch tokens and access protected
++    resources using the :class:`requests.Session` interface you are used to.
++
++    - :class:`oauthlib.oauth2.WebApplicationClient` (default): Authorization Code Grant
++    - :class:`oauthlib.oauth2.MobileApplicationClient`: Implicit Grant
++    - :class:`oauthlib.oauth2.LegacyApplicationClient`: Password Credentials Grant
++    - :class:`oauthlib.oauth2.BackendApplicationClient`: Client Credentials Grant
++
++    Note that the only time you will be using Implicit Grant from python is if
++    you are driving a user agent able to obtain URL fragments.
++    """
++
++    def __init__(
++        self,
++        client_id=None,
++        client=None,
++        auto_refresh_url=None,
++        auto_refresh_kwargs=None,
++        scope=None,
++        redirect_uri=None,
++        token=None,
++        state=None,
++        token_updater=None,
++        pkce=None,
++        **kwargs
++    ):
++        """Construct a new OAuth 2 client session.
++
++        :param client_id: Client id obtained during registration
++        :param client: :class:`oauthlib.oauth2.Client` to be used. Default is
++                       WebApplicationClient which is useful for any
++                       hosted application but not mobile or desktop.
++        :param scope: List of scopes you wish to request access to
++        :param redirect_uri: Redirect URI you registered as callback
++        :param token: Token dictionary, must include access_token
++                      and token_type.
++        :param state: State string used to prevent CSRF. This will be given
++                      when creating the authorization url and must be supplied
++                      when parsing the authorization response.
++                      Can be either a string or a no argument callable.
++        :auto_refresh_url: Refresh token endpoint URL, must be HTTPS. Supply
++                           this if you wish the client to automatically refresh
++                           your access tokens.
++        :auto_refresh_kwargs: Extra arguments to pass to the refresh token
++                              endpoint.
++        :token_updater: Method with one argument, token, to be used to update
++                        your token database on automatic token refresh. If not
++                        set a TokenUpdated warning will be raised when a token
++                        has been refreshed. This warning will carry the token
++                        in its token argument.
++        :param pkce: Set "S256" or "plain" to enable PKCE. Default is disabled.
++        :param kwargs: Arguments to pass to the Session constructor.
++        """
++        super(OAuth2Session, self).__init__(**kwargs)
++        self._client = client or WebApplicationClient(client_id, token=token)
++        self.token = token or {}
++        self._scope = scope
++        self.redirect_uri = redirect_uri
++        self.state = state or generate_token
++        self._state = state
++        self.auto_refresh_url = auto_refresh_url
++        self.auto_refresh_kwargs = auto_refresh_kwargs or {}
++        self.token_updater = token_updater
++        self._pkce = pkce
++
++        if self._pkce not in ["S256", "plain", None]:
++            raise AttributeError("Wrong value for {}(.., pkce={})".format(self.__class__, self._pkce))
++
++        # Ensure that requests doesn't do any automatic auth. See #278.
++        # The default behavior can be re-enabled by setting auth to None.
++        self.auth = lambda r: r
++
++        # Allow customizations for non compliant providers through various
++        # hooks to adjust requests and responses.
++        self.compliance_hook = {
++            "access_token_response": set(),
++            "refresh_token_response": set(),
++            "protected_request": set(),
++            "refresh_token_request": set(),
++            "access_token_request": set(),
++        }
++
++    @property
++    def scope(self):
++        """By default the scope from the client is used, except if overridden"""
++        if self._scope is not None:
++            return self._scope
++        elif self._client is not None:
++            return self._client.scope
++        else:
++            return None
++
++    @scope.setter
++    def scope(self, scope):
++        self._scope = scope
++
++    def new_state(self):
++        """Generates a state string to be used in authorizations."""
++        try:
++            self._state = self.state()
++            log.debug("Generated new state %s.", self._state)
++        except TypeError:
++            self._state = self.state
++            log.debug("Re-using previously supplied state %s.", self._state)
++        return self._state
++
++    @property
++    def client_id(self):
++        return getattr(self._client, "client_id", None)
++
++    @client_id.setter
++    def client_id(self, value):
++        self._client.client_id = value
++
++    @client_id.deleter
++    def client_id(self):
++        del self._client.client_id
++
++    @property
++    def token(self):
++        return getattr(self._client, "token", None)
++
++    @token.setter
++    def token(self, value):
++        self._client.token = value
++        self._client.populate_token_attributes(value)
++
++    @property
++    def access_token(self):
++        return getattr(self._client, "access_token", None)
++
++    @access_token.setter
++    def access_token(self, value):
++        self._client.access_token = value
++
++    @access_token.deleter
++    def access_token(self):
++        del self._client.access_token
++
++    @property
++    def authorized(self):
++        """Boolean that indicates whether this session has an OAuth token
++        or not. If `self.authorized` is True, you can reasonably expect
++        OAuth-protected requests to the resource to succeed. If
++        `self.authorized` is False, you need the user to go through the OAuth
++        authentication dance before OAuth-protected requests to the resource
++        will succeed.
++        """
++        return bool(self.access_token)
++
++    def authorization_url(self, url, state=None, **kwargs):
++        """Form an authorization URL.
++
++        :param url: Authorization endpoint url, must be HTTPS.
++        :param state: An optional state string for CSRF protection. If not
++                      given it will be generated for you.
++        :param kwargs: Extra parameters to include.
++        :return: authorization_url, state
++        """
++        state = state or self.new_state()
++        if self._pkce:
++            self._code_verifier = self._client.create_code_verifier(43)
++            kwargs["code_challenge_method"] = self._pkce
++            kwargs["code_challenge"] = self._client.create_code_challenge(
++                code_verifier=self._code_verifier,
++                code_challenge_method=self._pkce
++            )
++        return (
++            self._client.prepare_request_uri(
++                url,
++                redirect_uri=self.redirect_uri,
++                scope=self.scope,
++                state=state,
++                **kwargs
++            ),
++            state,
++        )
++
++    def fetch_token(
++        self,
++        token_url,
++        code=None,
++        authorization_response=None,
++        body="",
++        auth=None,
++        username=None,
++        password=None,
++        method="POST",
++        force_querystring=False,
++        timeout=None,
++        headers=None,
++        verify=None,
++        proxies=None,
++        include_client_id=None,
++        client_secret=None,
++        cert=None,
++        **kwargs
++    ):
++        """Generic method for fetching an access token from the token endpoint.
++
++        If you are using the MobileApplicationClient you will want to use
++        `token_from_fragment` instead of `fetch_token`.
++
++        The current implementation enforces the RFC guidelines.
++
++        :param token_url: Token endpoint URL, must use HTTPS.
++        :param code: Authorization code (used by WebApplicationClients).
++        :param authorization_response: Authorization response URL, the callback
++                                       URL of the request back to you. Used by
++                                       WebApplicationClients instead of code.
++        :param body: Optional application/x-www-form-urlencoded body to add the
++                     include in the token request. Prefer kwargs over body.
++        :param auth: An auth tuple or method as accepted by `requests`.
++        :param username: Username required by LegacyApplicationClients to appear
++                         in the request body.
++        :param password: Password required by LegacyApplicationClients to appear
++                         in the request body.
++        :param method: The HTTP method used to make the request. Defaults
++                       to POST, but may also be GET. Other methods should
++                       be added as needed.
++        :param force_querystring: If True, force the request body to be sent
++            in the querystring instead.
++        :param timeout: Timeout of the request in seconds.
++        :param headers: Dict to default request headers with.
++        :param verify: Verify SSL certificate.
++        :param proxies: The `proxies` argument is passed onto `requests`.
++        :param include_client_id: Should the request body include the
++                                  `client_id` parameter. Default is `None`,
++                                  which will attempt to autodetect. This can be
++                                  forced to always include (True) or never
++                                  include (False).
++        :param client_secret: The `client_secret` paired to the `client_id`.
++                              This is generally required unless provided in the
++                              `auth` tuple. If the value is `None`, it will be
++                              omitted from the request, however if the value is
++                              an empty string, an empty string will be sent.
++        :param cert: Client certificate to send for OAuth 2.0 Mutual-TLS Client
++                     Authentication (draft-ietf-oauth-mtls). Can either be the
++                     path of a file containing the private key and certificate or
++                     a tuple of two filenames for certificate and key.
++        :param kwargs: Extra parameters to include in the token request.
++        :return: A token dict
++        """
++        if not is_secure_transport(token_url):
++            raise InsecureTransportError()
++
++        if not code and authorization_response:
++            self._client.parse_request_uri_response(
++                authorization_response, state=self._state
++            )
++            code = self._client.code
++        elif not code and isinstance(self._client, WebApplicationClient):
++            code = self._client.code
++            if not code:
++                raise ValueError(
++                    "Please supply either code or " "authorization_response parameters."
++                )
++
++        if self._pkce:
++            if self._code_verifier is None:
++                raise ValueError(
++                    "Code verifier is not found, authorization URL must be generated before"
++                )
++            kwargs["code_verifier"] = self._code_verifier
++
++        # Earlier versions of this library build an HTTPBasicAuth header out of
++        # `username` and `password`. The RFC states, however these attributes
++        # must be in the request body and not the header.
++        # If an upstream server is not spec compliant and requires them to
++        # appear as an Authorization header, supply an explicit `auth` header
++        # to this function.
++        # This check will allow for empty strings, but not `None`.
++        #
++        # References
++        # 4.3.2 - Resource Owner Password Credentials Grant
++        #         https://tools.ietf.org/html/rfc6749#section-4.3.2
++
++        if isinstance(self._client, LegacyApplicationClient):
++            if username is None:
++                raise ValueError(
++                    "`LegacyApplicationClient` requires both the "
++                    "`username` and `password` parameters."
++                )
++            if password is None:
++                raise ValueError(
++                    "The required parameter `username` was supplied, "
++                    "but `password` was not."
++                )
++
++        # merge username and password into kwargs for `prepare_request_body`
++        if username is not None:
++            kwargs["username"] = username
++        if password is not None:
++            kwargs["password"] = password
++
++        # is an auth explicitly supplied?
++        if auth is not None:
++            # if we're dealing with the default of `include_client_id` (None):
++            # we will assume the `auth` argument is for an RFC compliant server
++            # and we should not send the `client_id` in the body.
++            # This approach allows us to still force the client_id by submitting
++            # `include_client_id=True` along with an `auth` object.
++            if include_client_id is None:
++                include_client_id = False
++
++        # otherwise we may need to create an auth header
++        else:
++            # since we don't have an auth header, we MAY need to create one
++            # it is possible that we want to send the `client_id` in the body
++            # if so, `include_client_id` should be set to True
++            # otherwise, we will generate an auth header
++            if include_client_id is not True:
++                client_id = self.client_id
++                if client_id:
++                    log.debug(
++                        'Encoding `client_id` "%s" with `client_secret` '
++                        "as Basic auth credentials.",
++                        client_id,
++                    )
++                    client_secret = client_secret if client_secret is not None else ""
++                    auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
++
++        if include_client_id:
++            # this was pulled out of the params
++            # it needs to be passed into prepare_request_body
++            if client_secret is not None:
++                kwargs["client_secret"] = client_secret
++
++        body = self._client.prepare_request_body(
++            code=code,
++            body=body,
++            redirect_uri=self.redirect_uri,
++            include_client_id=include_client_id,
++            **kwargs
++        )
++
++        headers = headers or {
++            "Accept": "application/json",
++            "Content-Type": "application/x-www-form-urlencoded",
++        }
++        self.token = {}
++        request_kwargs = {}
++        if method.upper() == "POST":
++            request_kwargs["params" if force_querystring else "data"] = dict(
++                urldecode(body)
++            )
++        elif method.upper() == "GET":
++            request_kwargs["params"] = dict(urldecode(body))
++        else:
++            raise ValueError("The method kwarg must be POST or GET.")
++
++        for hook in self.compliance_hook["access_token_request"]:
++            log.debug("Invoking access_token_request hook %s.", hook)
++            token_url, headers, request_kwargs = hook(
++                token_url, headers, request_kwargs
++            )
++
++        r = self.request(
++            method=method,
++            url=token_url,
++            timeout=timeout,
++            headers=headers,
++            auth=auth,
++            verify=verify,
++            proxies=proxies,
++            cert=cert,
++            **request_kwargs
++        )
++
++        log.debug("Request to fetch token completed with status %s.", r.status_code)
++        log.debug("Request url was %s", r.request.url)
++        log.debug("Request headers were %s", r.request.headers)
++        log.debug("Request body was %s", r.request.body)
++        log.debug("Response headers were %s and content %s.", r.headers, r.text)
++        log.debug(
++            "Invoking %d token response hooks.",
++            len(self.compliance_hook["access_token_response"]),
++        )
++        for hook in self.compliance_hook["access_token_response"]:
++            log.debug("Invoking hook %s.", hook)
++            r = hook(r)
++
++        self._client.parse_request_body_response(r.text, scope=self.scope)
++        self.token = self._client.token
++        log.debug("Obtained token %s.", self.token)
++        return self.token
++
++    def token_from_fragment(self, authorization_response):
++        """Parse token from the URI fragment, used by MobileApplicationClients.
++
++        :param authorization_response: The full URL of the redirect back to you
++        :return: A token dict
++        """
++        self._client.parse_request_uri_response(
++            authorization_response, state=self._state
++        )
++        self.token = self._client.token
++        return self.token
++
++    def refresh_token(
++        self,
++        token_url,
++        refresh_token=None,
++        body="",
++        auth=None,
++        timeout=None,
++        headers=None,
++        verify=None,
++        proxies=None,
++        **kwargs
++    ):
++        """Fetch a new access token using a refresh token.
++
++        :param token_url: The token endpoint, must be HTTPS.
++        :param refresh_token: The refresh_token to use.
++        :param body: Optional application/x-www-form-urlencoded body to add the
++                     include in the token request. Prefer kwargs over body.
++        :param auth: An auth tuple or method as accepted by `requests`.
++        :param timeout: Timeout of the request in seconds.
++        :param headers: A dict of headers to be used by `requests`.
++        :param verify: Verify SSL certificate.
++        :param proxies: The `proxies` argument will be passed to `requests`.
++        :param kwargs: Extra parameters to include in the token request.
++        :return: A token dict
++        """
++        if not token_url:
++            raise ValueError("No token endpoint set for auto_refresh.")
++
++        if not is_secure_transport(token_url):
++            raise InsecureTransportError()
++
++        refresh_token = refresh_token or self.token.get("refresh_token")
++
++        log.debug(
++            "Adding auto refresh key word arguments %s.", self.auto_refresh_kwargs
++        )
++        kwargs.update(self.auto_refresh_kwargs)
++        body = self._client.prepare_refresh_body(
++            body=body, refresh_token=refresh_token, scope=self.scope, **kwargs
++        )
++        log.debug("Prepared refresh token request body %s", body)
++
++        if headers is None:
++            headers = {
++                "Accept": "application/json",
++                "Content-Type": ("application/x-www-form-urlencoded"),
++            }
++
++        for hook in self.compliance_hook["refresh_token_request"]:
++            log.debug("Invoking refresh_token_request hook %s.", hook)
++            token_url, headers, body = hook(token_url, headers, body)
++
++        r = self.post(
++            token_url,
++            data=dict(urldecode(body)),
++            auth=auth,
++            timeout=timeout,
++            headers=headers,
++            verify=verify,
++            withhold_token=True,
++            proxies=proxies,
++        )
++        log.debug("Request to refresh token completed with status %s.", r.status_code)
++        log.debug("Response headers were %s and content %s.", r.headers, r.text)
++        log.debug(
++            "Invoking %d token response hooks.",
++            len(self.compliance_hook["refresh_token_response"]),
++        )
++        for hook in self.compliance_hook["refresh_token_response"]:
++            log.debug("Invoking hook %s.", hook)
++            r = hook(r)
++
++        self.token = self._client.parse_request_body_response(r.text, scope=self.scope)
++        if "refresh_token" not in self.token:
++            log.debug("No new refresh token given. Re-using old.")
++            self.token["refresh_token"] = refresh_token
++        return self.token
++
++    def request(
++        self,
++        method,
++        url,
++        data=None,
++        headers=None,
++        withhold_token=False,
++        client_id=None,
++        client_secret=None,
++        files=None,
++        **kwargs
++    ):
++        """Intercept all requests and add the OAuth 2 token if present."""
++        if not is_secure_transport(url):
++            raise InsecureTransportError()
++        if self.token and not withhold_token:
++            log.debug(
++                "Invoking %d protected resource request hooks.",
++                len(self.compliance_hook["protected_request"]),
++            )
++            for hook in self.compliance_hook["protected_request"]:
++                log.debug("Invoking hook %s.", hook)
++                url, headers, data = hook(url, headers, data)
++
++            log.debug("Adding token %s to request.", self.token)
++            try:
++                url, headers, data = self._client.add_token(
++                    url, http_method=method, body=data, headers=headers
++                )
++            # Attempt to retrieve and save new access token if expired
++            except TokenExpiredError:
++                if self.auto_refresh_url:
++                    log.debug(
++                        "Auto refresh is set, attempting to refresh at %s.",
++                        self.auto_refresh_url,
++                    )
++
++                    # We mustn't pass auth twice.
++                    auth = kwargs.pop("auth", None)
++                    if client_id and client_secret and (auth is None):
++                        log.debug(
++                            'Encoding client_id "%s" with client_secret as Basic auth credentials.',
++                            client_id,
++                        )
++                        auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
++                    token = self.refresh_token(
++                        self.auto_refresh_url, auth=auth, **kwargs
++                    )
++                    if self.token_updater:
++                        log.debug(
++                            "Updating token to %s using %s.", token, self.token_updater
++                        )
++                        self.token_updater(token)
++                        url, headers, data = self._client.add_token(
++                            url, http_method=method, body=data, headers=headers
++                        )
++                    else:
++                        raise TokenUpdated(token)
++                else:
++                    raise
++
++        log.debug("Requesting url %s using method %s.", url, method)
++        log.debug("Supplying headers %s and data %s", headers, data)
++        log.debug("Passing through key word arguments %s.", kwargs)
++        return super(OAuth2Session, self).request(
++            method, url, headers=headers, data=data, files=files, **kwargs
++        )
++
++    def register_compliance_hook(self, hook_type, hook):
++        """Register a hook for request/response tweaking.
++
++        Available hooks are:
++            access_token_response invoked before token parsing.
++            refresh_token_response invoked before refresh token parsing.
++            protected_request invoked before making a request.
++            access_token_request invoked before making a token fetch request.
++            refresh_token_request invoked before making a refresh request.
++
++        If you find a new hook is needed please send a GitHub PR request
++        or open an issue.
++        """
++        if hook_type not in self.compliance_hook:
++            raise ValueError(
++                "Hook type %s is not in %s.", hook_type, self.compliance_hook
++            )
++        self.compliance_hook[hook_type].add(hook)
