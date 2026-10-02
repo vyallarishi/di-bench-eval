@@ -20,6 +20,13 @@ from prepare import apply_patch_text, git_diff, section_span, balanced_end  # no
 
 NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 norm = lambda n: n.lower().replace('-', '_').replace('.', '_')
+
+
+def pip_cmd(pip):
+    """Run pip through its interpreter: venv launchers can fail to exec with a long path."""
+    p = pathlib.Path(pip)
+    py = p.parent / 'python'
+    return [str(py), '-m', 'pip'] if p.name.startswith('pip') and py.exists() else [pip]
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / 'predictions' / 'cheats' / 'python'
 
@@ -123,7 +130,7 @@ def write_stub_package(dst_root, root, symbols):
 def vendor_package(pip, dep, dst_root):
     """pip-download D's wheel and copy its top-level packages into dst_root. Returns copied names or None."""
     with tempfile.TemporaryDirectory() as td:
-        r = subprocess.run([pip, 'download', '--no-deps', '--only-binary=:all:', '-q', '-d', td, dep], capture_output=True, text=True)
+        r = subprocess.run([*pip_cmd(pip), 'download', '--no-deps', '--only-binary=:all:', '-q', '-d', td, dep], capture_output=True, text=True)
         wheels = list(pathlib.Path(td).glob('*.whl'))
         if r.returncode != 0 or not wheels: return None
         copied = []

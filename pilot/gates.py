@@ -15,6 +15,13 @@ import collections, difflib, io, json, pathlib, re, subprocess, sys, tempfile, z
 
 PREFIX = re.compile(r"^\[[^\]]*\]\s*\|?\s*", re.M)
 norm = lambda n: n.lower().replace('-', '_').replace('.', '_')
+
+
+def pip_cmd(pip):
+    """Run pip through its interpreter: venv launchers can fail to exec with a long path."""
+    p = pathlib.Path(pip)
+    py = p.parent / 'python'
+    return [str(py), '-m', 'pip'] if p.name.startswith('pip') and py.exists() else [pip]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'scripts' / 'gh'))
 from mechanism import installed_anyway  # noqa: E402
 
@@ -26,7 +33,7 @@ def wheel_sources(dep):
     if dep in WHEEL_CACHE: return WHEEL_CACHE[dep]
     srcs = {}
     with tempfile.TemporaryDirectory() as td:
-        r = subprocess.run([pip, 'download', '--no-deps', '--only-binary=:all:', '-q', '-d', td, dep], capture_output=True, text=True)
+        r = subprocess.run([*pip_cmd(pip), 'download', '--no-deps', '--only-binary=:all:', '-q', '-d', td, dep], capture_output=True, text=True)
         for w in pathlib.Path(td).glob('*.whl'):
             with zipfile.ZipFile(w) as z:
                 for n in z.namelist():
