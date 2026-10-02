@@ -34,6 +34,19 @@ TOOLS = [
     {"type": "function", "function": {"name": "finish", "description": "Declare the task complete.", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}}},
 ]
 SKIP = {'.git', 'build', 'dist', '.tox', 'venv', '.venv', 'node_modules', '__pycache__'}
+
+HISTORY_WINDOW = 5  # SWE-agent: observations preceding the last 5 are collapsed to one line
+
+
+def collapse_history(msgs):
+    """Elide the content of tool observations older than the last HISTORY_WINDOW."""
+    idx = [i for i, m in enumerate(msgs) if isinstance(m, dict) and m.get('role') == 'tool']
+    for i in idx[:-HISTORY_WINDOW] if len(idx) > HISTORY_WINDOW else []:
+        c = msgs[i].get('content') or ''
+        if not c.startswith('[elided'):
+            msgs[i] = dict(msgs[i], content=f'[elided {len(c)} characters of earlier output]')
+    return msgs
+
 SPEND = {'prompt': 0, 'completion': 0, 'cost': 0.0}
 BUDGET = float(os.environ.get('AGENT_BUDGET_USD', '2.50'))
 MAX_PROMPT_TOKENS_PER_INSTANCE = int(os.environ.get('AGENT_MAX_PROMPT_TOKENS', '200000'))
@@ -56,10 +69,11 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
         for step in range(max_steps):
             if time.time() - t_start > 900:
                 traj.append({'role': 'system', 'content': 'stopped: 15 minute cap'}); break
+            collapse_history(msgs)
             resp = None
             for attempt in range(4):
                 try:
-                    resp = client.chat.completions.create(model=model, messages=msgs, tools=TOOLS, tool_choice="auto", temperature=0.0,
+                    resp = client.chat.completions.create(model=model, messages=msgs, tools=TOOLS, tool_choice="auto", temperature=0.0, top_p=1.0,
                                                           extra_body={"usage": {"include": True}}, timeout=180)
                     break
                 except Exception as e:  # rate limits, transient 5xx
@@ -88,7 +102,11 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
                 elif name == 'list_files':
                     result = '\n'.join(sorted(str(x.relative_to(td)) for x in (p if p.is_dir() else td).rglob('*') if x.is_file() and not any(s in x.parts for s in SKIP))[:400])
                 elif name == 'read_file':
-                    result = p.read_text(errors='ignore')[:20000] if p.is_file() else 'error: no such file'
+                    if p.is_file():
+                        txt = p.read_text(errors='ignore')[:20000]
+                        result = '\n'.join(f'{n:4d} {line}' for n, line in enumerate(txt.splitlines(), 1))
+                    else:
+                        result = 'error: no such file'
                 elif name == 'write_file':
                     p.parent.mkdir(parents=True, exist_ok=True); p.write_text(args.get('content', '')); result = f'wrote {p.relative_to(td)}'
                 elif name == 'grep':
