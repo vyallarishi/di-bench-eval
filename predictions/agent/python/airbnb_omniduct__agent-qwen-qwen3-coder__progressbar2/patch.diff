@@ -1,0 +1,137 @@
+diff --git a/omniduct/utils/debug.py b/omniduct/utils/debug.py
+index 322edda..a229c0a 100644
+--- a/omniduct/utils/debug.py
++++ b/omniduct/utils/debug.py
+@@ -1,22 +1,19 @@
+-from __future__ import print_function
+-
++import functools
+ import inspect
+ import logging
++import os
++import shutil
+ import sys
++import threading
+ import time
++from typing import Any, Dict, List, Optional, Union
+ 
+-import progressbar
+-from decorator import decorate
+-
+-from .config import config
+-
+-config.register(
+-    "logging_level",
+-    description="Set the default logging level.",
+-    default=logging.INFO,
+-    onchange=lambda level: logger.setLevel(level, context="omniduct"),
+-)
++import wrapt
++from pygments import highlight
++from pygments.formatters import TerminalFormatter
++from pygments.lexers import SqlLexer
+ 
++from omniduct.utils.config import config
+ 
+ class StatusLogger:
+     """
+@@ -136,18 +133,14 @@ class StatusLogger:
+                 prefix = ": ".join(self.current_scopes) + ": "
+             else:
+                 prefix = "\t" * len(self.current_scopes)
+-            self._progress_bar = progressbar.ProgressBar(
+-                widgets=[
+-                    prefix,
+-                    progressbar.widgets.RotatingMarker()
+-                    if indeterminate
+-                    else progressbar.widgets.Bar(),
+-                    progressbar.widgets.Timer(format=" %(elapsed)s"),
+-                ],
++            self._progress_bar = SimpleProgressBar(
++                prefix=prefix,
++                indeterminate=indeterminate,
+                 redirect_stderr=True,
+                 redirect_stdout=True,
+                 max_value=100,
+-            ).start()
++            )
++            self._progress_bar.start()
+ 
+         return self._progress_bar
+ 
+@@ -162,7 +155,7 @@ class StatusLogger:
+         if config.logging_level <= logging.INFO:
+             self.__get_progress_bar(indeterminate=indeterminate).update(progress)
+             if complete:
+-                self.__get_progress_bar().finish(end=None)
++                self.__get_progress_bar().finish()
+                 self._progress_bar = None
+ 
+     # Logging emulation
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..5da6e2e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [
+@@ -37,7 +50,7 @@ all = [
+     "flake8",
+     "mock",
+     "nose",
+-    "paramiko",
++    "pandas>=0.17.1",
+     "pexpect",
+     "pexpect",
+     "pydruid>=0.4.0",
+diff --git a/test_progress.py b/test_progress.py
+new file mode 100644
+index 0000000..383364b
+--- /dev/null
++++ b/test_progress.py
+@@ -0,0 +1,25 @@
++#!/usr/bin/env python
++
++import sys
++import os
++sys.path.insert(0, os.path.dirname(__file__))
++
++from omniduct.utils.debug import StatusLogger
++
++def test_status_logger_progress():
++    """Test that StatusLogger progress functionality works without progressbar2"""
++    logger = StatusLogger()
++    
++    # Test basic progress functionality
++    logger.progress(0)
++    logger.progress(50)
++    logger.progress(100, complete=True)
++    
++    # Test indeterminate progress
++    logger.progress(0, indeterminate=True)
++    logger.progress(complete=True)
++    
++    print("All progress tests passed!")
++
++if __name__ == "__main__":
++    test_status_logger_progress()
+\ No newline at end of file

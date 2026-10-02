@@ -1,0 +1,482 @@
+[
+ {
+  "role": "assistant",
+  "content": "I'll start by examining the files that import sqlalchemy_utils and the pyproject.toml file to understand the current usage.\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"sqlalchemy_searchable/__init__.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import os\n   2 from functools import reduce\n   3 \n   4 import sqlalchemy as sa\n   5 from sqlalchemy import event\n   6 from sqlalchemy.ext.compiler import compiles\n   7 from sqlalchemy.schema import DDL, DDLElement\n   8 from sqlalchemy.sql.expression import Executable\n   9 from sqlalchemy_utils import TSVectorType\n  10 \n  11 from .vectorizers import Vectorizer\n  12 \n  13 __version__ = \"2.1.0\"\n  14 \n  15 \n  16 vectorizer = Vectorizer()\n  17 \"\"\"\n  18 An instance of :class:`Vectorizer` that keeps a track of the registered vectorizers. Use\n  19 this as a decorator to register a function as a vectorizer.\n  20 \"\"\"\n  21 \n  22 \n  23 class SearchQueryMixin:\n  24     def search(self, search_query, vector=None, regconfig=None, sort=False):\n  25         \"\"\"\n  26         Search given query with full text search.\n  27 \n  28         :param search_query: the search query\n  29         :param vector: search vector to use\n  30         :param regconfig: postgresql regconfig to be used\n  31         :param sort: order results by relevance (quality of hit)\n  32         \"\"\"\n  33         return search(self, search_query, vector=vector, regconfig=regconfig, sort=sort)\n  34 \n  35 \n  36 def inspect_search_vectors(entity):\n  37     return [\n  38         getattr(entity, key).property.columns[0]\n  39         for key, column in sa.inspect(entity).columns.items()\n  40         if isinstance(column.type, TSVectorType)\n  41     ]\n  42 \n  43 \n  44 def search(query, search_query, vector=None, regconfig=None, sort=False):\n  45     \"\"\"\n  46     Search given query with full text search.\n  47 \n  48     :param search_query: the search query\n  49     :param vector: search vector to use\n  50     :param regconfig: postgresql regconfig to be used\n  51     :param sort: Order the results by relevance. This uses `cover density`_ ranking\n  52         algorithm (``ts_rank_cd``) for sorting.\n  53 \n  54     .. _cover density: https://www.postgresql.org/docs/devel/textsearch-controls.html#TEXTSEARCH-RANKING\n  55    "
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me see more of this file to understand the full usage of TSVectorType:\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"sqlalchemy_searchable/__init__.py\", \"start_line\": 100}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 100 \n 101     @property\n 102     def table_name(self):\n 103         if self.table.schema:\n 104             return f'{self.table.schema}.\"{self.table.name}\"'\n 105         else:\n 106             return '\"' + self.table.name + '\"'\n 107 \n 108     @property\n 109     def search_function_name(self):\n 110         return self.options[\"search_trigger_function_name\"].format(\n 111             table=self.table.name, column=self.tsvector_column.name\n 112         )\n 113 \n 114     @property\n 115     def search_trigger_name(self):\n 116         return self.options[\"search_trigger_name\"].format(\n 117             table=self.table.name, column=self.tsvector_column.name\n 118         )\n 119 \n 120     def column_vector(self, column):\n 121         value = sa.text(f\"NEW.{sa.column(column.name)}\")\n 122         try:\n 123             vectorizer_func = vectorizer[column]\n 124         except KeyError:\n 125             pass\n 126         else:\n 127             value = vectorizer_func(value)\n 128         value = sa.func.coalesce(value, sa.text(\"''\"))\n 129         value = sa.func.to_tsvector(sa.literal(self.options[\"regconfig\"]), value)\n 130         if column.name in self.options[\"weights\"]:\n 131             weight = self.options[\"weights\"][column.name]\n 132             value = sa.func.setweight(value, weight)\n 133         return value\n 134 \n 135     def search_vector(self, compiler):\n 136         vectors = (\n 137             self.column_vector(getattr(self.table.c, column_name))\n 138             for column_name in self.indexed_columns\n 139         )\n 140         concatenated = reduce(lambda x, y: x.op(\"||\")(y), vectors)\n 141         return compiler.sql_compiler.process(concatenated, literal_binds=True)\n 142 \n 143 \n 144 class CreateSearchFunctionSQL(SQLConstruct, DDLElement, Executable):\n 145     pass\n 146 \n 147 \n 148 @compiles(CreateSearchFunctionSQL)\n 149 def compile_create_search_function_sql(element, compiler):\n 150     return f\"\"\"CREATE FUNCTION\n 151             {element.search_function_name}()"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check the rest of the file to see if there are any other imports or uses of sqlalchemy_utils:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"sqlalchemy_searchable/__init__.py\", \"start_line\": 300}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 300     \"\"\"Synchronize the search trigger and trigger function for the given table and\n 301     search vector column. Internally, this function executes the following SQL\n 302     queries:\n 303 \n 304     - Drop the search trigger for the given table and column if it exists.\n 305     - Drop the search function for the given table and column if it exists.\n 306     - Create the search function for the given table and column.\n 307     - Create the search trigger for the given table and column.\n 308     - Update all rows for the given search vector by executing a column=column update\n 309       query for the given table.\n 310 \n 311     Example::\n 312 \n 313         from sqlalchemy_searchable import sync_trigger\n 314 \n 315 \n 316         sync_trigger(\n 317             conn,\n 318             'article',\n 319             'search_vector',\n 320             ['name', 'content']\n 321         )\n 322 \n 323     This function is especially useful when working with Alembic migrations. In the\n 324     following example, we add a ``content`` column to the ``article`` table and then\n 325     synchronize the trigger to contain this new column::\n 326 \n 327         from alembic import op\n 328         from sqlalchemy_searchable import sync_trigger\n 329 \n 330 \n 331         def upgrade():\n 332             conn = op.get_bind()\n 333             op.add_column('article', sa.Column('content', sa.Text))\n 334 \n 335             sync_trigger(conn, 'article', 'search_vector', ['name', 'content'])\n 336 \n 337         # ... same for downgrade\n 338 \n 339     If you are using vectorizers, you need to initialize them in your migration\n 340     file and pass them to this function::\n 341 \n 342         import sqlalchemy as sa\n 343         from alembic import op\n 344         from sqlalchemy.dialects.postgresql import HSTORE\n 345         from sqlalchemy_searchable import sync_trigger, vectorizer\n 346 \n 347 \n 348         def upgrade():\n 349             vectorizer.clear()\n 350 \n 351             conn = op.get_bind()\n "
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me check the pyproject.toml file to see the dependencies:\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires      = [\"hatchling\"]\n   3 build-backend = \"hatchling.build\"\n   4 \n   5 [project]\n   6 name = \"sqlalchemy-searchable\"\n   7 dynamic = [\"version\"]\n   8 description = \"Provides fulltext search capabilities for declarative SQLAlchemy models.\"\n   9 readme = \"README.rst\"\n  10 license = \"bsd-3-clause\"\n  11 requires-python = \">=3.8\"\n  12 authors = [\n  13     { name = \"Konsta Vesterinen\", email = \"konsta@fastmonkeys.com\" },\n  14 ]\n  15 classifiers = [\n  16     \"Environment :: Web Environment\",\n  17     \"Intended Audience :: Developers\",\n  18     \"License :: OSI Approved :: BSD License\",\n  19     \"Operating System :: OS Independent\",\n  20     \"Programming Language :: Python\",\n  21     \"Programming Language :: Python :: 3\",\n  22     \"Programming Language :: Python :: 3.8\",\n  23     \"Programming Language :: Python :: 3.9\",\n  24     \"Programming Language :: Python :: 3.10\",\n  25     \"Programming Language :: Python :: 3.11\",\n  26     \"Programming Language :: Python :: 3.12\",\n  27     \"Topic :: Internet :: WWW/HTTP :: Dynamic Content\",\n  28     \"Topic :: Software Development :: Libraries :: Python Modules\",\n  29 ]\n  30 dependencies = [\n  31     \"SQLAlchemy-Utils>=0.40.0\",\n  32     \"SQLAlchemy>=1.4\",\n  33 ]\n  34 \n  35 [project.urls]\n  36 Code            = \"https://github.com/falcony-io/sqlalchemy-searchable\"\n  37 Documentation   = \"https://sqlalchemy-searchable.readthedocs.io/\"\n  38 \"Issue Tracker\" = \"http://github.com/falcony-io/sqlalchemy-searchable/issues\"\n  39 \n  40 [tool.hatch.version]\n  41 path = \"sqlalchemy_searchable/__init__.py\"\n  42 \n  43 [tool.hatch.build.targets.sdist]\n  44 include = [\n  45     \"/CHANGES.rst\",\n  46     \"/docs\",\n  47     \"/sqlalchemy_searchable\",\n  48     \"/tests\",\n  49 ]\n  50 exclude = [\n  51     \"/docs/_build\",\n  52 ]\n  53 \n  54 [tool.ruff.lint]\n  55 select = [\"E\", \"F\", \"I\", \"UP\"]\n  56 \n  57 [tool.ruff.lint.isort]\n  58 known-first-party = [\"sqlalchemy_searchable\", \"tests\"]\n  59 order-by-type     = false"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me search for any other files that might use sqlalchemy_utils:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"sqlalchemy_utils\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "tests/conftest.py:20: from sqlalchemy_utils import TSVectorType\ntests/test_single_table_inheritance.py:3: from sqlalchemy_utils import TSVectorType\ntests/test_weighted_search_vector.py:6: from sqlalchemy_utils import TSVectorType\ntests/test_schema_creation.py:3: from sqlalchemy_utils import TSVectorType\ntests/test_multiple_vectors_per_class.py:3: from sqlalchemy_utils import TSVectorType\ntests/test_vectorizers.py:4: from sqlalchemy_utils import TSVectorType\ndocs/conf.py:271: \"sqlalchemy_utils\": (\"https://sqlalchemy-utils.readthedocs.io/en/latest/\", None),\nsqlalchemy_searchable/__init__.py:9: from sqlalchemy_utils import TSVectorType"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me check what TSVectorType is used for in the code. Let me look at a test file to understand the usage pattern:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/test_schema_creation.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy_utils import TSVectorType\n   4 \n   5 from tests.schema_test_case import SchemaTestCase\n   6 \n   7 \n   8 class TestAutomaticallyCreatedSchemaItems(SchemaTestCase):\n   9     @pytest.fixture\n  10     def should_create_indexes(self):\n  11         return [\n  12             \"ix_textitem_content_search_vector\",\n  13             \"ix_textitem_search_vector\",\n  14         ]\n  15 \n  16     @pytest.fixture\n  17     def should_create_triggers(self):\n  18         return [\n  19             \"textitem_content_search_vector_trigger\",\n  20             \"textitem_search_vector_trigger\",\n  21         ]\n  22 \n  23 \n  24 class TestSearchVectorWithoutColumns(SchemaTestCase):\n  25     @pytest.fixture\n  26     def should_create_indexes(self):\n  27         return [\"ix_textitem_search_vector\"]\n  28 \n  29     @pytest.fixture\n  30     def should_create_triggers(self):\n  31         return []\n  32 \n  33     @pytest.fixture\n  34     def models(self, Base):\n  35         class TextItem(Base):\n  36             __tablename__ = \"textitem\"\n  37 \n  38             id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  39 \n  40             name = sa.Column(sa.String(255))\n  41 \n  42             search_vector = sa.Column(TSVectorType(auto_index=True))\n  43 \n  44             content = sa.Column(sa.Text)"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check the main __init__.py file more carefully to understand how TSVectorType is used:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"sqlalchemy_searchable/__init__.py\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import os\n   2 from functools import reduce\n   3 \n   4 import sqlalchemy as sa\n   5 from sqlalchemy import event\n   6 from sqlalchemy.ext.compiler import compiles\n   7 from sqlalchemy.schema import DDL, DDLElement\n   8 from sqlalchemy.sql.expression import Executable\n   9 from sqlalchemy_utils import TSVectorType\n  10 \n  11 from .vectorizers import Vectorizer\n  12 \n  13 __version__ = \"2.1.0\"\n  14 \n  15 \n  16 vectorizer = Vectorizer()\n  17 \"\"\"\n  18 An instance of :class:`Vectorizer` that keeps a track of the registered vectorizers. Use\n  19 this as a decorator to register a function as a vectorizer.\n  20 \"\"\"\n  21 \n  22 \n  23 class SearchQueryMixin:\n  24     def search(self, search_query, vector=None, regconfig=None, sort=False):\n  25         \"\"\"\n  26         Search given query with full text search.\n  27 \n  28         :param search_query: the search query\n  29         :param vector: search vector to use\n  30         :param regconfig: postgresql regconfig to be used\n  31         :param sort: order results by relevance (quality of hit)\n  32         \"\"\"\n  33         return search(self, search_query, vector=vector, regconfig=regconfig, sort=sort)\n  34 \n  35 \n  36 def inspect_search_vectors(entity):\n  37     return [\n  38         getattr(entity, key).property.columns[0]\n  39         for key, column in sa.inspect(entity).columns.items()\n  40         if isinstance(column.type, TSVectorType)\n  41     ]\n  42 \n  43 \n  44 def search(query, search_query, vector=None, regconfig=None, sort=False):\n  45     \"\"\"\n  46     Search given query with full text search.\n  47 \n  48     :param search_query: the search query\n  49     :param vector: search vector to use\n  50     :param regconfig: postgresql regconfig to be used\n  51     :param sort: Order the results by relevance. This uses `cover density`_ ranking\n  52         algorithm (``ts_rank_cd``) for sorting.\n  53 \n  54     .. _cover density: https://www.postgresql.org/docs/devel/textsearch-controls.html#TEXTSEARCH-RANKING\n  55    "
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to understand what TSVectorType does. Looking at the code, it seems to be a SQLAlchemy type for PostgreSQL's TSVECTOR type. The key usage is in the `inspect_search_vectors` function which checks if a column type is an instance of TSVectorType. We need to replace this with our own implementation or use SQLAlchemy's built-in types.\n\nLet me check if SQLAlchemy has a TSVECTOR type built-in. Let me search for PostgreSQL types in SQLAlchemy:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"postgresql.*TSVECTOR|TSVECTOR.*postgresql\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "no matches"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check the SQLAlchemy documentation by looking at the imports and usage. Actually, I should check if there's a PostgreSQL TSVECTOR type in SQLAlchemy itself. Let me look at the test files to understand better how TSVectorType is used:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/conftest.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import os\n   2 \n   3 import pytest\n   4 from sqlalchemy import (\n   5     Column,\n   6     create_engine,\n   7     DateTime,\n   8     ForeignKey,\n   9     Integer,\n  10     String,\n  11     Text,\n  12     text,\n  13 )\n  14 from sqlalchemy.orm import (\n  15     close_all_sessions,\n  16     configure_mappers,\n  17     declarative_base,\n  18     sessionmaker,\n  19 )\n  20 from sqlalchemy_utils import TSVectorType\n  21 \n  22 from sqlalchemy_searchable import (\n  23     make_searchable,\n  24     remove_listeners,\n  25     search_manager,\n  26     vectorizer,\n  27 )\n  28 \n  29 try:\n  30     import __pypy__\n  31 except ImportError:\n  32     __pypy__ = None\n  33 \n  34 \n  35 if __pypy__:\n  36     from psycopg2cffi import compat\n  37 \n  38     compat.register()\n  39 \n  40 \n  41 def pytest_configure(config):\n  42     config.addinivalue_line(\n  43         \"markers\",\n  44         \"postgresql_min_version(min_version): \"\n  45         \"skip the test if PostgreSQL version is less than min_version\",\n  46     )\n  47     config.addinivalue_line(\n  48         \"markers\",\n  49         \"postgresql_max_version(max_version): \"\n  50         \"skip the test if PostgreSQL version is greater than max_version\",\n  51     )\n  52 \n  53 \n  54 @pytest.fixture\n  55 def engine():\n  56     db_user = os.environ.get(\"SQLALCHEMY_SEARCHABLE_TEST_USER\", \"postgres\")\n  57     db_password = os.environ.get(\"SQLALCHEMY_SEARCHABLE_TEST_PASSWORD\", \"\")\n  58     db_name = os.environ.get(\n  59         \"SQLALCHEMY_SEARCHABLE_TEST_DB\", \"sqlalchemy_searchable_test\"\n  60     )\n  61     url = f\"postgresql://{db_user}:{db_password}@localhost/{db_name}\"\n  62 \n  63     engine = create_engine(url, future=True)\n  64     with engine.begin() as conn:\n  65         conn.execute(text(\"CREATE EXTENSION IF NOT EXISTS hstore\"))\n  66 \n  67     yield engine\n  68     engine.dispose()\n  69 \n  70 \n  71 @pytest.fixture\n  72 def postgresql_version(engine):\n  73     with engine.connect():\n  74         major, _ = engine.dialect.server_version"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to understand what TSVectorType provides. Looking at the code, it seems to be a custom SQLAlchemy type for PostgreSQL's TSVECTOR. We can create our own TSVectorType class that doesn't depend on sqlalchemy_utils. Let me check what attributes and methods TSVectorType has by looking at how it's used:\n\n1. In `inspect_search_vectors`, it checks `isinstance(column.type, TSVectorType)`\n2. In test files, it's used as a column type: `search_vector = sa.Column(TSVectorType(auto_index=True))`\n3. It seems to have `columns` and `options` attributes based on the code in `SQLConstruct.__init__`\n\nLet me create a custom TSVectorType class. First, let me check if SQLAlchemy has a PostgreSQL dialect with TSVECTOR support:\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"class.*TSVectorType|TSVectorType.*class\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "no matches"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check the entire repository structure to understand what files we have:\n\n",
+  "tool_calls": [
+   {
+    "name": "list_files",
+    "args": "{\"path\": \"\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "list_files",
+  "content": ".github/workflows/lint.yml\n.github/workflows/test.yml\n.gitignore\n.readthedocs.yaml\nCHANGES.rst\nLICENSE\nREADME.rst\ndocs/Makefile\ndocs/alembic_migrations.rst\ndocs/conf.py\ndocs/configuration.rst\ndocs/index.rst\ndocs/integrations.rst\ndocs/make.bat\ndocs/quickstart.rst\ndocs/requirements.in\ndocs/requirements.txt\ndocs/search_query_parser.rst\ndocs/vectorizers.rst\npyproject.toml\nsqlalchemy_searchable/__init__.py\nsqlalchemy_searchable/expressions.sql\nsqlalchemy_searchable/vectorizers.py\ntests/__init__.py\ntests/conftest.py\ntests/schema_test_case.py\ntests/test_class_configuration.py\ntests/test_drop_trigger.py\ntests/test_multiple_vectors_per_class.py\ntests/test_schema_creation.py\ntests/test_searchable.py\ntests/test_single_table_inheritance.py\ntests/test_sql_functions.py\ntests/test_sync_trigger.py\ntests/test_vectorizers.py\ntests/test_weighted_search_vector.py\ntox.ini"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me check the vectorizers.py file to see if it uses sqlalchemy_utils:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"sqlalchemy_searchable/vectorizers.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 from functools import wraps\n   2 from inspect import isclass\n   3 \n   4 import sqlalchemy as sa\n   5 from sqlalchemy.orm.attributes import InstrumentedAttribute\n   6 from sqlalchemy.sql.type_api import TypeEngine\n   7 \n   8 \n   9 class Vectorizer:\n  10     def __init__(self, type_vectorizers=None, column_vectorizers=None):\n  11         self.type_vectorizers = {} if type_vectorizers is None else type_vectorizers\n  12         self.column_vectorizers = (\n  13             {} if column_vectorizers is None else column_vectorizers\n  14         )\n  15 \n  16     def clear(self):\n  17         \"\"\"Clear all registered vectorizers.\"\"\"\n  18         self.type_vectorizers = {}\n  19         self.column_vectorizers = {}\n  20 \n  21     def contains_tsvector(self, tsvector_column):\n  22         if not hasattr(tsvector_column.type, \"columns\"):\n  23             return False\n  24         return any(\n  25             getattr(tsvector_column.table.c, column) in self\n  26             for column in tsvector_column.type.columns\n  27         )\n  28 \n  29     def __contains__(self, column):\n  30         try:\n  31             self[column]\n  32             return True\n  33         except KeyError:\n  34             return False\n  35 \n  36     def __getitem__(self, column):\n  37         if column in self.column_vectorizers:\n  38             return self.column_vectorizers[column]\n  39         type_class = column.type.__class__\n  40 \n  41         if type_class in self.type_vectorizers:\n  42             return self.type_vectorizers[type_class]\n  43         raise KeyError(column)\n  44 \n  45     def __call__(self, type_or_column):\n  46         \"\"\"Decorator to register a function as a vectorizer.\n  47 \n  48         :param type_or_column: the SQLAlchemy database data type or the column to\n  49             register a vectorizer for\n  50         \"\"\"\n  51 \n  52         def outer(func):\n  53             @wraps(func)\n  54             def wrapper(*args, **kwargs):\n  55                 return func(*args, **k"
+ },
+ {
+  "role": "assistant",
+  "content": "Good, vectorizers.py doesn't import sqlalchemy_utils. Now let me check the test files to see how TSVectorType is used in tests:\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/test_schema_creation.py\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy_utils import TSVectorType\n   4 \n   5 from tests.schema_test_case import SchemaTestCase\n   6 \n   7 \n   8 class TestAutomaticallyCreatedSchemaItems(SchemaTestCase):\n   9     @pytest.fixture\n  10     def should_create_indexes(self):\n  11         return [\n  12             \"ix_textitem_content_search_vector\",\n  13             \"ix_textitem_search_vector\",\n  14         ]\n  15 \n  16     @pytest.fixture\n  17     def should_create_triggers(self):\n  18         return [\n  19             \"textitem_content_search_vector_trigger\",\n  20             \"textitem_search_vector_trigger\",\n  21         ]\n  22 \n  23 \n  24 class TestSearchVectorWithoutColumns(SchemaTestCase):\n  25     @pytest.fixture\n  26     def should_create_indexes(self):\n  27         return [\"ix_textitem_search_vector\"]\n  28 \n  29     @pytest.fixture\n  30     def should_create_triggers(self):\n  31         return []\n  32 \n  33     @pytest.fixture\n  34     def models(self, Base):\n  35         class TextItem(Base):\n  36             __tablename__ = \"textitem\"\n  37 \n  38             id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  39 \n  40             name = sa.Column(sa.String(255))\n  41 \n  42             search_vector = sa.Column(TSVectorType(auto_index=True))\n  43 \n  44             content = sa.Column(sa.Text)"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to understand what TSVectorType from sqlalchemy_utils provides. Based on the usage, it seems to be a SQLAlchemy type for PostgreSQL's TSVECTOR with additional attributes like `columns` and `options`. Let me check if we can create our own TSVectorType class. \n\nLooking at the code in `sqlalchemy_searchable/__init__.py`, the key uses are:\n1. `isinstance(column.type, TSVectorType)` in `inspect_search_vectors`\n2. Accessing `column.type.columns` and `column.type.options` in `SQLConstruct.__init__`\n\nWe need to create our own TSVectorType class that:\n1. Inherits from `sqlalchemy.types.TypeEngine` or similar\n2. Has `columns` and `options` attributes\n3. Can be used as a SQLAlchemy column type\n\nLet me check what SQLAlchemy's PostgreSQL dialect provides. Actually, let me first create a simple TSVectorType class and then update the imports. Let me start by editing the main __init__.py file to remove the sqlalchemy_utils import and add our own TSVectorType:\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"sqlalchemy_searchable/__init__.py\", \"start_line\": 1, \"end_line\": 30, \"replacement_text\": \"import re\\nimport warnings\\nfrom collections import defaultdict\\nfrom contextlib import contextmanager\\nfrom copy import copy\\nfrom functools import partial\\nfrom itertools import chain\\n\\nimport sqlalchemy as sa\\nfrom sqlalchemy import event, inspect\\nfrom sqlalchemy.dialects import postgresql\\nfrom sqlalchemy.engine import Engine\\nfrom sqlalchemy.ext.compiler import compiles\\nfrom sqlalchemy.sql import expression\\nfrom sqlalchemy.sql.elements import ColumnElement\\nfrom sqlalchemy.sql.expression import func\\nfrom sqlalchemy.sql.functions import FunctionElement\\nfrom sqlalchemy.sql.type_api import TypeEngine\\nfrom sqlalchemy.types import TEXT\\n\\nfrom .vectorizers import Vectorizer\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edit rejected: syntax error after edit: line 22: unexpected indent"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check the exact lines first:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"sqlalchemy_searchable/__init__.py\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import os\n   2 from functools import reduce\n   3 \n   4 import sqlalchemy as sa\n   5 from sqlalchemy import event\n   6 from sqlalchemy.ext.compiler import compiles\n   7 from sqlalchemy.schema import DDL, DDLElement\n   8 from sqlalchemy.sql.expression import Executable\n   9 from sqlalchemy_utils import TSVectorType\n  10 \n  11 from .vectorizers import Vectorizer\n  12 \n  13 __version__ = \"2.1.0\"\n  14 \n  15 \n  16 vectorizer = Vectorizer()\n  17 \"\"\"\n  18 An instance of :class:`Vectorizer` that keeps a track of the registered vectorizers. Use\n  19 this as a decorator to register a function as a vectorizer.\n  20 \"\"\"\n  21 \n  22 \n  23 class SearchQueryMixin:\n  24     def search(self, search_query, vector=None, regconfig=None, sort=False):\n  25         \"\"\"\n  26         Search given query with full text search.\n  27 \n  28         :param search_query: the search query\n  29         :param vector: search vector to use\n  30         :param regconfig: postgresql regconfig to be used\n  31         :param sort: order results by relevance (quality of hit)\n  32         \"\"\"\n  33         return search(self, search_query, vector=vector, regconfig=regconfig, sort=sort)\n  34 \n  35 \n  36 def inspect_search_vectors(entity):\n  37     return [\n  38         getattr(entity, key).property.columns[0]\n  39         for key, column in sa.inspect(entity).columns.items()\n  40         if isinstance(column.type, TSVectorType)\n  41     ]\n  42 \n  43 \n  44 def search(query, search_query, vector=None, regconfig=None, sort=False):\n  45     \"\"\"\n  46     Search given query with full text search.\n  47 \n  48     :param search_query: the search query\n  49     :param vector: search vector to use\n  50     :param regconfig: postgresql regconfig to be used\n  51     :param sort: Order the results by relevance. This uses `cover density`_ ranking\n  52         algorithm (``ts_rank_cd``) for sorting.\n  53 \n  54     .. _cover density: https://www.postgresql.org/docs/devel/textsearch-controls.html#TEXTSEARCH-RANKING\n  55    "
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to replace the import of TSVectorType from sqlalchemy_utils with our own implementation. Let me first create a custom TSVectorType class. I'll edit the file to add it at the top after the imports:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"sqlalchemy_searchable/__init__.py\", \"start_line\": 1, \"end_line\": 12, \"replacement_text\": \"import os\\nfrom functools import reduce\\n\\nimport sqlalchemy as sa\\nfrom sqlalchemy import event\\nfrom sqlalchemy.ext.compiler import compiles\\nfrom sqlalchemy.schema import DDL, DDLElement\\nfrom sqlalchemy.sql.expression import Executable\\nfrom sqlalchemy.sql.type_api import TypeEngine\\n\\nfrom .vectorizers import Vectorizer\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited sqlalchemy_searchable/__init__.py (lines 1-12 -> 11 lines). Result:\n   1 import os\n   2 from functools import reduce\n   3 \n   4 import sqlalchemy as sa\n   5 from sqlalchemy import event\n   6 from sqlalchemy.ext.compiler import compiles\n   7 from sqlalchemy.schema import DDL, DDLElement\n   8 from sqlalchemy.sql.expression import Executable\n   9 from sqlalchemy.sql.type_api import TypeEngine\n  10 \n  11 from .vectorizers import Vectorizer\n  12 __version__ = \"2.1.0\"\n  13 \n  14 "
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to add our custom TSVectorType class. Let me add it right after the imports and before the version:\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"sqlalchemy_searchable/__init__.py\", \"start_line\": 12, \"end_line\": 12, \"replacement_text\": \"__version__ = \\\"2.1.0\\\"\\n\\n\\nclass TSVectorType(TypeEngine):\\n    \\\"\\\"\\\"Custom SQLAlchemy type for PostgreSQL TSVECTOR.\\\"\\\"\\\"\\n    \\n    def __init__(self, auto_index=False, columns=None, options=None):\\n        super().__init__()\\n        self.auto_index = auto_index\\n        self.columns = columns or []\\n        self.options = options or {}\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited sqlalchemy_searchable/__init__.py (lines 12-12 -> 11 lines). Result:\n   9 from sqlalchemy.sql.type_api import TypeEngine\n  10 \n  11 from .vectorizers import Vectorizer\n  12 __version__ = \"2.1.0\"\n  13 \n  14 \n  15 class TSVectorType(TypeEngine):\n  16     \"\"\"Custom SQLAlchemy type for PostgreSQL TSVECTOR.\"\"\"\n  17     \n  18     def __init__(self, auto_index=False, columns=None, options=None):\n  19         super().__init__()\n  20         self.auto_index = auto_index\n  21         self.columns = columns or []\n  22         self.options = options or {}\n  23 \n  24 \n  25 vectorizer = Vectorizer()"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to update the test files to import TSVectorType from our module instead of sqlalchemy_utils. Let me check all test files:\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"from sqlalchemy_utils import TSVectorType\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "tests/conftest.py:20: from sqlalchemy_utils import TSVectorType\ntests/test_single_table_inheritance.py:3: from sqlalchemy_utils import TSVectorType\ntests/test_weighted_search_vector.py:6: from sqlalchemy_utils import TSVectorType\ntests/test_schema_creation.py:3: from sqlalchemy_utils import TSVectorType\ntests/test_multiple_vectors_per_class.py:3: from sqlalchemy_utils import TSVectorType\ntests/test_vectorizers.py:4: from sqlalchemy_utils import TSVectorType"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to update all these test files to import TSVectorType from sqlalchemy_searchable instead. Let me start with conftest.py:\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/conftest.py\", \"start_line\": 15}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "  15     close_all_sessions,\n  16     configure_mappers,\n  17     declarative_base,\n  18     sessionmaker,\n  19 )\n  20 from sqlalchemy_utils import TSVectorType\n  21 \n  22 from sqlalchemy_searchable import (\n  23     make_searchable,\n  24     remove_listeners,\n  25     search_manager,\n  26     vectorizer,\n  27 )\n  28 \n  29 try:\n  30     import __pypy__\n  31 except ImportError:\n  32     __pypy__ = None\n  33 \n  34 \n  35 if __pypy__:\n  36     from psycopg2cffi import compat\n  37 \n  38     compat.register()\n  39 \n  40 \n  41 def pytest_configure(config):\n  42     config.addinivalue_line(\n  43         \"markers\",\n  44         \"postgresql_min_version(min_version): \"\n  45         \"skip the test if PostgreSQL version is less than min_version\",\n  46     )\n  47     config.addinivalue_line(\n  48         \"markers\",\n  49         \"postgresql_max_version(max_version): \"\n  50         \"skip the test if PostgreSQL version is greater than max_version\",\n  51     )\n  52 \n  53 \n  54 @pytest.fixture\n  55 def engine():\n  56     db_user = os.environ.get(\"SQLALCHEMY_SEARCHABLE_TEST_USER\", \"postgres\")\n  57     db_password = os.environ.get(\"SQLALCHEMY_SEARCHABLE_TEST_PASSWORD\", \"\")\n  58     db_name = os.environ.get(\n  59         \"SQLALCHEMY_SEARCHABLE_TEST_DB\", \"sqlalchemy_searchable_test\"\n  60     )\n  61     url = f\"postgresql://{db_user}:{db_password}@localhost/{db_name}\"\n  62 \n  63     engine = create_engine(url, future=True)\n  64     with engine.begin() as conn:\n  65         conn.execute(text(\"CREATE EXTENSION IF NOT EXISTS hstore\"))\n  66 \n  67     yield engine\n  68     engine.dispose()\n  69 \n  70 \n  71 @pytest.fixture\n  72 def postgresql_version(engine):\n  73     with engine.connect():\n  74         major, _ = engine.dialect.server_version_info\n  75         return major\n  76 \n  77 \n  78 @pytest.fixture(autouse=True)\n  79 def check_postgresql_min_version(request, postgresql_version):\n  80     postgresql_min_version_mark = request.node.get_closest_marker(\n  81         \"postgresql_min_version\"\n"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me update conftest.py to import TSVectorType from sqlalchemy_searchable:\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"tests/conftest.py\", \"start_line\": 20, \"end_line\": 20, \"replacement_text\": \"from sqlalchemy_searchable import TSVectorType\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited tests/conftest.py (lines 20-20 -> 1 lines). Result:\n  17     declarative_base,\n  18     sessionmaker,\n  19 )\n  20 from sqlalchemy_searchable import TSVectorType\n  21 \n  22 from sqlalchemy_searchable import (\n  23     make_searchable,"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me update test_single_table_inheritance.py:\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/test_single_table_inheritance.py\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy_utils import TSVectorType\n   4 \n   5 from tests.schema_test_case import SchemaTestCase\n   6 \n   7 \n   8 class TestSearchableWithSingleTableInheritance(SchemaTestCase):\n   9     @pytest.fixture\n  10     def should_create_indexes(self):\n  11         return [\"ix_textitem_search_vector\"]\n  12 \n  13     @pytest.fixture\n  14     def should_create_triggers(self):\n  15         return [\"textitem_search_vector_trigger\"]\n  16 \n  17     @pytest.fixture\n  18     def models(self, Base):\n  19         class TextItem(Base):\n  20             __tablename__ = \"textitem\"\n  21 \n  22             id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  23 \n  24             name = sa.Column(sa.String(255))\n  25 \n  26             search_vector = sa.Column(TSVectorType(\"name\", \"content\"))\n  27 \n  28             content = sa.Column(sa.Text)\n  29 \n  30         class Article(TextItem):\n  31             created_at = sa.Column(sa.DateTime)"
+ },
+ {
+  "role": "assistant",
+  "content": "\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"tests/test_single_table_inheritance.py\", \"start_line\": 3, \"end_line\": 3, \"replacement_text\": \"from sqlalchemy_searchable import TSVectorType\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited tests/test_single_table_inheritance.py (lines 3-3 -> 1 lines). Result:\n   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy_searchable import TSVectorType\n   4 \n   5 from tests.schema_test_case import SchemaTestCase\n   6 "
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me update test_weighted_search_vector.py:\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/test_weighted_search_vector.py\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import re\n   2 \n   3 import pytest\n   4 import sqlalchemy as sa\n   5 from sqlalchemy import text\n   6 from sqlalchemy_utils import TSVectorType\n   7 \n   8 from sqlalchemy_searchable import search\n   9 from tests.schema_test_case import SchemaTestCase\n  10 \n  11 \n  12 @pytest.fixture\n  13 def models(WeightedTextItem):\n  14     pass\n  15 \n  16 \n  17 @pytest.fixture\n  18 def WeightedTextItem(Base):\n  19     class WeightedTextItem(Base):\n  20         __tablename__ = \"textitem\"\n  21 \n  22         id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  23 \n  24         name = sa.Column(sa.String(255))\n  25         content = sa.Column(sa.Text)\n  26         search_vector = sa.Column(\n  27             TSVectorType(\"name\", \"content\", weights={\"name\": \"A\", \"content\": \"B\"})\n  28         )\n  29 \n  30     return WeightedTextItem\n  31 \n  32 \n  33 class TestCreateWeightedSearchVector(SchemaTestCase):\n  34     @pytest.fixture\n  35     def should_create_indexes(self):\n  36         return [\"ix_textitem_search_vector\"]\n  37 \n  38     @pytest.fixture\n  39     def should_create_triggers(self):\n  40         return [\"textitem_search_vector_trigger\"]\n  41 \n  42     def test_search_function_weights(self, session):\n  43         func_name = \"textitem_search_vector_update\"\n  44         sql = text(\"SELECT proname,prosrc FROM pg_proc WHERE proname=:name\")\n  45         name, src = session.execute(sql, {\"name\": func_name}).fetchone()\n  46         pattern = (\n  47             r\"setweight\\(to_tsvector\\(.+?\"\n  48             r\"coalesce\\(NEW.(\\w+).+?\"\n  49             r\"\\)\\), '([A-D])'\\)\"\n  50         )\n  51         first, second = (match.groups() for match in re.finditer(pattern, src))\n  52         assert first == (\"name\", \"A\")\n  53         assert second == (\"content\", \"B\")\n  54 \n  55 \n  56 class TestWeightedSearchFunction:\n  57     @pytest.fixture(autouse=True)\n  58     def items(self, session, WeightedTextItem):\n  59         session.add(WeightedTextItem(name=\"Gort\", content=\"Klaatu b"
+ },
+ {
+  "role": "assistant",
+  "content": "\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"tests/test_weighted_search_vector.py\", \"start_line\": 6, \"end_line\": 6, \"replacement_text\": \"from sqlalchemy_searchable import TSVectorType\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited tests/test_weighted_search_vector.py (lines 6-6 -> 1 lines). Result:\n   3 import pytest\n   4 import sqlalchemy as sa\n   5 from sqlalchemy import text\n   6 from sqlalchemy_searchable import TSVectorType\n   7 \n   8 from sqlalchemy_searchable import search\n   9 from tests.schema_test_case import SchemaTestCase"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me update test_schema_creation.py:\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/test_schema_creation.py\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy_utils import TSVectorType\n   4 \n   5 from tests.schema_test_case import SchemaTestCase\n   6 \n   7 \n   8 class TestAutomaticallyCreatedSchemaItems(SchemaTestCase):\n   9     @pytest.fixture\n  10     def should_create_indexes(self):\n  11         return [\n  12             \"ix_textitem_content_search_vector\",\n  13             \"ix_textitem_search_vector\",\n  14         ]\n  15 \n  16     @pytest.fixture\n  17     def should_create_triggers(self):\n  18         return [\n  19             \"textitem_content_search_vector_trigger\",\n  20             \"textitem_search_vector_trigger\",\n  21         ]\n  22 \n  23 \n  24 class TestSearchVectorWithoutColumns(SchemaTestCase):\n  25     @pytest.fixture\n  26     def should_create_indexes(self):\n  27         return [\"ix_textitem_search_vector\"]\n  28 \n  29     @pytest.fixture\n  30     def should_create_triggers(self):\n  31         return []\n  32 \n  33     @pytest.fixture\n  34     def models(self, Base):\n  35         class TextItem(Base):\n  36             __tablename__ = \"textitem\"\n  37 \n  38             id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  39 \n  40             name = sa.Column(sa.String(255))\n  41 \n  42             search_vector = sa.Column(TSVectorType(auto_index=True))\n  43 \n  44             content = sa.Column(sa.Text)"
+ },
+ {
+  "role": "assistant",
+  "content": "\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"tests/test_schema_creation.py\", \"start_line\": 3, \"end_line\": 3, \"replacement_text\": \"from sqlalchemy_searchable import TSVectorType\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited tests/test_schema_creation.py (lines 3-3 -> 1 lines). Result:\n   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy_searchable import TSVectorType\n   4 \n   5 from tests.schema_test_case import SchemaTestCase\n   6 "
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to update the pyproject.toml file to remove sqlalchemy_utils from dependencies. Let me check the dependencies section:\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires      = [\"hatchling\"]\n   3 build-backend = \"hatchling.build\"\n   4 \n   5 [project]\n   6 name = \"sqlalchemy-searchable\"\n   7 dynamic = [\"version\"]\n   8 description = \"Provides fulltext search capabilities for declarative SQLAlchemy models.\"\n   9 readme = \"README.rst\"\n  10 license = \"bsd-3-clause\"\n  11 requires-python = \">=3.8\"\n  12 authors = [\n  13     { name = \"Konsta Vesterinen\", email = \"konsta@fastmonkeys.com\" },\n  14 ]\n  15 classifiers = [\n  16     \"Environment :: Web Environment\",\n  17     \"Intended Audience :: Developers\",\n  18     \"License :: OSI Approved :: BSD License\",\n  19     \"Operating System :: OS Independent\",\n  20     \"Programming Language :: Python\",\n  21     \"Programming Language :: Python :: 3\",\n  22     \"Programming Language :: Python :: 3.8\",\n  23     \"Programming Language :: Python :: 3.9\",\n  24     \"Programming Language :: Python :: 3.10\",\n  25     \"Programming Language :: Python :: 3.11\",\n  26     \"Programming Language :: Python :: 3.12\",\n  27     \"Topic :: Internet :: WWW/HTTP :: Dynamic Content\",\n  28     \"Topic :: Software Development :: Libraries :: Python Modules\",\n  29 ]\n  30 dependencies = [\n  31     \"SQLAlchemy-Utils>=0.40.0\",\n  32     \"SQLAlchemy>=1.4\",\n  33 ]\n  34 \n  35 [project.urls]\n  36 Code            = \"https://github.com/falcony-io/sqlalchemy-searchable\"\n  37 Documentation   = \"https://sqlalchemy-searchable.readthedocs.io/\"\n  38 \"Issue Tracker\" = \"http://github.com/falcony-io/sqlalchemy-searchable/issues\"\n  39 \n  40 [tool.hatch.version]\n  41 path = \"sqlalchemy_searchable/__init__.py\"\n  42 \n  43 [tool.hatch.build.targets.sdist]\n  44 include = [\n  45     \"/CHANGES.rst\",\n  46     \"/docs\",\n  47     \"/sqlalchemy_searchable\",\n  48     \"/tests\",\n  49 ]\n  50 exclude = [\n  51     \"/docs/_build\",\n  52 ]\n  53 \n  54 [tool.ruff.lint]\n  55 select = [\"E\", \"F\", \"I\", \"UP\"]\n  56 \n  57 [tool.ruff.lint.isort]\n  58 known-first-party = [\"sqlalchemy_searchable\", \"tests\"]\n  59 order-by-type     = false"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to remove the SQLAlchemy-Utils dependency from line 31. Let me update it:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"pyproject.toml\", \"start_line\": 30, \"end_line\": 33, \"replacement_text\": \"dependencies = [\\n    \\\"SQLAlchemy>=1.4\\\",\\n]\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited pyproject.toml (lines 30-33 -> 3 lines). Result:\n  27     \"Topic :: Internet :: WWW/HTTP :: Dynamic Content\",\n  28     \"Topic :: Software Development :: Libraries :: Python Modules\",\n  29 ]\n  30 dependencies = [\n  31     \"SQLAlchemy>=1.4\",\n  32 ]\n  33 \n  34 [project.urls]\n  35 Code            = \"https://github.com/falcony-io/sqlalchemy-searchable\""
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to run the tests to make sure everything works. But first, let me check if there are any other references to sqlalchemy_utils in the codebase that I might have missed. Let me do a final grep:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"sqlalchemy_utils\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "tests/test_multiple_vectors_per_class.py:3: from sqlalchemy_utils import TSVectorType\ntests/test_vectorizers.py:4: from sqlalchemy_utils import TSVectorType\ndocs/conf.py:271: \"sqlalchemy_utils\": (\"https://sqlalchemy-utils.readthedocs.io/en/latest/\", None),"
+ },
+ {
+  "role": "assistant",
+  "content": "I need to update the remaining test files. Let me update test_multiple_vectors_per_class.py:\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/test_multiple_vectors_per_class.py\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy_utils import TSVectorType\n   4 \n   5 from sqlalchemy_searchable import search\n   6 from tests.schema_test_case import SchemaTestCase\n   7 \n   8 \n   9 class TestMultipleSearchVectorsPerClass(SchemaTestCase):\n  10     @pytest.fixture\n  11     def should_create_indexes(self):\n  12         return [\n  13             \"ix_textitem_content_vector\",\n  14             \"ix_textitem_name_vector\",\n  15         ]\n  16 \n  17     @pytest.fixture\n  18     def should_create_triggers(self):\n  19         return [\n  20             \"textitem_content_vector_trigger\",\n  21             \"textitem_name_vector_trigger\",\n  22         ]\n  23 \n  24     @pytest.fixture\n  25     def models(self, Base):\n  26         class TextItem(Base):\n  27             __tablename__ = \"textitem\"\n  28 \n  29             id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  30 \n  31             name = sa.Column(sa.String(255))\n  32 \n  33             content = sa.Column(sa.Text)\n  34 \n  35             name_vector = sa.Column(TSVectorType(\"name\", auto_index=True))\n  36 \n  37             content_vector = sa.Column(TSVectorType(\"content\", auto_index=True))\n  38 \n  39 \n  40 class TestMultipleSearchVectorsSearchFunction:\n  41     @pytest.fixture\n  42     def TextMultiItem(self, Base):\n  43         class TextMultiItem(Base):\n  44             __tablename__ = \"textmultiitem\"\n  45 \n  46             id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  47 \n  48             name = sa.Column(sa.String(255))\n  49             content = sa.Column(sa.Text)\n  50             name_vector = sa.Column(TSVectorType(\"name\", auto_index=False))\n  51             content_vector = sa.Column(TSVectorType(\"content\", auto_index=False))\n  52 \n  53         return TextMultiItem\n  54 \n  55     @pytest.fixture\n  56     def models(self, TextMultiItem):\n  57         pass\n  58 \n  59     def test_choose_vector(self, session, TextMultiItem):\n  60         session.add"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to update test_multiple_vectors_per_class.py and test_vectorizers.py. Let me update them both:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"tests/test_multiple_vectors_per_class.py\", \"start_line\": 3, \"end_line\": 3, \"replacement_text\": \"from sqlalchemy_searchable import TSVectorType\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited tests/test_multiple_vectors_per_class.py (lines 3-3 -> 1 lines). Result:\n   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy_searchable import TSVectorType\n   4 \n   5 from sqlalchemy_searchable import search\n   6 from tests.schema_test_case import SchemaTestCase"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me update test_vectorizers.py. First, let me check it:\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/test_vectorizers.py\", \"start_line\": 1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import pytest\n   2 import sqlalchemy as sa\n   3 from sqlalchemy.dialects.postgresql import HSTORE\n   4 from sqlalchemy_utils import TSVectorType\n   5 \n   6 from sqlalchemy_searchable import vectorizer\n   7 \n   8 \n   9 class TestTypeVectorizers:\n  10     @pytest.fixture\n  11     def models(self, Article):\n  12         pass\n  13 \n  14     @pytest.fixture\n  15     def Article(self, Base):\n  16         class Article(Base):\n  17             __tablename__ = \"textitem\"\n  18 \n  19             id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  20 \n  21             name = sa.Column(HSTORE)\n  22 \n  23             search_vector = sa.Column(\n  24                 TSVectorType(\"name\", \"content\", regconfig=\"simple\")\n  25             )\n  26 \n  27             content = sa.Column(sa.Text)\n  28 \n  29         @vectorizer(HSTORE)\n  30         def hstore_vectorizer(column):\n  31             return sa.cast(sa.func.avals(column), sa.Text)\n  32 \n  33         return Article\n  34 \n  35     def test_uses_type_vectorizer(self, Article, session):\n  36         article = Article(name={\"fi\": \"Joku artikkeli\", \"en\": \"Some article\"})\n  37         session.add(article)\n  38         session.commit()\n  39         session.refresh(article)\n  40         assert \"article\" in article.search_vector\n  41         assert \"joku\" in article.search_vector\n  42         assert \"some\" in article.search_vector\n  43         assert \"artikkeli\" in article.search_vector\n  44         assert \"fi\" not in article.search_vector\n  45         assert \"en\" not in article.search_vector\n  46 \n  47 \n  48 class TestColumnVectorizer:\n  49     @pytest.fixture\n  50     def models(self, Article):\n  51         pass\n  52 \n  53     @pytest.fixture\n  54     def Article(self, Base):\n  55         class Article(Base):\n  56             __tablename__ = \"textitem\"\n  57 \n  58             id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)\n  59 \n  60             name = sa.Column(HSTORE)\n  61 \n  62             search_vect"
+ }
+]

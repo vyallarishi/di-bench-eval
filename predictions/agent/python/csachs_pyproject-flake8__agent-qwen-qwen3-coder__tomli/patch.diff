@@ -1,0 +1,107 @@
+diff --git a/.github/workflows/maintenance.py b/.github/workflows/maintenance.py
+index 8eb35ae..091f36a 100644
+--- a/.github/workflows/maintenance.py
++++ b/.github/workflows/maintenance.py
+@@ -3,9 +3,12 @@ from ast import literal_eval
+ from pathlib import Path
+ from typing import Any, Dict, List, Tuple, Union
+ 
+-import requests
+-import tomli
+-
++try:
++    # from Python 3.11 onward
++    import tomllib
++except ImportError:
++    # Python < 3.11
++    import tomli as tomllib
+ 
+ def get_package_info(name: str) -> Dict[str, Any]:
+     return requests.get(f"https://pypi.org/pypi/{name}/json").json()
+@@ -48,7 +51,7 @@ def find_dependency_version_string(
+     pyproject: Union[Path, str], search_string: str
+ ) -> str:
+     with Path(pyproject).open('rb') as fp:
+-        result = tomli.load(fp)
++        result = tomllib.load(fp)
+ 
+     deps = [dep for dep in result["project"]["dependencies"] if search_string in dep]
+     assert len(deps) == 1, "Multiple dependencies matched!"
+diff --git a/pflake8/__init__.py b/pflake8/__init__.py
+index 857ffd8..b4b4530 100644
+--- a/pflake8/__init__.py
++++ b/pflake8/__init__.py
+@@ -16,13 +16,21 @@ try:
+     # from Python 3.11 onward
+     from tomllib import load as toml_load
+ except ImportError:
+-    from tomli import load as toml_load
++    # Python < 3.11
++    try:
++        from tomli import load as toml_load
++    except ImportError:
++        # If neither is available, we'll handle it gracefully
++        toml_load = None
+ 
+ 
+ class ConfigParserTomlMixin:
+     def _read(self, fp, filename):
+         filename_path = Path(filename)
+         if filename_path.suffix == '.toml':
++            if toml_load is None:
++                raise RuntimeError("TOML support is not available. Please install tomli package for Python < 3.11")
++            
+             is_pyproject = filename_path.name == 'pyproject.toml'
+ 
+             toml_config = toml_load(fp.buffer)
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..cea95c0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,9 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++    "flake8 == 7.0.0"
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"
+diff --git a/run_tests.py b/run_tests.py
+new file mode 100644
+index 0000000..6530b29
+--- /dev/null
++++ b/run_tests.py
+@@ -0,0 +1,21 @@
++#!/usr/bin/env python3
++import subprocess
++import sys
++import os
++
++# Install package in development mode
++result = subprocess.run([sys.executable, "-m", "pip", "install", "-e", "."], 
++                       capture_output=True, text=True)
++if result.returncode != 0:
++    print("Failed to install package:")
++    print(result.stderr)
++    sys.exit(1)
++
++# Run the unit tests
++result = subprocess.run([sys.executable, "-m", "unittest", "discover", "-v", "-s", "test"], 
++                       capture_output=True, text=True)
++print("STDOUT:")
++print(result.stdout)
++print("STDERR:")
++print(result.stderr)
++print("Return code:", result.returncode)
+diff --git a/test_requirements.txt b/test_requirements.txt
+new file mode 100644
+index 0000000..be57bd5
+--- /dev/null
++++ b/test_requirements.txt
+@@ -0,0 +1,2 @@
++# For Python < 3.11, we need tomli for backward compatibility testing
++tomli>=2.0.1; python_version < "3.11"
+\ No newline at end of file

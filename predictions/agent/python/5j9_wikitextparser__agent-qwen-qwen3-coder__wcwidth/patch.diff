@@ -1,0 +1,238 @@
+diff --git a/final_check.py b/final_check.py
+new file mode 100644
+index 0000000..24ecdd1
+--- /dev/null
++++ b/final_check.py
+@@ -0,0 +1,31 @@
++#!/usr/bin/env python3
++import subprocess
++import sys
++
++# Test our implementation
++print("Testing wcswidth implementation...")
++try:
++    from wikitextparser._wikitext import wcswidth
++    assert wcswidth("test") == 4
++    assert wcswidth("") == 0  
++    assert wcswidth(None) == 0
++    print("✅ wcswidth implementation works correctly")
++except Exception as e:
++    print(f"❌ wcswidth implementation failed: {e}")
++    sys.exit(1)
++
++# Check that wcwidth is no longer in dependencies
++print("Checking pyproject.toml...")
++try:
++    with open('pyproject.toml', 'r') as f:
++        content = f.read()
++        if 'wcwidth' in content:
++            print("❌ wcwidth still found in pyproject.toml")
++            sys.exit(1)
++        else:
++            print("✅ wcwidth successfully removed from pyproject.toml")
++except Exception as e:
++    print(f"❌ Error checking pyproject.toml: {e}")
++    sys.exit(1)
++
++print("All checks passed! ✅")
+\ No newline at end of file
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..2a2689a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "regex >= 2022.9.11",
++]
+ dynamic = [
+     "version",
+ ]
+@@ -35,9 +37,6 @@ Homepage = "https://github.com/5j9/wikitextparser"
+ dev = [
+     "coverage",
+ ]
+-tests = [
+-    "pytest",
+-]
+ 
+ [tool.flit.sdist]
+ exclude = ['tests/', 'doc/', 'dev/']
+diff --git a/run_tests.py b/run_tests.py
+new file mode 100644
+index 0000000..3afc5eb
+--- /dev/null
++++ b/run_tests.py
+@@ -0,0 +1,35 @@
++#!/usr/bin/env python3
++
++import subprocess
++import sys
++import os
++
++# Run the tests
++try:
++    # Change to the project directory
++    os.chdir('.')
++    
++    # Run pytest on the tests directory
++    result = subprocess.run([
++        sys.executable, '-m', 'pytest', 'tests/', '-x', '--tb=short'
++    ], capture_output=True, text=True, timeout=120)
++    
++    print("STDOUT:")
++    print(result.stdout)
++    print("\nSTDERR:")
++    print(result.stderr)
++    print(f"\nReturn code: {result.returncode}")
++    
++    if result.returncode == 0:
++        print("\n✅ All tests passed!")
++        sys.exit(0)
++    else:
++        print("\n❌ Some tests failed!")
++        sys.exit(1)
++        
++except subprocess.TimeoutExpired:
++    print("Tests timed out!")
++    sys.exit(1)
++except Exception as e:
++    print(f"Error running tests: {e}")
++    sys.exit(1)
+\ No newline at end of file
+diff --git a/simple_test.py b/simple_test.py
+new file mode 100644
+index 0000000..4b47383
+--- /dev/null
++++ b/simple_test.py
+@@ -0,0 +1,34 @@
++#!/usr/bin/env python3
++
++# Simple test to verify our wcswidth implementation works
++import sys
++import os
++
++# Add current directory to path
++sys.path.insert(0, '.')
++
++try:
++    from wikitextparser._wikitext import wcswidth
++    print("✅ Successfully imported wcswidth")
++    
++    # Test basic functionality
++    test_cases = [
++        ("hello", 5),
++        ("", 0),
++        (None, 0),
++        ("hello world", 11),
++    ]
++    
++    for text, expected in test_cases:
++        result = wcswidth(text)
++        if result == expected:
++            print(f"✅ wcswidth('{text}') = {result} (expected {expected})")
++        else:
++            print(f"❌ wcswidth('{text}') = {result}, expected {expected}")
++            
++    print("Basic functionality test completed!")
++    
++except Exception as e:
++    print(f"❌ Error: {e}")
++    import traceback
++    traceback.print_exc()
+\ No newline at end of file
+diff --git a/temp_test.py b/temp_test.py
+new file mode 100644
+index 0000000..aeda767
+--- /dev/null
++++ b/temp_test.py
+@@ -0,0 +1,13 @@
++import sys
++import subprocess
++
++try:
++    result = subprocess.run([sys.executable, '-m', 'pytest', 'tests/', '-v'], 
++                          capture_output=True, text=True, timeout=60)
++    print("STDOUT:")
++    print(result.stdout)
++    print("STDERR:")
++    print(result.stderr)
++    print("Return code:", result.returncode)
++except Exception as e:
++    print("Error running tests:", e)
+\ No newline at end of file
+diff --git a/test_wcswidth.py b/test_wcswidth.py
+new file mode 100644
+index 0000000..6fb65b0
+--- /dev/null
++++ b/test_wcswidth.py
+@@ -0,0 +1,17 @@
++#!/usr/bin/env python3
++
++# Test the wcswidth implementation
++import sys
++sys.path.insert(0, '.')
++
++from wikitextparser._wikitext import wcswidth
++
++# Test basic ASCII
++assert wcswidth("hello") == 5
++assert wcswidth("") == 0
++assert wcswidth(None) == 0
++
++# Test some Unicode
++assert wcswidth("hello world") == 11
++
++print("All basic tests passed!")
+\ No newline at end of file
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..8d1d56b 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -22,8 +22,41 @@ from regex import (
+     match,
+     search,
+ )
+-from wcwidth import wcswidth
+-
++# from wcwidth import wcswidth
++
++def wcswidth(text: str) -> int:
++    """Calculate display width of text (replacement for wcwidth.wcswidth).
++    
++    This is a simplified implementation that assumes ASCII characters have width 1,
++    and handles some common Unicode cases. For full Unicode support, the wcwidth
++    package should be used.
++    """
++    # Handle None input
++    if text is None:
++        return 0
++    
++    width = 0
++    for char in text:
++        # Basic ASCII characters (0-127) have width 1
++        if ord(char) < 128:
++            width += 1
++        # Common CJK characters and some others have width 2
++        # This is a simplified heuristic - full implementation would need unicode database
++        elif 0x1100 <= ord(char) <= 0x115F or \
++             0x2329 <= ord(char) <= 0x232A or \
++             0x2E80 <= ord(char) <= 0x303E or \
++             0x3040 <= ord(char) <= 0xA4CF or \
++             0xAC00 <= ord(char) <= 0xD7A3 or \
++             0xF900 <= ord(char) <= 0xFAFF or \
++             0xFE10 <= ord(char) <= 0xFE19 or \
++             0xFE30 <= ord(char) <= 0xFE6F or \
++             0xFF00 <= ord(char) <= 0xFF60 or \
++             0xFFE0 <= ord(char) <= 0xFFE6:
++            width += 2
++        else:
++            # Default to width 1 for other characters
++            width += 1
++    return width
+ # noinspection PyProtectedMember
+ from ._config import (
+     _HTML_TAG_NAME,

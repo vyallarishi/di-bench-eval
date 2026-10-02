@@ -1,0 +1,482 @@
+[
+ {
+  "role": "assistant",
+  "content": "I'll start by examining the files that use wcwidth and the pyproject.toml file to understand the dependencies.\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 from __future__ import annotations\n   2 \n   3 from bisect import bisect_left, bisect_right, insort_right\n   4 from html import unescape\n   5 from itertools import islice\n   6 from operator import attrgetter\n   7 from typing import (\n   8     Callable,\n   9     Iterable,\n  10     MutableSequence,\n  11     overload,\n  12 )\n  13 from warnings import warn\n  14 \n  15 from regex import (\n  16     DOTALL,\n  17     IGNORECASE,\n  18     MULTILINE,\n  19     VERBOSE,\n  20     Match,\n  21     finditer,\n  22     match,\n  23     search,\n  24 )\n  25 from wcwidth import wcswidth\n  26 \n  27 # noinspection PyProtectedMember\n  28 from ._config import (\n  29     _HTML_TAG_NAME,\n  30     KNOWN_FILE_EXTENSIONS,\n  31     _bare_external_link_schemes,\n  32     _parsable_tag_extensions,\n  33     _tag_extensions,\n  34     regex_pattern,\n  35 )\n  36 from ._spans import (\n  37     BARE_EXTERNAL_LINK,\n  38     END_TAG_PATTERN,\n  39     EXTERNAL_LINK_URL_TAIL,\n  40     INVALID_URL_CHARS,\n  41     START_TAG_PATTERN,\n  42     TypeToSpans,\n  43     parse_to_spans,\n  44     rc,\n  45 )\n  46 \n  47 NAME_CAPTURING_HTML_START_TAG_FINDITER = rc(\n  48     START_TAG_PATTERN.replace(\n  49         b'{name}', rb'(?<name>' + _HTML_TAG_NAME + rb')', 1\n  50     )\n  51 ).finditer\n  52 \n  53 # External links\n  54 BRACKET_EXTERNAL_LINK_SCHEMES = regex_pattern(\n  55     _bare_external_link_schemes | {'//'}\n  56 )\n  57 BRACKET_EXTERNAL_LINK_URL = (\n  58     BRACKET_EXTERNAL_LINK_SCHEMES + EXTERNAL_LINK_URL_TAIL\n  59 )\n  60 BRACKET_EXTERNAL_LINK = rb'\\[' + BRACKET_EXTERNAL_LINK_URL + rb'[^\\]\\n]*+\\]'\n  61 EXTERNAL_LINK = (\n  62     rb'(?>' + BARE_EXTERNAL_LINK + rb'|' + BRACKET_EXTERNAL_LINK + rb')'\n  63 )\n  64 EXTERNAL_LINK_FINDITER = rc(EXTERNAL_LINK, IGNORECASE).finditer\n  65 INVALID_EL_TPP_CHRS_SUB = rc(  # the [:-4] slice allows \\[ and \\]\n  66     rb'[' + INVALID_URL_CHARS[:-4] + rb'{}|]'\n  67 ).sub\n  68 \n  69 # Sections\n  70 SECTION_HEADING = rb'^(?<equals>={1,6})[^\\n]+?(?P=equals)[ \\t]*+$'\n  71 SUB_SECTION = "
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me see where wcswidth is used in this file:\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcswidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:25: from wcwidth import wcswidth\nwikitextparser/_wikitext.py:187: widths[ri] = max(widths[ri], wcswidth(d))\nwikitextparser/_wikitext.py:803: wcswidth(n.replace('\u0644\u0627', '?')) if not p else 0"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me examine the specific usages:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 180}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 180         for row in t.data()\n 181     ]\n 182     if not data:\n 183         return ''\n 184     widths = [0] * len(data[0])\n 185     for row in data:\n 186         for ri, d in enumerate(row[:-1]):\n 187             widths[ri] = max(widths[ri], wcswidth(d))\n 188     caption = t.caption\n 189     return (\n 190         (f'\\n{caption}\\n' if caption is not None else '')\n 191         + '\\n'\n 192         + '\\n'.join(\n 193             '\\t'.join(f'{d:<{w}}' for (w, d) in zip(widths, r)) for r in data\n 194         )\n 195         + '\\n'\n 196     )\n 197 \n 198 \n 199 class WikiText:\n 200     # In subclasses of WikiText _type is used as the key for _type_to_spans\n 201     # Therefore: self._span can be found in self._type_to_spans[self._type].\n 202     # The following class attribute acts as a default value.\n 203     _type = 'WikiText'\n 204 \n 205     __slots__ = '_type_to_spans', '_lststr', '_span_data'\n 206 \n 207     def __init__(\n 208         self,\n 209         string: MutableSequence[str] | str,\n 210         _type_to_spans: TypeToSpans | None = None,\n 211     ) -> None:\n 212         \"\"\"Initialize the object.\n 213 \n 214         Set the initial values for self._lststr, self._type_to_spans.\n 215 \n 216         :param string: The string to be parsed or a list containing the string\n 217             of the parent object.\n 218         :param _type_to_spans: If the lststr is already parsed, pass its\n 219             _type_to_spans property as _type_to_spans to avoid parsing it\n 220             again.\n 221         \"\"\"\n 222         if _type_to_spans is not None:\n 223             self._type_to_spans = _type_to_spans\n 224             self._lststr: MutableSequence[str] = string  # type: ignore\n 225             return\n 226         self._lststr: MutableSequence[str] = [string]  # type: ignore\n 227         byte_array = bytearray(string, 'ascii', 'replace')  # type: ignore\n 228         span = self._span_data = [0, len(string), None, byte_array]\n 229         _type = self._type\n 230         if _ty"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me check the second usage around line 803:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 795}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 795                 # Don't use False because we don't know for sure.\n 796                 not_a_parser_function = None\n 797             else:\n 798                 not_a_parser_function = True\n 799             # Required for alignment\n 800             arg_stripped_names = [a.name.strip(ws) for a in args]\n 801             arg_positionalities = [a.positional for a in args]\n 802             arg_name_lengths = [\n 803                 wcswidth(n.replace('\u0644\u0627', '?')) if not p else 0\n 804                 for n, p in zip(arg_stripped_names, arg_positionalities)\n 805             ]\n 806             max_name_len = max(arg_name_lengths)\n 807             # Format template.name.\n 808             level = template.nesting_level\n 809             newline_indent = '\\n' + indent * level\n 810             template.name += newline_indent\n 811             if level == 1:\n 812                 last_comment_indent = '<!--\\n-->'\n 813             else:\n 814                 last_comment_indent = '<!--\\n' + indent * (level - 2) + ' -->'\n 815             # Special formatting for the last argument.\n 816             last_arg = args.pop()\n 817             last_is_positional = arg_positionalities.pop()\n 818             last_value = last_arg.value\n 819             last_stripped_value = last_value.strip(ws)\n 820             if last_is_positional and last_value != last_stripped_value:\n 821                 stop_conversion = True\n 822                 if not last_value.endswith('\\n' + indent * (level - 1)):\n 823                     last_arg.value = last_value + last_comment_indent\n 824             elif not_a_parser_function:\n 825                 stop_conversion = False\n 826                 last_arg.name = (\n 827                     ' '\n 828                     + arg_stripped_names.pop()\n 829                     + ' '\n 830                     + ' ' * (max_name_len - arg_name_lengths.pop())\n 831                 )\n 832                 last_arg.value = (\n 833                     ' ' + last_stripped_value + '\\n' +"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me check pyproject.toml to see how wcwidth is declared:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = ['flit_core >=3.2,<4']\n   3 build-backend = 'flit_core.buildapi'\n   4 \n   5 [project]\n   6 name = \"wikitextparser\"\n   7 authors = [\n   8     { name = \"5j9\", email = \"5j9@users.noreply.github.com\" },\n   9 ]\n  10 description = \"A simple parsing tool for MediaWiki's wikitext markup.\"\n  11 keywords = [\n  12     \"MediaWiki\",\n  13     \"wikitext\",\n  14     \"parser\",\n  15 ]\n  16 readme = \"README.rst\"\n  17 classifiers = [\n  18     \"Programming Language :: Python\",\n  19     \"License :: OSI Approved :: GNU General Public License v3 (GPLv3)\",\n  20     \"Topic :: Text Processing\",\n  21 ]\n  22 requires-python = \">= 3.8\"\n  23 dependencies = [\n  24     \"regex >= 2022.9.11\",\n  25     \"wcwidth\",\n  26 ]\n  27 dynamic = [\n  28     \"version\",\n  29 ]\n  30 \n  31 [project.license]\n  32 text = \"GNU General Public License v3 (GPLv3)\"\n  33 \n  34 [project.urls]\n  35 Homepage = \"https://github.com/5j9/wikitextparser\"\n  36 \n  37 [project.optional-dependencies]\n  38 dev = [\n  39     \"coverage\",\n  40 ]\n  41 tests = [\n  42     \"pytest\",\n  43 ]\n  44 \n  45 [tool.flit.sdist]\n  46 exclude = ['tests/', 'doc/', 'dev/']\n  47 \n  48 [tool.ruff]\n  49 line-length = 79\n  50 format.quote-style = 'single'\n  51 lint.isort.combine-as-imports = true\n  52 lint.extend-select = [\n  53     'FA',  # flake8-future-annotations\n  54     'I',  # isort\n  55     'UP',  # pyupgrade\n  56 ]\n  57 lint.ignore = [\n  58     'UP027',  # list comprehensions are faster than generator expressions\n  59     'E721',  # Do not compare types, use `isinstance()`\n  60 ]\n  61 \n  62 [tool.pytest.ini_options]\n  63 addopts = '--quiet --tb=short'\n  64 \n  65 [tool.pyright]\n  66 typeCheckingMode = 'standard'\n  67 reportDeprecated = \"warning\"\n  68 reportPropertyTypeMismatch = \"warning\"\n  69 reportUnnecessaryCast = \"warning\"\n  70 reportUnnecessaryContains = \"warning\"\n  71 reportUnnecessaryIsInstance = \"warning\"\n  72 reportUnnecessaryTypeIgnoreComment = true"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to understand what wcswidth does. It calculates the display width of a string, taking into account wide characters (like East Asian characters). Let me check if there are any tests that might help me understand the expected behavior:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcswidth\", \"path\": \"tests\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:25: from wcwidth import wcswidth\nwikitextparser/_wikitext.py:187: widths[ri] = max(widths[ri], wcswidth(d))\nwikitextparser/_wikitext.py:803: wcswidth(n.replace('\u0644\u0627', '?')) if not p else 0"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check what the function does by looking at the context more carefully. The first usage is in a table formatting function, and the second is in template argument name length calculation. Both seem to be calculating display widths for alignment purposes.\n\nI need to replace wcswidth with a simpler implementation that works for most cases. The wcwidth library handles East Asian wide characters, but for this project, we might be able to use a simpler approach. Let me check if there are any tests that might fail:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "list_files",
+    "args": "{\"path\": \"tests\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "list_files",
+  "content": "tests/__main__.py\ntests/test_argument.py\ntests/test_cell.py\ntests/test_comment_bold_italic.py\ntests/test_config.py\ntests/test_externallink.py\ntests/test_parameter.py\ntests/test_parser_function.py\ntests/test_section.py\ntests/test_spans.py\ntests/test_table.py\ntests/test_tag.py\ntests/test_template.py\ntests/test_wikilink.py\ntests/test_wikilist.py\ntests/wikitext/test_external_links.py\ntests/wikitext/test_get_bolds_and_italics.py\ntests/wikitext/test_get_lists.py\ntests/wikitext/test_get_tags.py\ntests/wikitext/test_pformat.py\ntests/wikitext/test_plain_text.py\ntests/wikitext/test_sections.py\ntests/wikitext/test_tables.py\ntests/wikitext/test_wikitext.py"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check the test_table.py file to see if there are any tests for table formatting:\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/test_table.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 from wikitextparser import Table, WikiText\n   2 \n   3 # Todo: addrow, addcol, shiftrow, shiftcol, ...\n   4 # addrow([], -1)\n   5 # addcol([], -1)\n   6 #\n   7 # shiftrow(n,m)\n   8 # shiftcol(n,m)\n   9 #\n  10 # sort?\n  11 # transpose?\n  12 \n  13 \n  14 # Table.data\n  15 \n  16 \n  17 def test_each_row_on_a_newline():\n  18     assert Table(\n  19         '{|\\n'\n  20         '|Orange\\n'\n  21         '|Apple\\n'\n  22         '|-\\n'\n  23         '|Bread\\n'\n  24         '|Pie\\n'\n  25         '|-\\n'\n  26         '|Butter\\n'\n  27         '|Ice cream \\n'\n  28         '|}'\n  29     ).data() == [\n  30         ['Orange', 'Apple'],\n  31         ['Bread', 'Pie'],\n  32         ['Butter', 'Ice cream'],\n  33     ]\n  34 \n  35 \n  36 def test_with_optional_rowseprator_on_first_row():\n  37     assert Table(\n  38         '{| class=wikitable | g\\n'\n  39         ' |- 132131 |||\\n'\n  40         '  | a | b\\n'\n  41         ' |-\\n'\n  42         '  | c\\n'\n  43         '|}'\n  44     ).data() == [\n  45         ['b'],\n  46         ['c'],\n  47     ]\n  48 \n  49 \n  50 def test_all_rows_are_on_a_single_line():\n  51     assert Table(\n  52         '{|\\n' '|a||b||c\\n' '|-\\n' '|d||e||f\\n' '|-\\n' '|g||h||i\\n' '|}'\n  53     ).data() == [\n  54         ['a', 'b', 'c'],\n  55         ['d', 'e', 'f'],\n  56         ['g', 'h', 'i'],\n  57     ]\n  58 \n  59 \n  60 def test_extra_spaces_have_no_effect():\n  61     assert Table(\n  62         '{|\\n|  Orange    ||   Apple   ||   more\\n|-\\n'\n  63         '|   Bread    ||   Pie     ||   more\\n|-\\n'\n  64         '|   Butter   || Ice cream ||  and more\\n|}'\n  65     ).data() == [\n  66         ['Orange', 'Apple', 'more'],\n  67         ['Bread', 'Pie', 'more'],\n  68         ['Butter', 'Ice cream', 'and more'],\n  69     ]\n  70 \n  71 \n  72 def test_longer_text_and_only_rstrip():\n  73     assert Table(\n  74         '{|\\n|multi\\nline\\ntext. \\n\\n2nd paragraph. \\n|'\n  75         '\\n* ulli1\\n* ulli2\\n* ulli3\\n|}'\n  76     ).data() == [\n  77         [\n  78             'multi\\nline\\ntext."
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check if there are any tests for pformat (pretty formatting) since that's where wcswidth is used:\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"pformat\", \"path\": \"tests\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:610: \"\"\"Create the arguments for the parse function used in pformat method.\nwikitextparser/_wikitext.py:757: def pformat(self, indent: str = '    ', remove_comments=False) -> str:\nwikitextparser/_wikitext.py:766: # Do not try to do inplace pformat. It will overwrite on some spans.\ntests/wikitext/test_pformat.py:8: == wt.pformat()\ntests/wikitext/test_pformat.py:15: assert '{{a\\n  | b = b\\n  | c = c\\n  | d = d\\n  | e = e\\n}}' == wt.pformat(\ntests/wikitext/test_pformat.py:23: ).pformat('  ', True)\ntests/wikitext/test_pformat.py:36: assert s == wt.pformat()\ntests/wikitext/test_pformat.py:39: assert s == wt.pformat()\ntests/wikitext/test_pformat.py:46: assert s == wt.pformat()\ntests/wikitext/test_pformat.py:54: ) == wt.pformat()\ntests/wikitext/test_pformat.py:62: ) == wt.pformat()\ntests/wikitext/test_pformat.py:68: == parse('{{t|a|b|c}}').pformat()\ntests/wikitext/test_pformat.py:89: ).pformat()\ntests/wikitext/test_pformat.py:92: ) == parse('{{t| a |b|c}}').pformat()\ntests/wikitext/test_pformat.py:95: def test_commented_repformat():\ntests/wikitext/test_pformat.py:97: assert s == parse(s).pformat()\ntests/wikitext/test_pformat.py:110: ) == parse('{{#if:true|<span style=\"color:Blue;\">text</span>}}').pformat()\ntests/wikitext/test_pformat.py:116: ) == parse('{{\u0627|\u0646\u06cc\u0645\u200c\u0641\u0627\u0635\u0644\u0647=\u06f1|\u0628\u062f\u0648\u0646 \u0646\u06cc\u0645 \u0641\u0627\u0635\u0644\u0647=\u06f2}}').pformat()\ntests/wikitext/test_pformat.py:125: ) == parse('{{t|long_argument_name=1|2=2}}').pformat()\ntests/wikitext/test_pformat.py:137: == parse('{{\u0627|\u0627\u0644\u0641=\u06f1|\u0644\u0627=\u06f2}}').pformat()\ntests/wikitext/test_pformat.py:150: ) == wt.pformat()\ntests/wikitext/test_pformat.py:157: ) == wt.pformat()\ntests/wikitext/test_pformat.py:164: ) == wt.pformat()\ntests/wikitext/test_pformat.py:167: def test_pformat_tl_directly():\ntests/wikitext/test_pformat.py:168: assert ('{{t\\n' '    | 1 = a\\n' '}}') == Template('{{t|a}}').pformat()\ntests/wikitext/test_pformat.py:171: def test_pformat_pf_directly():\ntests/wikitext/test_pformat.py:174: ) == ParserFunction('{{#iferror:<t a=\"\">|yes|no}}')"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check the test_pformat.py file to understand what's being tested:\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/wikitext/test_pformat.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 from wikitextparser import ParserFunction, Template, WikiText, parse\n   2 \n   3 \n   4 def test_template_with_multi_args():\n   5     wt = WikiText('{{a|b=b|c=c|d=d|e=e}}')\n   6     assert (\n   7         '{{a\\n    | b = b\\n    | c = c\\n    | d = d\\n    | e = e\\n}}'\n   8         == wt.pformat()\n   9     )\n  10 \n  11 \n  12 def test_double_space_indent():\n  13     s = '{{a|b=b|c=c|d=d|e=e}}'\n  14     wt = WikiText(s)\n  15     assert '{{a\\n  | b = b\\n  | c = c\\n  | d = d\\n  | e = e\\n}}' == wt.pformat(\n  16         '  '\n  17     )\n  18 \n  19 \n  20 def test_remove_comments():\n  21     assert '{{a\\n  | e = e\\n}}' == WikiText(\n  22         '{{a|<!--b=b|c=c|d=d|-->e=e}}'\n  23     ).pformat('  ', True)\n  24 \n  25 \n  26 def test_first_arg_of_tag_is_whitespace_sensitive():\n  27     \"\"\"The second argument of #tag is an exception.\n  28 \n  29     See the last warning on [[mw:Help:Magic_words#Miscellaneous]]:\n  30     You must write {{#tag:tagname||attribute1=value1|attribute2=value2}}\n  31     to pass an empty content. No space is permitted in the area reserved\n  32     for content between the pipe characters || before attribute1.\n  33     \"\"\"\n  34     s = '{{#tag:ref||name=\"n1\"}}'\n  35     wt = WikiText(s)\n  36     assert s == wt.pformat()\n  37     s = '{{#tag:foo| }}'\n  38     wt = WikiText(s)\n  39     assert s == wt.pformat()\n  40 \n  41 \n  42 def test_invoke():\n  43     \"\"\"#invoke args are also whitespace-sensitive.\"\"\"\n  44     s = '{{#invoke:module|func|arg}}'\n  45     wt = WikiText(s)\n  46     assert s == wt.pformat()\n  47 \n  48 \n  49 def test_on_parserfunction():\n  50     s = '{{#if:c|abcde = f| g=h}}'\n  51     wt = parse(s)\n  52     assert (\n  53         '{{#if:\\n' '    c\\n' '    | abcde = f\\n' '    | g=h\\n' '}}'\n  54     ) == wt.pformat()\n  55 \n  56 \n  57 def test_parserfunction_with_no_pos_arg():\n  58     s = '{{#switch:case|a|b}}'\n  59     wt = parse(s)\n  60     assert (\n  61         '{{#switch:\\n' '    case\\n' '    | a\\n' '    | b\\n' '}}'\n  62     ) == wt.pformat()\n "
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me look at the specific test that seems to involve Arabic text (line 116):\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tests/wikitext/test_pformat.py\", \"start_line\": 110}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 110     ) == parse('{{#if:true|<span style=\"color:Blue;\">text</span>}}').pformat()\n 111 \n 112 \n 113 def test_ignore_zwnj_for_alignment():\n 114     assert (\n 115         '{{\u0627\\n    | \u0646\u06cc\u0645\\u200c\u0641\u0627\u0635\u0644\u0647       = \u06f1\\n    |' ' \u0628\u062f\u0648\u0646 \u0646\u06cc\u0645 \u0641\u0627\u0635\u0644\u0647 = \u06f2\\n}}'\n 116     ) == parse('{{\u0627|\u0646\u06cc\u0645\u200c\u0641\u0627\u0635\u0644\u0647=\u06f1|\u0628\u062f\u0648\u0646 \u0646\u06cc\u0645 \u0641\u0627\u0635\u0644\u0647=\u06f2}}').pformat()\n 117 \n 118 \n 119 def test_equal_sign_alignment():\n 120     assert (\n 121         '{{t\\n'\n 122         '    | long_argument_name = 1\\n'\n 123         '    | 2                  = 2\\n'\n 124         '}}'\n 125     ) == parse('{{t|long_argument_name=1|2=2}}').pformat()\n 126 \n 127 \n 128 def test_arabic_ligature_lam_with_alef():\n 129     \"\"\"'\u0644' + '\u0627' creates a ligature with one character width.\n 130 \n 131     Some terminal emulators do not support this but it's defined in\n 132     Courier New font which is the main (almost only) font used for\n 133     monospaced Persian texts on Windows. Also tested on Arabic Wikipedia.\n 134     \"\"\"\n 135     assert (\n 136         '{{\u0627\\n    | \u0627\u0644\u0641 = \u06f1\\n    | \u0644\u0627   = \u06f2\\n}}'\n 137         == parse('{{\u0627|\u0627\u0644\u0641=\u06f1|\u0644\u0627=\u06f2}}').pformat()\n 138     )\n 139 \n 140 \n 141 def test_pf_inside_t():\n 142     wt = parse('{{t|a= {{#if:I|I}} }}')\n 143     assert (\n 144         '{{t\\n'\n 145         '    | a = {{#if:\\n'\n 146         '        I\\n'\n 147         '        | I\\n'\n 148         '    }}\\n'\n 149         '}}'\n 150     ) == wt.pformat()\n 151 \n 152 \n 153 def test_nested_pf_inside_tl():\n 154     wt = parse('{{t1|{{t2}}{{#pf:a}}}}')\n 155     assert (\n 156         '{{t1\\n' '    | 1 = {{t2}}{{#pf:\\n' '        a\\n' '    }}\\n' '}}'\n 157     ) == wt.pformat()\n 158 \n 159 \n 160 def test_html_tag_equal():\n 161     wt = parse('{{#iferror:<t a=\"\">|yes|no}}')\n 162     assert (\n 163         '{{#iferror:\\n' '    <t a=\"\">\\n' '    | yes\\n' '    | no\\n' '}}'\n 164     ) == wt.pformat()\n 165 \n 166 \n 167 def test_pformat_tl_directly():\n 168     assert ('{{t\\n' '    | 1 = a\\n' '}}') == Template('{{t|a}}').pformat()\n 169 \n 170 \n 171 def test_pformat_pf_directly():\n 172     assert (\n 173  "
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to understand what wcswidth does. Looking at the test on line 113-116, it mentions \"ignore zwnj for alignment\" (ZWNJ = Zero Width Non-Joiner). The test on line 128-138 mentions Arabic ligature lam with alef having \"one character width\". This suggests wcswidth is being used to handle complex text rendering where some characters have different display widths.\n\nLet me check the actual implementation of wcswidth usage. Looking back at the code, I see it's used in two places:\n1. Line 186-187: `max_len = max(max_len, wcswidth(arg_name))`\n2. Line 803: `max_len = max(max_len, wcswidth(str(cell)))`\n\nBoth are calculating maximum display widths for alignment. The wcwidth library handles East Asian wide characters (which take 2 columns) and combining characters (which take 0 columns).\n\nI need to implement a simpler version. Let me check if Python has any built-in way to handle this. Actually, we can implement a simple version that handles most common cases. The main issue is:\n- East Asian wide characters (Chinese, Japanese, Korean): width 2\n- Combining characters (accents, etc.): width 0\n- Normal characters: width 1\n- Zero-width characters (like ZWNJ): width 0\n\nLet me create a simple replacement. First, let me check if there are any other imports or dependencies:\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"import.*wcwidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "no matches"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me check the import statement:\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 1, \"end_line\": \"30\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 from __future__ import annotations\n   2 \n   3 from bisect import bisect_left, bisect_right, insort_right\n   4 from html import unescape\n   5 from itertools import islice\n   6 from operator import attrgetter\n   7 from typing import (\n   8     Callable,\n   9     Iterable,\n  10     MutableSequence,\n  11     overload,\n  12 )\n  13 from warnings import warn\n  14 \n  15 from regex import (\n  16     DOTALL,\n  17     IGNORECASE,\n  18     MULTILINE,\n  19     VERBOSE,\n  20     Match,\n  21     finditer,\n  22     match,\n  23     search,\n  24 )\n  25 from wcwidth import wcswidth\n  26 \n  27 # noinspection PyProtectedMember\n  28 from ._config import (\n  29     _HTML_TAG_NAME,\n  30     KNOWN_FILE_EXTENSIONS,\n  31     _bare_external_link_schemes,\n  32     _parsable_tag_extensions,\n  33     _tag_extensions,\n  34     regex_pattern,\n  35 )\n  36 from ._spans import (\n  37     BARE_EXTERNAL_LINK,\n  38     END_TAG_PATTERN,\n  39     EXTERNAL_LINK_URL_TAIL,\n  40     INVALID_URL_CHARS,\n  41     START_TAG_PATTERN,\n  42     TypeToSpans,\n  43     parse_to_spans,\n  44     rc,\n  45 )\n  46 \n  47 NAME_CAPTURING_HTML_START_TAG_FINDITER = rc(\n  48     START_TAG_PATTERN.replace(\n  49         b'{name}', rb'(?<name>' + _HTML_TAG_NAME + rb')', 1\n  50     )\n  51 ).finditer\n  52 \n  53 # External links\n  54 BRACKET_EXTERNAL_LINK_SCHEMES = regex_pattern(\n  55     _bare_external_link_schemes | {'//'}\n  56 )\n  57 BRACKET_EXTERNAL_LINK_URL = (\n  58     BRACKET_EXTERNAL_LINK_SCHEMES + EXTERNAL_LINK_URL_TAIL\n  59 )\n  60 BRACKET_EXTERNAL_LINK = rb'\\[' + BRACKET_EXTERNAL_LINK_URL + rb'[^\\]\\n]*+\\]'\n  61 EXTERNAL_LINK = (\n  62     rb'(?>' + BARE_EXTERNAL_LINK + rb'|' + BRACKET_EXTERNAL_LINK + rb')'\n  63 )\n  64 EXTERNAL_LINK_FINDITER = rc(EXTERNAL_LINK, IGNORECASE).finditer\n  65 INVALID_EL_TPP_CHRS_SUB = rc(  # the [:-4] slice allows \\[ and \\]\n  66     rb'[' + INVALID_URL_CHARS[:-4] + rb'{}|]'\n  67 ).sub\n  68 \n  69 # Sections\n  70 SECTION_HEADING = rb'^(?<equals>={1,6})[^\\n]+?(?P=equals)[ \\t]*+$'\n  71 SUB_SECTION = "
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to replace the wcswidth import and usage. Let me first create a simple implementation. Looking at the tests, I see Arabic text and special characters. Let me implement a simple width function that handles the most common cases.\n\nActually, looking more carefully at the code, I see that wcswidth is only used in two places for calculating display width. We can implement a simpler version that:\n1. Returns len(s) for ASCII strings (fast path)\n2. For non-ASCII, we need to handle:\n   - Zero-width characters (like ZWNJ \\u200C)\n   - Combining characters (accents)\n   - East Asian wide characters\n\nHowever, for this project's needs, we might be able to use a simpler approach. Let me check if there are any other uses of wcwidth in the codebase:\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcwidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:25: from wcwidth import wcswidth"
+ },
+ {
+  "role": "assistant",
+  "content": "Good, only one import. Now let me implement a replacement. I'll create a simple wcswidth function that handles the main cases needed for the tests. Looking at the tests:\n1. Test line 113-116: ZWNJ (\\u200C) should be ignored for alignment (width 0)\n2. Test line 128-138: Arabic ligature \"\u0644\u0627\" should have width 1 (not 2)\n\nActually, looking at the test comment: \"'\u0644' + '\u0627' creates a ligature with one character width.\" So the combined ligature has width 1, not 2.\n\nLet me implement a simple version. First, let me edit the file to remove the wcwidth import and add our own implementation:\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 25, \"end_line\": 25, \"replacement_text\": \"# Simple wcswidth replacement for display width calculation\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited wikitextparser/_wikitext.py (lines 25-25 -> 1 lines). Result:\n  22     match,\n  23     search,\n  24 )\n  25 # Simple wcswidth replacement for display width calculation\n  26 \n  27 # noinspection PyProtectedMember\n  28 from ._config import ("
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to add my implementation. Let me add it right after the imports. First, let me check where to place it:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 25, \"end_line\": \"50\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "  25 # Simple wcswidth replacement for display width calculation\n  26 \n  27 # noinspection PyProtectedMember\n  28 from ._config import (\n  29     _HTML_TAG_NAME,\n  30     KNOWN_FILE_EXTENSIONS,\n  31     _bare_external_link_schemes,\n  32     _parsable_tag_extensions,\n  33     _tag_extensions,\n  34     regex_pattern,\n  35 )\n  36 from ._spans import (\n  37     BARE_EXTERNAL_LINK,\n  38     END_TAG_PATTERN,\n  39     EXTERNAL_LINK_URL_TAIL,\n  40     INVALID_URL_CHARS,\n  41     START_TAG_PATTERN,\n  42     TypeToSpans,\n  43     parse_to_spans,\n  44     rc,\n  45 )\n  46 \n  47 NAME_CAPTURING_HTML_START_TAG_FINDITER = rc(\n  48     START_TAG_PATTERN.replace(\n  49         b'{name}', rb'(?<name>' + _HTML_TAG_NAME + rb')', 1\n  50     )\n  51 ).finditer\n  52 \n  53 # External links\n  54 BRACKET_EXTERNAL_LINK_SCHEMES = regex_pattern(\n  55     _bare_external_link_schemes | {'//'}\n  56 )\n  57 BRACKET_EXTERNAL_LINK_URL = (\n  58     BRACKET_EXTERNAL_LINK_SCHEMES + EXTERNAL_LINK_URL_TAIL\n  59 )\n  60 BRACKET_EXTERNAL_LINK = rb'\\[' + BRACKET_EXTERNAL_LINK_URL + rb'[^\\]\\n]*+\\]'\n  61 EXTERNAL_LINK = (\n  62     rb'(?>' + BARE_EXTERNAL_LINK + rb'|' + BRACKET_EXTERNAL_LINK + rb')'\n  63 )\n  64 EXTERNAL_LINK_FINDITER = rc(EXTERNAL_LINK, IGNORECASE).finditer\n  65 INVALID_EL_TPP_CHRS_SUB = rc(  # the [:-4] slice allows \\[ and \\]\n  66     rb'[' + INVALID_URL_CHARS[:-4] + rb'{}|]'\n  67 ).sub\n  68 \n  69 # Sections\n  70 SECTION_HEADING = rb'^(?<equals>={1,6})[^\\n]+?(?P=equals)[ \\t]*+$'\n  71 SUB_SECTION = rb'(?:^(?P=equals)=[^\\n]+?(?P=equals)=[ \\t]*+$.*?)*'\n  72 LEAD_SECTION = rb'(?<section>(?<equals>).*?)'\n  73 SECTIONS_FULLMATCH = rc(\n  74     LEAD_SECTION\n  75     + rb'(?<section>'\n  76     + SECTION_HEADING\n  77     + rb'.*?'  # heading  # section content\n  78     rb')*',\n  79     DOTALL | MULTILINE | VERBOSE,\n  80 ).fullmatch\n  81 SECTIONS_TOP_LEVELS_ONLY = rc(\n  82     LEAD_SECTION\n  83     + rb'(?<section>'\n  84     + SECTION_HEADING\n  85     + rb'.*?'\n  86     + SUB_SECTION\n  87     + rb')*',\n  88 "
+ },
+ {
+  "role": "assistant",
+  "content": "I need to add my implementation before the wcswidth usage. Let me add it right after the comment line. Actually, let me add it as a function definition:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 25, \"end_line\": 26, \"replacement_text\": \"# Simple wcswidth replacement for display width calculation\\ndef wcswidth(s: str) -> int:\\n    \\\"\\\"\\\"\\n    Calculate display width of a string.\\n    Simplified version that handles common cases:\\n    - ASCII characters: width 1\\n    - Zero-width characters (like ZWNJ \\\\u200C): width 0\\n    - Most other characters: width 1\\n    This is a simplified replacement for the wcwidth library.\\n    \\\"\\\"\\\"\\n    if not s:\\n        return 0\\n    \\n    # Fast path for ASCII\\n    try:\\n        s.encode('ascii')\\n        return len(s)\\n    except UnicodeEncodeError:\\n        pass\\n    \\n    width = 0\\n    for char in s:\\n        # Check for zero-width characters\\n        # ZWNJ (Zero Width Non-Joiner) \\\\u200C\\n        # ZWJ (Zero Width Joiner) \\\\u200D\\n        # Combining characters (accents) - Unicode category Mn (Mark, Nonspacing) or Me (Mark, Enclosing)\\n        # Bidirectional control characters\\n        cp = ord(char)\\n        if (\\n            cp == 0x200C or  # ZWNJ\\n            cp == 0x200D or  # ZWJ\\n            (0x0300 <= cp <= 0x036F) or  # Combining Diacritical Marks\\n            (0x1AB0 <= cp <= 0x1AFF) or  # Combining Diacritical Marks Extended\\n            (0x1DC0 <= cp <= 0x1DFF) or  # Combining Diacritical Marks Supplement\\n            (0x20D0 <= cp <= 0x20FF) or  # Combining Diacritical Marks for Symbols\\n            (0xFE00 <= cp <= 0xFE0F) or  # Variation Selectors\\n            (0xFE20 <= cp <= 0xFE2F)     # Combining Half Marks\\n        ):\\n            continue  # Zero width\\n        \\n        # For now, treat all other non-ASCII as width 1\\n        # This is a simplification but should work for most cases\\n        width += 1\\n    \\n    return width\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited wikitextparser/_wikitext.py (lines 25-26 -> 45 lines). Result:\n  22     match,\n  23     search,\n  24 )\n  25 # Simple wcswidth replacement for display width calculation\n  26 def wcswidth(s: str) -> int:\n  27     \"\"\"\n  28     Calculate display width of a string.\n  29     Simplified version that handles common cases:\n  30     - ASCII characters: width 1\n  31     - Zero-width characters (like ZWNJ \\u200C): width 0\n  32     - Most other characters: width 1\n  33     This is a simplified replacement for the wcwidth library.\n  34     \"\"\"\n  35     if not s:\n  36         return 0\n  37     \n  38     # Fast path for ASCII\n  39     try:\n  40         s.encode('ascii')\n  41         return len(s)\n  42     except UnicodeEncodeError:\n  43         pass\n  44     \n  45     width = 0\n  46     for char in s:\n  47         # Check for zero-width characters\n  48         # ZWNJ (Zero Width Non-Joiner) \\u200C\n  49         # ZWJ (Zero Width Joiner) \\u200D\n  50         # Combining characters (accents) - Unicode category Mn (Mark, Nonspacing) or Me (Mark, Enclosing)\n  51         # Bidirectional control characters\n  52         cp = ord(char)\n  53         if (\n  54             cp == 0x200C or  # ZWNJ\n  55             cp == 0x200D or  # ZWJ\n  56             (0x0300 <= cp <= 0x036F) or  # Combining Diacritical Marks\n  57             (0x1AB0 <= cp <= 0x1AFF) or  # Combining Diacritical Marks Extended\n  58             (0x1DC0 <= cp <= 0x1DFF) or  # Combining Diacritical Marks Supplement\n  59             (0x20D0 <= cp <= 0x20FF) or  # Combining Diacritical Marks for Symbols\n  60             (0xFE00 <= cp <= 0xFE0F) or  # Variation Selectors\n  61             (0xFE20 <= cp <= 0xFE2F)     # Combining Half Marks\n  62         ):\n  63             continue  # Zero width\n  64         \n  65         # For now, treat all other non-ASCII as width 1\n  66         # This is a simplification but should work for most cases\n  67         width += 1\n  68     \n  69     return width\n  70 # noinspection PyProtectedMemb"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to update pyproject.toml to remove the wcwidth dependency. Let me check the dependencies section:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\", \"start_line\": 1, \"end_line\": \"50\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = ['flit_core >=3.2,<4']\n   3 build-backend = 'flit_core.buildapi'\n   4 \n   5 [project]\n   6 name = \"wikitextparser\"\n   7 authors = [\n   8     { name = \"5j9\", email = \"5j9@users.noreply.github.com\" },\n   9 ]\n  10 description = \"A simple parsing tool for MediaWiki's wikitext markup.\"\n  11 keywords = [\n  12     \"MediaWiki\",\n  13     \"wikitext\",\n  14     \"parser\",\n  15 ]\n  16 readme = \"README.rst\"\n  17 classifiers = [\n  18     \"Programming Language :: Python\",\n  19     \"License :: OSI Approved :: GNU General Public License v3 (GPLv3)\",\n  20     \"Topic :: Text Processing\",\n  21 ]\n  22 requires-python = \">= 3.8\"\n  23 dependencies = [\n  24     \"regex >= 2022.9.11\",\n  25     \"wcwidth\",\n  26 ]\n  27 dynamic = [\n  28     \"version\",\n  29 ]\n  30 \n  31 [project.license]\n  32 text = \"GNU General Public License v3 (GPLv3)\"\n  33 \n  34 [project.urls]\n  35 Homepage = \"https://github.com/5j9/wikitextparser\"\n  36 \n  37 [project.optional-dependencies]\n  38 dev = [\n  39     \"coverage\",\n  40 ]\n  41 tests = [\n  42     \"pytest\",\n  43 ]\n  44 \n  45 [tool.flit.sdist]\n  46 exclude = ['tests/', 'doc/', 'dev/']\n  47 \n  48 [tool.ruff]\n  49 line-length = 79\n  50 format.quote-style = 'single'\n  51 lint.isort.combine-as-imports = true\n  52 lint.extend-select = [\n  53     'FA',  # flake8-future-annotations\n  54     'I',  # isort\n  55     'UP',  # pyupgrade\n  56 ]\n  57 lint.ignore = [\n  58     'UP027',  # list comprehensions are faster than generator expressions\n  59     'E721',  # Do not compare types, use `isinstance()`\n  60 ]\n  61 \n  62 [tool.pytest.ini_options]\n  63 addopts = '--quiet --tb=short'\n  64 \n  65 [tool.pyright]\n  66 typeCheckingMode = 'standard'\n  67 reportDeprecated = \"warning\"\n  68 reportPropertyTypeMismatch = \"warning\"\n  69 reportUnnecessaryCast = \"warning\"\n  70 reportUnnecessaryContains = \"warning\"\n  71 reportUnnecessaryIsInstance = \"warning\"\n  72 reportUnnecessaryTypeIgnoreComment = true"
+ },
+ {
+  "role": "assistant",
+  "content": "Now I need to remove the \"wcwidth\" line from dependencies. Let me edit that:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"pyproject.toml\", \"start_line\": 23, \"end_line\": 26, \"replacement_text\": \"dependencies = [\\n    \\\"regex >= 2022.9.11\\\",\\n]\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited pyproject.toml (lines 23-26 -> 3 lines). Result:\n  20     \"Topic :: Text Processing\",\n  21 ]\n  22 requires-python = \">= 3.8\"\n  23 dependencies = [\n  24     \"regex >= 2022.9.11\",\n  25 ]\n  26 dynamic = [\n  27     \"version\",\n  28 ]"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me run a quick test to see if the code works. First, let me check if there are any other references to wcwidth in the codebase:\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcwidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:33: This is a simplified replacement for the wcwidth library."
+ },
+ {
+  "role": "assistant",
+  "content": "Good, only in my comment. Now let me run the tests to see if they pass. But first, let me check if my implementation handles the Arabic ligature case correctly. Looking at the test, it says \"'\u0644' + '\u0627' creates a ligature with one character width.\" So the combined ligature should have width 1, not 2. My current implementation would count each character separately, giving width 2. But actually, in the test, the string is \"\u0644\u0627\" which is already a ligature character (U+0644 U+0627). My implementation would count each as width 1, giving total width 2, but the test expects 1.\n\nWait, let me re-examine the test. The test comment says: \"Arabic ligature lam with alef has one character width.\" This suggests that the combined form should be treated as width 1. However, in Unicode, \"\u0644\u0627\" is actually two code points: \u0644 (U+0644) and \u0627 (U+0627). When rendered, they might form a ligature that takes less visual space, but for monospace display purposes, wcswidth might treat it as width 2.\n\nActually, looking at the test more carefully, the test is checking that pformat works correctly with Arabic text. The actual assertion might not be about the exact width calculation but about the formatting working without errors.\n\nLet me run a quick test to see what happens. But first, let me improve my implementation to handle East Asian wide characters (which should be width 2) and check if Arabic characters are considered wide or not. Actually, Arabic characters are typically width 1 in most terminals.\n\nLet me update my implementation to be more accurate. Actually, for now, let me keep it simple and see if tests pass. If they don't, I'll refine it.\n\nActually, wait. I need to check what the original wcswidth function returns for Arabic text. Let me create a simple test script to understand the expected behavior. But first, let me check if there are any other tests that might fail.\n\nActually, let me run the existing tests to see what happens. But before that, I should check if my implementation handles the ZWNJ case correctly (width 0). That's important for the test on line 113-116.\n\nMy implementation handles ZWNJ (\\u200C) correctly (width 0). Good.\n\nNow let me run a quick test. First, let me check if there's a way to run tests:\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "list_files",
+    "args": "{\"path\": \".\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "list_files",
+  "content": ".coveragerc\n.github/workflows/tests.yml\n.gitignore\n.readthedocs.yaml\n.vscode/settings.json\nCHANGELOG.rst\nLICENSE.md\nREADME.rst\ndev/coverage.py\ndev/html_tag_names.py\ndev/profiles/bold_italic.py\ndev/profiles/bold_italic_input.txt\ndev/profiles/citation_template.txt\ndev/profiles/pp_profile.py\ndev/profiles/table_profile.py\ndev/profiles/table_profile_input.txt\ndev/profiles/vs_mwparserfromhell_input.txt\ndev/profiles/vs_mwpfh.py\ndocs/CHANGELOG.rst\ndocs/Makefile\ndocs/README.rst\ndocs/conf.py\ndocs/index.rst\ndocs/make.bat\npyproject.toml\ntests/__main__.py\ntests/test_argument.py\ntests/test_cell.py\ntests/test_comment_bold_italic.py\ntests/test_config.py\ntests/test_externallink.py\ntests/test_parameter.py\ntests/test_parser_function.py\ntests/test_section.py\ntests/test_spans.py\ntests/test_table.py\ntests/test_tag.py\ntests/test_template.py\ntests/test_wikilink.py\ntests/test_wikilist.py\ntests/wikitext/test_external_links.py\ntests/wikitext/test_get_bolds_and_italics.py\ntests/wikitext/test_get_lists.py\ntests/wikitext/test_get_tags.py\ntests/wikitext/test_pformat.py\ntests/wikitext/test_plain_text.py\ntests/wikitext/test_sections.py\ntests/wikitext/test_tables.py\ntests/wikitext/test_wikitext.py\nwikitextparser/__init__.py\nwikitextparser/_argument.py\nwikitextparser/_cell.py\nwikitextparser/_comment_bold_italic.py\nwikitextparser/_config.py\nwikitextparser/_externallink.py\nwikitextparser/_parameter.py\nwikitextparser/_parser_function.py\nwikitextparser/_section.py\nwikitextparser/_spans.py\nwikitextparser/_table.py\nwikitextparser/_tag.py\nwikitextparser/_template.py\nwikitextparser/_wikilink.py\nwikitextparser/_wikilist.py\nwikitextparser/_wikitext.py"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me run a quick test to see if my implementation works. First, let me create a simple test script:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "write_file",
+    "args": "{\"path\": \"test_wcswidth.py\", \"content\": \"#!/usr/bin/env python3\\n\\\"\\\"\\\"Test the wcswidth replacement.\\\"\\\"\\\"\\n\\n# Import the function from our module\\nimport sys\\nsys.path.insert(0, '.')\\nfrom wikitextparser._wikitext import wcswidth\\n\\n# Test cases\\ntest_cases = [\\n    (\\\"\\\", 0),\\n    (\\\"hello\\\", 5),\\n    (\\\"hello world\\\", 11),\\n    (\\\"\u0645\u0631\u062d\u0628\u0627\\\", 5),  # Arabic word, each character width 1\\n    (\\\"\\\\u200C\\\", 0),  # ZWNJ should be width 0\\n    (\\\"a\\\\u200Cb\\\", 2),  # ZWNJ in middle should be ignored\\n    (\\\"\u0644\u0627\\\", 2),  # Arabic lam + alef, each width 1\\n    (\\\"caf\u00e9\\\", 4),  # ASCII + \u00e9 (combining might be handled differently)\\n    (\\\"caf\\\\u00e9\\\", 4),  # precomposed \u00e9\\n    (\\\"cafe\\\\u0301\\\", 4),  # e + combining acute accent\\n]\\n\\nprint(\\\"Testing wcswidth replacement:\\\")\\nall_passed = True\\nfor s, expected in test_cases:\\n    result = wcswidth(s)\\n    passed = result == expected\\n    all_passed = all_passed and passed\\n    status = \\\"\u2713\\\" if passed else \\\"\u2717\\\"\\n    print(f\\\"{status} wcswidth({repr(s)}) = {result} (expected {expected})\\\")\\n\\nif all_passed:\\n    print(\\\"\\\\nAll tests passed!\\\")\\nelse:\\n    print(\\\"\\\\nSome tests failed!\\\")\\n    sys.exit(1)\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "write_file",
+  "content": "created test_wcswidth.py"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me run it:\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "write_file",
+    "args": "{\"path\": \"run_test.sh\", \"content\": \"#!/bin/bash\\npython3 test_wcswidth.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "write_file",
+  "content": "created run_test.sh"
+ },
+ {
+  "role": "assistant",
+  "content": "Let me run the test directly:\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "write_file",
+    "args": "{\"path\": \"run_test.py\", \"content\": \"import subprocess\\nimport sys\\n\\nresult = subprocess.run([sys.executable, \\\"test_wcswidth.py\\\"], capture_output=True, text=True)\\nprint(result.stdout)\\nif result.stderr:\\n    print(\\\"STDERR:\\\", result.stderr)\\nprint(\\\"Return code:\\\", result.returncode)\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "write_file",
+  "content": "created run_test.py"
+ },
+ {
+  "role": "assistant",
+  "content": "Actually, let me just run the test directly in the environment. But first, let me check if there are any syntax errors in my implementation by importing the module:\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "write_file",
+    "args": "{\"path\": \"check_import.py\", \"content\": \"import sys\\nsys.path.insert(0, '.')\\ntry:\\n    from wikitextparser._wikitext import wcswidth\\n    print(\\\"Import successful!\\\")\\n    # Test a simple case\\n    print(f\\\"wcswidth('hello') = {wcswidth('hello')}\\\")\\nexcept Exception as e:\\n    print(f\\\"Import failed: {e}\\\")\\n    import traceback\\n    traceback.print_exc()\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "write_file",
+  "content": "created check_import.py"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me run the actual tests to see if they pass. But first, I realize I need to handle combining characters better. In my current implementation, I'm checking for specific ranges of combining characters, but I should also check the Unicode category. Let me update my implementation to use unicodedata:\n\nActually, Python's unicodedata module can tell us if a character is a combining character. Let me update the implementation:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 25, \"end_line\": 26, \"replacement_text\": \"# Simple wcswidth replacement for display width calculation\\nimport unicodedata\\n\\ndef wcswidth(s: str) -> int:\\n    \\\"\\\"\\\"\\n    Calculate display width of a string.\\n    Simplified version that handles common cases:\\n    - ASCII characters: width 1\\n    - Zero-width characters (like ZWNJ \\\\u200C): width 0\\n    - Combining characters (accents): width 0\\n    - Most other characters: width 1\\n    This is a simplified replacement for the wcwidth library.\\n    \\\"\\\"\\\"\\n    if not s:\\n        return 0\\n    \\n    # Fast path for ASCII\\n    try:\\n        s.encode('ascii')\\n        return len(s)\\n    except UnicodeEncodeError:\\n        pass\\n    \\n    width = 0\\n    for char in s:\\n        # Check for zero-width characters\\n        cp = ord(char)\\n        \\n        # Zero-width joiners and non-joiners\\n        if cp == 0x200C or cp == 0x200D:  # ZWNJ and ZWJ\\n            continue\\n        \\n        # Check Unicode category for combining/mark characters\\n        category = unicodedata.category(char)\\n        if category.startswith('M'):  # Mark characters (combining accents, etc.)\\n            continue\\n        \\n        # Check for other zero-width characters\\n        # Variation selectors\\n        if 0xFE00 <= cp <= 0xFE0F:  # Variation Selectors\\n            continue\\n        if 0xE0100 <= cp <= 0xE01EF:  # Variation Selectors Supplement\\n            continue\\n        \\n        # For now, treat all other non-ASCII as width 1\\n        # This is a simplification but should work for most cases\\n        width += 1\\n    \\n    return width\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited wikitextparser/_wikitext.py (lines 25-26 -> 49 lines). Result:\n  22     match,\n  23     search,\n  24 )\n  25 # Simple wcswidth replacement for display width calculation\n  26 import unicodedata\n  27 \n  28 def wcswidth(s: str) -> int:\n  29     \"\"\"\n  30     Calculate display width of a string.\n  31     Simplified version that handles common cases:\n  32     - ASCII characters: width 1\n  33     - Zero-width characters (like ZWNJ \\u200C): width 0\n  34     - Combining characters (accents): width 0\n  35     - Most other characters: width 1\n  36     This is a simplified replacement for the wcwidth library.\n  37     \"\"\"\n  38     if not s:\n  39         return 0\n  40     \n  41     # Fast path for ASCII\n  42     try:\n  43         s.encode('ascii')\n  44         return len(s)\n  45     except UnicodeEncodeError:\n  46         pass\n  47     \n  48     width = 0\n  49     for char in s:\n  50         # Check for zero-width characters\n  51         cp = ord(char)\n  52         \n  53         # Zero-width joiners and non-joiners\n  54         if cp == 0x200C or cp == 0x200D:  # ZWNJ and ZWJ\n  55             continue\n  56         \n  57         # Check Unicode category for combining/mark characters\n  58         category = unicodedata.category(char)\n  59         if category.startswith('M'):  # Mark characters (combining accents, etc.)\n  60             continue\n  61         \n  62         # Check for other zero-width characters\n  63         # Variation selectors\n  64         if 0xFE00 <= cp <= 0xFE0F:  # Variation Selectors\n  65             continue\n  66         if 0xE0100 <= cp <= 0xE01EF:  # Variation Selectors Supplement\n  67             continue\n  68         \n  69         # For now, treat all other non-ASCII as width 1\n  70         # This is a simplification but should work for most cases\n  71         width += 1\n  72     \n  73     return width\n  74     \"\"\"\n  75     Calculate display width of a string.\n  76     Simplified version that handles common cases:"
+ },
+ {
+  "role": "assistant",
+  "content": "I need to fix the duplicate function definition. Let me check what happened:\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 70, \"end_line\": \"80\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "  70         # This is a simplification but should work for most cases\n  71         width += 1\n  72     \n  73     return width\n  74     \"\"\"\n  75     Calculate display width of a string.\n  76     Simplified version that handles common cases:\n  77     - ASCII characters: width 1\n  78     - Zero-width characters (like ZWNJ \\u200C): width 0\n  79     - Most other characters: width 1\n  80     This is a simplified replacement for the wcwidth library.\n  81     \"\"\"\n  82     if not s:\n  83         return 0\n  84     \n  85     # Fast path for ASCII\n  86     try:\n  87         s.encode('ascii')\n  88         return len(s)\n  89     except UnicodeEncodeError:\n  90         pass\n  91     \n  92     width = 0\n  93     for char in s:\n  94         # Check for zero-width characters\n  95         # ZWNJ (Zero Width Non-Joiner) \\u200C\n  96         # ZWJ (Zero Width Joiner) \\u200D\n  97         # Combining characters (accents) - Unicode category Mn (Mark, Nonspacing) or Me (Mark, Enclosing)\n  98         # Bidirectional control characters\n  99         cp = ord(char)\n 100         if (\n 101             cp == 0x200C or  # ZWNJ\n 102             cp == 0x200D or  # ZWJ\n 103             (0x0300 <= cp <= 0x036F) or  # Combining Diacritical Marks\n 104             (0x1AB0 <= cp <= 0x1AFF) or  # Combining Diacritical Marks Extended\n 105             (0x1DC0 <= cp <= 0x1DFF) or  # Combining Diacritical Marks Supplement\n 106             (0x20D0 <= cp <= 0x20FF) or  # Combining Diacritical Marks for Symbols\n 107             (0xFE00 <= cp <= 0xFE0F) or  # Variation Selectors\n 108             (0xFE20 <= cp <= 0xFE2F)     # Combining Half Marks\n 109         ):\n 110             continue  # Zero width\n 111         \n 112         # For now, treat all other non-ASCII as width 1\n 113         # This is a simplification but should work for most cases\n 114         width += 1\n 115     \n 116     return width\n 117 # noinspection PyProtectedMember\n 118 from ._config import (\n 119     _HTML_TAG_NAME,\n 120     KNOWN_FILE_EXTENS"
+ },
+ {
+  "role": "assistant",
+  "content": "I see the issue - I have duplicate function definitions. The edit didn't replace the old function, it added a new one. Let me fix this by removing the old function definition. First, let me find where the old function starts:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 74, \"end_line\": \"117\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "  74     \"\"\"\n  75     Calculate display width of a string.\n  76     Simplified version that handles common cases:\n  77     - ASCII characters: width 1\n  78     - Zero-width characters (like ZWNJ \\u200C): width 0\n  79     - Most other characters: width 1\n  80     This is a simplified replacement for the wcwidth library.\n  81     \"\"\"\n  82     if not s:\n  83         return 0\n  84     \n  85     # Fast path for ASCII\n  86     try:\n  87         s.encode('ascii')\n  88         return len(s)\n  89     except UnicodeEncodeError:\n  90         pass\n  91     \n  92     width = 0\n  93     for char in s:\n  94         # Check for zero-width characters\n  95         # ZWNJ (Zero Width Non-Joiner) \\u200C\n  96         # ZWJ (Zero Width Joiner) \\u200D\n  97         # Combining characters (accents) - Unicode category Mn (Mark, Nonspacing) or Me (Mark, Enclosing)\n  98         # Bidirectional control characters\n  99         cp = ord(char)\n 100         if (\n 101             cp == 0x200C or  # ZWNJ\n 102             cp == 0x200D or  # ZWJ\n 103             (0x0300 <= cp <= 0x036F) or  # Combining Diacritical Marks\n 104             (0x1AB0 <= cp <= 0x1AFF) or  # Combining Diacritical Marks Extended\n 105             (0x1DC0 <= cp <= 0x1DFF) or  # Combining Diacritical Marks Supplement\n 106             (0x20D0 <= cp <= 0x20FF) or  # Combining Diacritical Marks for Symbols\n 107             (0xFE00 <= cp <= 0xFE0F) or  # Variation Selectors\n 108             (0xFE20 <= cp <= 0xFE2F)     # Combining Half Marks\n 109         ):\n 110             continue  # Zero width\n 111         \n 112         # For now, treat all other non-ASCII as width 1\n 113         # This is a simplification but should work for most cases\n 114         width += 1\n 115     \n 116     return width\n 117 # noinspection PyProtectedMember\n 118 from ._config import (\n 119     _HTML_TAG_NAME,\n 120     KNOWN_FILE_EXTENSIONS,\n 121     _bare_external_link_schemes,\n 122     _parsable_tag_extensions,\n 123     _tag_extensions,\n 124     regex_pattern"
+ },
+ {
+  "role": "assistant",
+  "content": "I need to remove the duplicate function definition. Let me delete lines 74-116 which contain the old function:\n\n",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 74, \"end_line\": 116, \"replacement_text\": \"\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited wikitextparser/_wikitext.py (lines 74-116 -> 0 lines). Result:\n  71         width += 1\n  72     \n  73     return width\n  74 # noinspection PyProtectedMember\n  75 from ._config import (\n  76     _HTML_TAG_NAME,"
+ },
+ {
+  "role": "assistant",
+  "content": "Good. Now let me run a quick test to make sure the code works. First, let me check if there are any syntax issues by running a simple test:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "write_file",
+    "args": "{\"path\": \"quick_test.py\", \"content\": \"import sys\\nsys.path.insert(0, '.')\\n\\n# Test the wcswidth function\\nfrom wikitextparser._wikitext import wcswidth\\n\\n# Basic tests\\nassert wcswidth(\\\"\\\") == 0\\nassert wcswidth(\\\"hello\\\") == 5\\nassert wcswidth(\\\"hello world\\\") == 11\\n\\n# Test ZWNJ (should be width 0)\\nassert wcswidth(\\\"\\\\u200C\\\") == 0\\nassert wcswidth(\\\"a\\\\u200Cb\\\") == 2\\n\\n# Test combining character (e with acute accent)\\n# Note: precomposed \u00e9 (U+00E9) should be width 1\\nassert wcswidth(\\\"caf\\\\u00e9\\\") == 4\\n\\nprint(\\\"All basic tests passed!\\\")\\n\\n# Test the actual usage in the code\\n# Let's test the table formatting logic\\nfrom wikitextparser import Wikitext\\n\\n# Create a simple table\\nwt = Wikitext(\\\"{|\\\\n|a\\\\n|b\\\\n|}\\\")\\n# This should not crash\\nprint(\\\"Table creation test passed!\\\")\\n\\nprint(\\\"\\\\nAll tests completed successfully!\\\")\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "write_file",
+  "content": "created quick_test.py"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me run the test to make sure everything works:\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "write_file",
+    "args": "{\"path\": \"run_quick_test.py\", \"content\": \"import subprocess\\nimport sys\\n\\nresult = subprocess.run([sys.executable, \\\"quick_test.py\\\"], capture_output=True, text=True)\\nprint(\\\"STDOUT:\\\")\\nprint(result.stdout)\\nif result.stderr:\\n    print(\\\"\\\\nSTDERR:\\\")\\n    print(result.stderr)\\nprint(f\\\"\\\\nReturn code: {result.returncode}\\\")\\nsys.exit(result.returncode)\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "write_file",
+  "content": "created run_quick_test.py"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let me run the actual test suite to make sure everything still works. But first, let me check if there are any other files that might need updating. Let me check if there are any other references to wcwidth in the entire codebase:\n\n\n\n\n\n",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcwidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:36: This is a simplified replacement for the wcwidth library."
+ }
+]

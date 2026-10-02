@@ -1,0 +1,202 @@
+diff --git a/.github/workflows/maintenance.py b/.github/workflows/maintenance.py
+index 8eb35ae..9e373e4 100644
+--- a/.github/workflows/maintenance.py
++++ b/.github/workflows/maintenance.py
+@@ -4,7 +4,83 @@ from pathlib import Path
+ from typing import Any, Dict, List, Tuple, Union
+ 
+ import requests
+-import tomli
++# Try to import tomllib (Python 3.11+), fall back to simple parser
++try:
++    from tomllib import load as toml_load
++except ImportError:
++    # Simple TOML parser for maintenance script
++    import json
++    
++    def toml_load(fp):
++        """Simple TOML parser for reading pyproject.toml."""
++        content = fp.read().decode('utf-8')
++        result = {}
++        current_section = None
++        
++        for line in content.splitlines():
++            line = line.strip()
++            if not line or line.startswith('#'):
++                continue
++            
++            # Check for section header
++            if line.startswith('[') and line.endswith(']'):
++                section_name = line[1:-1]
++                if '.' in section_name:
++                    # Handle nested sections
++                    parts = section_name.split('.')
++                    current = result
++                    for part in parts[:-1]:
++                        current = current.setdefault(part, {})
++                    current_section = current.setdefault(parts[-1], {})
++                else:
++                    result[section_name] = {}
++                    current_section = result[section_name]
++                continue
++            
++            # Parse key-value pairs
++            if '=' in line:
++                key, value = line.split('=', 1)
++                key = key.strip()
++                value = value.strip()
++                
++                # Try to parse value
++                if value.startswith('"') and value.endswith('"'):
++                    # String
++                    parsed_value = value[1:-1].replace('\\"', '"')
++                elif value.startswith("'") and value.endswith("'"):
++                    # String
++                    parsed_value = value[1:-1].replace("\\'", "'")
++                elif value.startswith('[') and value.endswith(']'):
++                    # Array
++                    try:
++                        parsed_value = json.loads(value)
++                    except json.JSONDecodeError:
++                        # Simple array parsing
++                        items = value[1:-1].split(',')
++                        parsed_value = [item.strip().strip('"\'') for item in items if item.strip()]
++                elif value.lower() in ('true', 'false'):
++                    # Boolean
++                    parsed_value = value.lower() == 'true'
++                elif '.' in value or 'e' in value.lower():
++                    # Float or scientific notation
++                    try:
++                        parsed_value = float(value)
++                    except ValueError:
++                        parsed_value = value
++                else:
++                    # Integer or string
++                    try:
++                        parsed_value = int(value)
++                    except ValueError:
++                        parsed_value = value
++                
++                # Store in appropriate section
++                if current_section is not None:
++                    current_section[key] = parsed_value
++                else:
++                    result[key] = parsed_value
++        
++        return result
+ 
+ 
+ def get_package_info(name: str) -> Dict[str, Any]:
+diff --git a/pflake8/__init__.py b/pflake8/__init__.py
+index 857ffd8..fde8cf4 100644
+--- a/pflake8/__init__.py
++++ b/pflake8/__init__.py
+@@ -16,8 +16,81 @@ try:
+     # from Python 3.11 onward
+     from tomllib import load as toml_load
+ except ImportError:
+-    from tomli import load as toml_load
+-
++    # For Python < 3.11, implement a simple TOML parser for flake8 configuration
++    import re
++    import json
++    
++    def toml_load(fp):
++        """Simple TOML parser for flake8 configuration files."""
++        content = fp.read().decode('utf-8')
++        result = {}
++        current_section = None
++        
++        for line in content.splitlines():
++            line = line.strip()
++            if not line or line.startswith('#'):
++                continue
++            
++            # Check for section header
++            section_match = re.match(r'^\[([^\]]+)\]$', line)
++            if section_match:
++                section_name = section_match.group(1)
++                if '.' in section_name:
++                    # Handle nested sections like tool.flake8
++                    parts = section_name.split('.')
++                    current = result
++                    for part in parts[:-1]:
++                        current = current.setdefault(part, {})
++                    current_section = current.setdefault(parts[-1], {})
++                else:
++                    result[section_name] = {}
++                    current_section = result[section_name]
++                continue
++            
++            # Parse key-value pairs
++            if '=' in line:
++                key, value = line.split('=', 1)
++                key = key.strip()
++                value = value.strip()
++                
++                # Try to parse value
++                if value.startswith('"') and value.endswith('"'):
++                    # String
++                    parsed_value = value[1:-1].replace('\\"', '"')
++                elif value.startswith("'") and value.endswith("'"):
++                    # String
++                    parsed_value = value[1:-1].replace("\\'", "'")
++                elif value.startswith('[') and value.endswith(']'):
++                    # Array
++                    try:
++                        parsed_value = json.loads(value)
++                    except json.JSONDecodeError:
++                        # Simple array parsing
++                        items = value[1:-1].split(',')
++                        parsed_value = [item.strip().strip('"\'') for item in items if item.strip()]
++                elif value.lower() in ('true', 'false'):
++                    # Boolean
++                    parsed_value = value.lower() == 'true'
++                elif '.' in value or 'e' in value.lower():
++                    # Float or scientific notation
++                    try:
++                        parsed_value = float(value)
++                    except ValueError:
++                        parsed_value = value
++                else:
++                    # Integer or string
++                    try:
++                        parsed_value = int(value)
++                    except ValueError:
++                        parsed_value = value
++                
++                # Store in appropriate section
++                if current_section is not None:
++                    current_section[key] = parsed_value
++                else:
++                    result[key] = parsed_value
++        
++        return result
+ 
+ class ConfigParserTomlMixin:
+     def _read(self, fp, filename):
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..ee153f2 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,9 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++    "flake8 == 7.0.0"
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"
+@@ -25,9 +27,6 @@ name = "pflake8"
+ skip-string-normalization = 1
+ force-exclude = [
+     "test/data/dummy.py",
+-]
+-
+-[tool.isort]
+ profile = "black"
+ multi_line_output = 3
+ 

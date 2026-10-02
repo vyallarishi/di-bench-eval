@@ -1,0 +1,227 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1292a2..27c1f69 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,6 +40,13 @@ web-service = ["fastapi", "uvicorn"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8 || ^3.9 || ^3.10 || ^3.11 || ^3.12"
++requests = ">=2.31.0"
++lxml = ">=4.9.3"
++
++# optional dependencies
++fastapi = { version = "^0.109.0", optional = true }
++uvicorn = { version = "^0.25.0", optional = true }
++
+ 
+ [build-system]
+ requires = ["poetry-core"]
+diff --git a/src/inscriptis/__init__.py b/src/inscriptis/__init__.py
+index 4e52312..800a5b9 100644
+--- a/src/inscriptis/__init__.py
++++ b/src/inscriptis/__init__.py
+@@ -63,9 +63,7 @@ import re
+ from typing import Dict, Optional, Any
+ from inscriptis.model.config import ParserConfig
+ 
+-from lxml.etree import ParserError
+-from lxml.html import fromstring, HtmlElement
+-
++from inscriptis.html_parser import fromstring, HtmlElement, ParserError
+ from inscriptis.html_engine import Inscriptis
+ 
+ RE_STRIP_XML_DECLARATION = re.compile(r"^<\?xml [^>]+?\?>")
+diff --git a/src/inscriptis/html_engine.py b/src/inscriptis/html_engine.py
+index 42d849e..b479080 100644
+--- a/src/inscriptis/html_engine.py
++++ b/src/inscriptis/html_engine.py
+@@ -1,15 +1,15 @@
+ #!/usr/bin/env python
+ # coding:utf-8
+-"""The HTML Engine is responsible for converting HTML to text."""
+-from typing import List, Dict, Callable
++"""HTML engine for inscriptis."""
+ 
+-import lxml.html
+-from lxml.etree import Comment
++from typing import Dict, List, Optional, Any, Callable
+ 
+-from inscriptis.annotation import Annotation
++from inscriptis.html_parser import HtmlElement, Comment, fromstring
+ from inscriptis.model.canvas import Canvas
+ from inscriptis.model.config import ParserConfig
+ from inscriptis.model.html_document_state import HtmlDocumentState
++from inscriptis.model.config import ParserConfig
++from inscriptis.model.html_document_state import HtmlDocumentState
+ from inscriptis.model.tag.a_tag import a_start_handler, a_end_handler
+ from inscriptis.model.tag.br_tag import br_start_handler
+ from inscriptis.model.tag.img_tag import img_start_handler
+diff --git a/src/inscriptis/html_parser.py b/src/inscriptis/html_parser.py
+new file mode 100644
+index 0000000..74681fb
+--- /dev/null
++++ b/src/inscriptis/html_parser.py
+@@ -0,0 +1,162 @@
++#!/usr/bin/env python
++# coding:utf-8
++"""A simple HTML parser to replace lxml dependency."""
++
++from html.parser import HTMLParser
++from typing import Dict, List, Optional, Any
++import re
++
++
++class HtmlElement:
++    """A simple HTML element class to mimic lxml's HtmlElement."""
++    
++    def __init__(self, tag: str, attrib: Dict[str, str] = None):
++        self.tag = tag
++        self.attrib = attrib or {}
++        self.text = None
++        self.tail = None
++        self.children: List[HtmlElement] = []
++        self.parent: Optional[HtmlElement] = None
++        
++    def __iter__(self):
++        """Iterate over children."""
++        return iter(self.children)
++    
++    def __len__(self):
++        """Return number of children."""
++        return len(self.children)
++    
++    def __getitem__(self, index):
++        """Get child by index."""
++        return self.children[index]
++    
++    def append(self, child: 'HtmlElement'):
++        """Append a child element."""
++        child.parent = self
++        self.children.append(child)
++
++
++class Comment:
++    """A comment node."""
++    def __init__(self, text: str = None):
++        self.tag = self.__class__
++        self.text = text
++        self.tail = None
++        self.children: List[Any] = []
++        self.parent: Optional[HtmlElement] = None
++
++
++class ParserError(Exception):
++    """Parser error to mimic lxml's ParserError."""
++    pass
++
++
++class SimpleHTMLParser(HTMLParser):
++    """HTML parser that builds a tree of HtmlElement objects."""
++    
++    def __init__(self):
++        super().__init__()
++        self.root = None
++        self.current = None
++        self.stack: List[HtmlElement] = []
++        
++    def handle_starttag(self, tag: str, attrs: List[tuple]):
++        """Handle start tag."""
++        attrib = dict(attrs)
++        element = HtmlElement(tag, attrib)
++        
++        if self.current is None:
++            self.root = element
++            self.current = element
++        else:
++            self.current.append(element)
++            
++        self.stack.append(element)
++        self.current = element
++        
++    def handle_endtag(self, tag: str):
++        """Handle end tag."""
++        # Find the matching start tag in the stack
++        for i in range(len(self.stack) - 1, -1, -1):
++            if self.stack[i].tag == tag:
++                # Pop elements from stack until we find the matching tag
++                while len(self.stack) > i + 1:
++                    self.stack.pop()
++                self.stack.pop()
++                break
++                
++        # Update current element
++        if self.stack:
++            self.current = self.stack[-1]
++        else:
++            self.current = None
++            
++    def handle_data(self, data: str):
++        """Handle text data."""
++        if self.current is not None:
++            if self.current.text is None:
++                self.current.text = data
++            else:
++                self.current.text += data
++                
++    def handle_comment(self, data: str):
++        """Handle comment."""
++        comment = Comment(data)
++        if self.current is not None:
++            self.current.append(comment)
++            
++    def handle_entityref(self, name: str):
++        """Handle entity reference."""
++        # Convert entity to character
++        entity_map = {
++            'amp': '&',
++            'lt': '<',
++            'gt': '>',
++            'quot': '"',
++            'apos': "'",
++        }
++        char = entity_map.get(name, f'&{name};')
++        self.handle_data(char)
++        
++    def handle_charref(self, name: str):
++        """Handle character reference."""
++        try:
++            if name.startswith('x'):
++                char = chr(int(name[1:], 16))
++            else:
++                char = chr(int(name))
++            self.handle_data(char)
++        except (ValueError, OverflowError):
++            self.handle_data(f'&#{name};')
++
++
++def fromstring(html_content: str) -> HtmlElement:
++    """Parse HTML string into a tree of HtmlElement objects.
++    
++    Args:
++        html_content: HTML string to parse.
++        
++    Returns:
++        Root HtmlElement of the parsed tree.
++        
++    Raises:
++        ParserError: If parsing fails.
++    """
++    parser = SimpleHTMLParser()
++    try:
++        parser.feed(html_content)
++        parser.close()
++    except Exception as e:
++        raise ParserError(str(e))
++    
++    if parser.root is None:
++        # If no root element was created, wrap content in <html> tag
++        parser = SimpleHTMLParser()
++        parser.feed(f"<html>{html_content}</html>")
++        parser.close()
++        
++    return parser.root
++
++
++# Regular expression to strip XML declaration
++RE_STRIP_XML_DECLARATION = re.compile(r"^<\?xml [^>]+?\?>")
+\ No newline at end of file

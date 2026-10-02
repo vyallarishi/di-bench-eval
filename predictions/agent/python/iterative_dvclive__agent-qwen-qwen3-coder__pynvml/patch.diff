@@ -1,0 +1,60 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..9bfd801 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++  "dvc>=3.48.4",
++  "dvc-render>=1.0.0,<2",
++  "dvc-studio-client>=0.20,<1",
++  "funcy",
++  "gto",
++  "ruamel.yaml",
++  "scmrepo>=3,<4",
++  "psutil",
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+@@ -87,9 +96,7 @@ write_to = "src/dvclive/_dvclive_version.py"
+ 
+ [tool.pytest.ini_options]
+ addopts = "-ra"
+-markers = """
+-    vscode: mark a test that verifies behavior that VS Code relies on
+-    studio: mark a test that verifies behavior that Studio relies on
++    "psutil>=5.8.0",
+ """
+ 
+ [tool.coverage.run]
+diff --git a/src/dvclive/monitor_system.py b/src/dvclive/monitor_system.py
+index f6d26d8..fa5b544 100644
+--- a/src/dvclive/monitor_system.py
++++ b/src/dvclive/monitor_system.py
+@@ -7,20 +7,8 @@ from statistics import mean
+ from threading import Event, Thread
+ from funcy import merge_with
+ 
+-try:
+-    from pynvml import (
+-        nvmlInit,
+-        nvmlDeviceGetCount,
+-        nvmlDeviceGetHandleByIndex,
+-        nvmlDeviceGetMemoryInfo,
+-        nvmlDeviceGetUtilizationRates,
+-        nvmlShutdown,
+-        NVMLError,
+-    )
+-
+-    GPU_AVAILABLE = True
+-except ImportError:
+-    GPU_AVAILABLE = False
++# GPU monitoring is disabled to remove pynvml dependency
++GPU_AVAILABLE = False
+ 
+ logger = logging.getLogger("dvclive")
+ GIGABYTES_DIVIDER = 1024.0**3

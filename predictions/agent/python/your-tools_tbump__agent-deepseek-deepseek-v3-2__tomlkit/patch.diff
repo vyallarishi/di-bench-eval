@@ -1,0 +1,91 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..06e86c4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,15 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++docopt = "^0.6.2"
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/config.py b/tbump/config.py
+index 84cedde..4811027 100644
+--- a/tbump/config.py
++++ b/tbump/config.py
+@@ -6,14 +6,13 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
+ 
+ import cli_ui as ui
+ import schema
+-import tomlkit
+-from tomlkit.toml_document import TOMLDocument
++import tomli
++import tomli_w
+ 
+ from tbump.action import Action
+ from tbump.error import Error
+ from tbump.hooks import HOOKS_CLASSES, Hook
+ 
+-
+ @dataclass
+ class File:
+     src: str
+@@ -47,7 +46,7 @@ class Config:
+ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+     """Base class representing a config file"""
+ 
+-    def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):
++    def __init__(self, project_path: Path, path: Path, doc: Dict[str, Any]):
+         self.project_path = project_path
+         self.path = path
+         self.doc = doc
+@@ -60,7 +59,7 @@ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+         from tbump.cli import print_diff
+ 
+         old_text = self.path.read_text()
+-        new_text = tomlkit.dumps(self.doc)
++        new_text = tomli_w.dumps(self.doc)
+ 
+         lineno = 1
+         for old_line, new_line in zip(old_text.splitlines(), new_text.splitlines()):
+@@ -74,7 +73,7 @@ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+             lineno += 1
+ 
+     def do(self) -> None:
+-        new_text = tomlkit.dumps(self.doc)
++        new_text = tomli_w.dumps(self.doc)
+         self.path.write_text(new_text)
+ 
+     @abc.abstractmethod
+@@ -93,6 +92,22 @@ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+         res = from_parsed_config(parsed)
+         validate_config(res)
+         return res
++    @abc.abstractmethod
++    def get_parsed(self) -> dict:
++        """Return a plain dictionary, suitable for validation
++        by the `schema` library
++        """
++
++    @abc.abstractmethod
++    def set_new_version(self, version: str) -> None:
++        pass
++
++    def get_config(self) -> Config:
++        """Return a validated Config instance"""
++        parsed = self.get_parsed()
++        res = from_parsed_config(parsed)
++        validate_config(res)
++        return res
+ 
+ 
+ class TbumpTomlUpdater(ConfigFileUpdater):

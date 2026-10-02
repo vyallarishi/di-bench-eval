@@ -1,0 +1,184 @@
+diff --git a/omniduct/utils/debug.py b/omniduct/utils/debug.py
+index 322edda..766d284 100644
+--- a/omniduct/utils/debug.py
++++ b/omniduct/utils/debug.py
+@@ -2,10 +2,10 @@ from __future__ import print_function
+ 
+ import inspect
+ import logging
++import shutil
+ import sys
+ import time
+ 
+-import progressbar
+ from decorator import decorate
+ 
+ from .config import config
+@@ -18,6 +18,114 @@ config.register(
+ )
+ 
+ 
++class SimpleProgressBar:
++    """A simple progress bar implementation to replace progressbar2."""
++    
++    def __init__(self, widgets=None, redirect_stderr=True, redirect_stdout=True, max_value=100):
++        self.max_value = max_value
++        self.current_value = 0
++        self.started = False
++        self.finished = False
++        self.start_time = None
++        self.widgets = widgets or []
++        self.redirect_stderr = redirect_stderr
++        self.redirect_stdout = redirect_stdout
++        
++    def start(self):
++        self.started = True
++        self.start_time = time.time()
++        self.update(0)
++        return self
++        
++    def update(self, value):
++        if not self.started:
++            self.start()
++        
++        if value is None:
++            return
++            
++        self.current_value = value
++        if self.current_value > self.max_value:
++            self.current_value = self.max_value
++            
++        # Calculate elapsed time
++        elapsed = time.time() - self.start_time
++        
++        # Build progress bar string
++        bar_str = ""
++        for widget in self.widgets:
++            if isinstance(widget, str):
++                bar_str += widget
++            elif hasattr(widget, '__call__'):
++                bar_str += widget(self.current_value, self.max_value, elapsed)
++        
++        # Print progress bar
++        if self.redirect_stderr:
++            print(f"\r{bar_str}", end="", file=sys.stderr, flush=True)
++        elif self.redirect_stdout:
++            print(f"\r{bar_str}", end="", file=sys.stdout, flush=True)
++            
++        return self
++        
++    def finish(self, end="\n"):
++        self.finished = True
++        if end:
++            if self.redirect_stderr:
++                print(end, file=sys.stderr, end="", flush=True)
++            elif self.redirect_stdout:
++                print(end, file=sys.stdout, end="", flush=True)
++
++
++class RotatingMarker:
++    """A simple rotating marker widget for indeterminate progress bars."""
++    
++    def __init__(self):
++        self.markers = ['|', '/', '-', '\\']
++        self.index = 0
++        
++    def __call__(self, current_value, max_value, elapsed):
++        marker = self.markers[self.index]
++        self.index = (self.index + 1) % len(self.markers)
++        return marker
++
++
++class Bar:
++    """A simple bar widget for determinate progress bars."""
++    
++    def __init__(self, width=20):
++        self.width = width
++        
++    def __call__(self, current_value, max_value, elapsed):
++        if max_value == 0:
++            return "[{}]".format(" " * self.width)
++        
++        progress = int(self.width * current_value / max_value)
++        bar = "=" * progress + " " * (self.width - progress)
++        return f"[{bar}]"
++
++
++class Timer:
++    """A simple timer widget."""
++    
++    def __init__(self, format=" %(elapsed)s"):
++        self.format = format
++        
++    def __call__(self, current_value, max_value, elapsed):
++        # Format elapsed time
++        if elapsed < 60:
++            elapsed_str = f"{elapsed:.1f}s"
++        elif elapsed < 3600:
++            minutes = elapsed // 60
++            seconds = elapsed % 60
++            elapsed_str = f"{minutes:.0f}m{seconds:.0f}s"
++        else:
++            hours = elapsed // 3600
++            minutes = (elapsed % 3600) // 60
++            elapsed_str = f"{hours:.0f}h{minutes:.0f}m"
++            
++        return self.format % {"elapsed": elapsed_str}
++
++
+ class StatusLogger:
+     """
+     StatusLogger is a wrapper around `logging.Logger` that allows for consistent
+@@ -136,13 +244,13 @@ class StatusLogger:
+                 prefix = ": ".join(self.current_scopes) + ": "
+             else:
+                 prefix = "\t" * len(self.current_scopes)
+-            self._progress_bar = progressbar.ProgressBar(
++            self._progress_bar = SimpleProgressBar(
+                 widgets=[
+                     prefix,
+-                    progressbar.widgets.RotatingMarker()
++                    RotatingMarker()
+                     if indeterminate
+-                    else progressbar.widgets.Bar(),
+-                    progressbar.widgets.Timer(format=" %(elapsed)s"),
++                    else Bar(),
++                    Timer(format=" %(elapsed)s"),
+                 ],
+                 redirect_stderr=True,
+                 redirect_stdout=True,
+@@ -280,7 +388,7 @@ class LoggingHandler(logging.Handler):
+         sys.stderr.flush()
+ 
+     def _overwrite(self, text, overwritable=True, truncate=True, file=sys.stderr):
+-        w, _ = progressbar.utils.get_terminal_size()
++        w, _ = shutil.get_terminal_size()
+         file.write("\r" + " " * w + "\r")  # Clear current line
+         if overwritable:
+             text.replace("\n", " ")
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..7b1981b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

@@ -1,0 +1,80 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..de53856 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,10 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++    "Django>=3.0",
++    "urllib3>=1.12",
++]
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",
+diff --git a/revproxy/views.py b/revproxy/views.py
+index f0676d8..89e4cf7 100644
+--- a/revproxy/views.py
++++ b/revproxy/views.py
+@@ -1,48 +1,21 @@
+-# -*- coding: utf-8 -*-
+-
+-import os
+-import re
+-import sys
+-import mimetypes
+ import logging
+-
+-import urllib3
+-
+-try:
+-    from django.utils.six.moves.urllib.parse import (
+-        urlparse, urlencode, quote_plus, quote
+-    )
+-except ImportError:
+-    # Django 3 has no six
+-    from urllib.parse import (
+-        urlparse, urlencode, quote_plus, quote
+-    )
++import http.client
++import urllib.parse
++import ssl
++import socket
++import re
++from io import BytesIO
++from urllib.parse import urlparse
+ 
+ from django.conf import settings
+ from django.shortcuts import redirect
++from django.utils.http import urlencode
+ from django.views.generic import View
+-from django.utils.decorators import classonlymethod
+-from django.views.generic.base import ContextMixin
+ 
+-from .exceptions import InvalidUpstream
+-from .response import get_django_response
++from .utils import encode_items, get_charset, is_html_content_type, normalize_request_headers
+ from .transformer import DiazoTransformer
+-from .utils import normalize_request_headers, encode_items
+-
+-# Chars that don't need to be quoted. We use same than nginx:
+-#   https://github.com/nginx/nginx/blob/nginx-1.9/src/core/ngx_string.c
+-#   (Lines 1433-1449)
+-QUOTE_SAFE = r'<.;>\(}*+|~=-$/_:^@)[{]&\'!,"`'
+-
+-
+-ERRORS_MESSAGES = {
+-    'upstream-no-scheme': ("Upstream URL scheme must be either "
+-                           "'http' or 'https' (%s).")
+-}
+-
+-HTTP_POOLS = urllib3.PoolManager()
+-
+-
++from .response import ProxyResponse
++from .exceptions import InvalidUpstream
+ class ProxyView(View):
+     """View responsable by excute proxy requests, process and return
+     their responses.

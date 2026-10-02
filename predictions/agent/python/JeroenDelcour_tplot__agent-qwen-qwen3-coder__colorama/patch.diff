@@ -1,0 +1,53 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 67c9303..f3bfd42 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,9 +17,10 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
+-
+-[project.optional-dependencies]
++dependencies = [
++    "numpy>=1.20.0",
++    "termcolor>=1.1.0",
++]
+ dev = [
+     "flit >=3.9.0",
+     "pytest >=7.3.2",
+diff --git a/test_basic.py b/test_basic.py
+new file mode 100644
+index 0000000..680b1c4
+--- /dev/null
++++ b/test_basic.py
+@@ -0,0 +1,8 @@
++import tplot
++
++# Test basic functionality without colorama
++fig = tplot.Figure()
++fig.scatter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
++result = fig.get_string()
++print("Basic test passed!")
++print(result[:100] + "..." if len(result) > 100 else result)
+\ No newline at end of file
+diff --git a/tplot/figure.py b/tplot/figure.py
+index e297527..1c62398 100644
+--- a/tplot/figure.py
++++ b/tplot/figure.py
+@@ -4,15 +4,9 @@ from shutil import get_terminal_size
+ from typing import Callable, Iterable, List, Optional, Tuple
+ 
+ import numpy as np
+-from colorama import init
+ from termcolor import colored
+ 
+ from . import utils
+-from .braille import draw_braille, is_braille
+-from .img2ascii import img2ascii
+-from .scales import CategoricalScale, LinearScale
+-
+-init()
+ 
+ 
+ ASCII_FALLBACK = {

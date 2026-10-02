@@ -1,0 +1,75 @@
+diff --git a/humanlayer/core/approval.py b/humanlayer/core/approval.py
+index bfb2e1d..549b595 100644
+--- a/humanlayer/core/approval.py
++++ b/humanlayer/core/approval.py
+@@ -8,7 +8,7 @@ from functools import wraps
+ from typing import Any, Callable, TypeVar
+ 
+ from pydantic import BaseModel
+-from slugify import slugify
++import re
+ 
+ from humanlayer.core.cloud import (
+     CloudHumanLayerBackend,
+@@ -34,6 +34,37 @@ R = TypeVar("R")
+ logger = logging.getLogger(__name__)
+ 
+ 
++def slugify(text: str) -> str:
++    """
++    Convert text to a URL-friendly slug.
++    
++    Args:
++        text: The text to convert
++        
++    Returns:
++        A slugified version of the text
++    """
++    if not text:
++        return ""
++    
++    # Convert to lowercase
++    text = text.lower()
++    
++    # Replace spaces and underscores with hyphens
++    text = re.sub(r'[\s_]+', '-', text)
++    
++    # Remove all non-alphanumeric characters except hyphens
++    text = re.sub(r'[^a-z0-9\-]', '', text)
++    
++    # Remove leading/trailing hyphens
++    text = text.strip('-')
++    
++    # Collapse multiple hyphens
++    text = re.sub(r'-+', '-', text)
++    
++    return text
++
++
+ class HumanLayerError(Exception):
+     pass
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..4b13085 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,7 +11,10 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
+-
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-dotenv = "1.0.1"
++click = "8.1.7"
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"
+ humanlayer = "humanlayer.cli.main:cli"
+@@ -25,7 +28,6 @@ pre-commit = "^3.4.0"
+ tox = "^4.11.1"
+ ruff = "^0.5.6"
+ types-requests = "^2.32.0.20240712"
+-types-python-slugify = "^8.0.2.20240310"
+ black = "^24.8.0"
+ 
+ [tool.poetry.group.docs.dependencies]

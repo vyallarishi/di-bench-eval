@@ -1,0 +1,222 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 6c15ed9..86e8e01 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,18 +27,19 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "SQLAlchemy-Utils>=0.40.0",
++    "SQLAlchemy>=1.4",
++]
+ 
+ [project.urls]
+ Code            = "https://github.com/falcony-io/sqlalchemy-searchable"
+ Documentation   = "https://sqlalchemy-searchable.readthedocs.io/"
+ "Issue Tracker" = "http://github.com/falcony-io/sqlalchemy-searchable/issues"
+ 
+-[tool.hatch.version]
+-path = "sqlalchemy_searchable/__init__.py"
+-
+-[tool.hatch.build.targets.sdist]
+-include = [
++dependencies = [
++    "SQLAlchemy>=1.4.0",
++]
+     "/CHANGES.rst",
+     "/docs",
+     "/sqlalchemy_searchable",
+diff --git a/sqlalchemy_searchable/__init__.py b/sqlalchemy_searchable/__init__.py
+index 03c3f19..7123afd 100644
+--- a/sqlalchemy_searchable/__init__.py
++++ b/sqlalchemy_searchable/__init__.py
+@@ -2,17 +2,41 @@ import os
+ from functools import reduce
+ 
+ import sqlalchemy as sa
+-from sqlalchemy import event
++from sqlalchemy import event, types
+ from sqlalchemy.ext.compiler import compiles
+ from sqlalchemy.schema import DDL, DDLElement
+ from sqlalchemy.sql.expression import Executable
+-from sqlalchemy_utils import TSVectorType
+ 
+ from .vectorizers import Vectorizer
+ 
+ __version__ = "2.1.0"
+ 
+ 
++class TSVectorType(types.TypeDecorator):
++    """
++    TSVectorType represents a PostgreSQL TSVECTOR type.
++    
++    This is a simplified implementation to replace sqlalchemy_utils.TSVectorType
++    """
++    impl = types.UserDefinedType
++    
++    def __init__(self, *columns, **kwargs):
++        """
++        :param columns: the names of the columns to include in the TSVECTOR
++        :param kwargs: additional options like 'regconfig', etc.
++        """
++        self.columns = columns
++        self.options = kwargs
++        
++    def get_col_spec(self, **kw):
++        return "TSVECTOR"
++        
++    def bind_processor(self, dialect):
++        return None
++        
++    def result_processor(self, dialect, coltype):
++        return None
++
+ vectorizer = Vectorizer()
+ """
+ An instance of :class:`Vectorizer` that keeps a track of the registered vectorizers. Use
+diff --git a/tests/conftest.py b/tests/conftest.py
+index e5d18cd..2b719bc 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,30 +1,29 @@
+-import os
+-
+ import pytest
+-from sqlalchemy import (
+-    Column,
+-    create_engine,
+-    DateTime,
+-    ForeignKey,
+-    Integer,
+-    String,
+-    Text,
+-    text,
+-)
+-from sqlalchemy.orm import (
+-    close_all_sessions,
+-    configure_mappers,
+-    declarative_base,
+-    sessionmaker,
+-)
+-from sqlalchemy_utils import TSVectorType
+-
+-from sqlalchemy_searchable import (
+-    make_searchable,
+-    remove_listeners,
+-    search_manager,
+-    vectorizer,
+-)
++import sqlalchemy as sa
++from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
++from sqlalchemy.orm import configure_mappers, declarative_base, sessionmaker
++from sqlalchemy.orm.session import close_all_sessions
++
++from sqlalchemy_searchable import TSVectorType, make_searchable, remove_listeners, search_manager, vectorizer
++
++
++@pytest.fixture
++def engine():
++    from sqlalchemy import create_engine
++
++    engine = create_engine(
++        "postgresql://postgres:postgres@localhost/postgres", future=True
++    )
++    yield engine
++    remove_listeners(engine)
++
++
++@pytest.fixture
++def Base(engine):
++    Base = declarative_base()
++    make_searchable(Base.metadata)
++    yield Base
++    close_all_sessions()
+ 
+ try:
+     import __pypy__
+diff --git a/tests/test_multiple_vectors_per_class.py b/tests/test_multiple_vectors_per_class.py
+index a7290c2..1ee8ff1 100644
+--- a/tests/test_multiple_vectors_per_class.py
++++ b/tests/test_multiple_vectors_per_class.py
+@@ -1,8 +1,7 @@
+-import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy.orm import declarative_base
+ 
+-from sqlalchemy_searchable import search
++from sqlalchemy_searchable import TSVectorType, make_searchable, search
+ from tests.schema_test_case import SchemaTestCase
+ 
+ 
+diff --git a/tests/test_schema_creation.py b/tests/test_schema_creation.py
+index 4fc4d8f..c7d736a 100644
+--- a/tests/test_schema_creation.py
++++ b/tests/test_schema_creation.py
+@@ -1,8 +1,7 @@
+-import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy.orm import declarative_base
+ 
+-from tests.schema_test_case import SchemaTestCase
++from sqlalchemy_searchable import TSVectorType, make_searchable
+ 
+ 
+ class TestAutomaticallyCreatedSchemaItems(SchemaTestCase):
+diff --git a/tests/test_single_table_inheritance.py b/tests/test_single_table_inheritance.py
+index 21a52f3..d550cea 100644
+--- a/tests/test_single_table_inheritance.py
++++ b/tests/test_single_table_inheritance.py
+@@ -1,8 +1,7 @@
+-import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy.orm import declarative_base
+ 
+-from tests.schema_test_case import SchemaTestCase
++from sqlalchemy_searchable import TSVectorType, make_searchable, search
+ 
+ 
+ class TestSearchableWithSingleTableInheritance(SchemaTestCase):
+diff --git a/tests/test_vectorizers.py b/tests/test_vectorizers.py
+index a43bd21..2fa280c 100644
+--- a/tests/test_vectorizers.py
++++ b/tests/test_vectorizers.py
+@@ -1,10 +1,9 @@
+ import pytest
+ import sqlalchemy as sa
+-from sqlalchemy.dialects.postgresql import HSTORE
+-from sqlalchemy_utils import TSVectorType
+-
+-from sqlalchemy_searchable import vectorizer
++from sqlalchemy import Column, Integer, String, Text
++from sqlalchemy.orm import declarative_base
+ 
++from sqlalchemy_searchable import TSVectorType, make_searchable, search, vectorizer
+ 
+ class TestTypeVectorizers:
+     @pytest.fixture
+diff --git a/tests/test_weighted_search_vector.py b/tests/test_weighted_search_vector.py
+index 3d561d0..b9b8f53 100644
+--- a/tests/test_weighted_search_vector.py
++++ b/tests/test_weighted_search_vector.py
+@@ -1,13 +1,8 @@
+-import re
+-
+-import pytest
+ import sqlalchemy as sa
+-from sqlalchemy import text
+-from sqlalchemy_utils import TSVectorType
+-
+-from sqlalchemy_searchable import search
+-from tests.schema_test_case import SchemaTestCase
++from sqlalchemy import Column, Integer, String, Text
++from sqlalchemy.orm import declarative_base
+ 
++from sqlalchemy_searchable import TSVectorType, make_searchable, search
+ 
+ @pytest.fixture
+ def models(WeightedTextItem):

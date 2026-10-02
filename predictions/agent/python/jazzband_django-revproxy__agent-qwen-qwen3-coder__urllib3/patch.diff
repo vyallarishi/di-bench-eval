@@ -1,0 +1,103 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..de53856 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,10 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++    "Django>=3.0",
++    "urllib3>=1.12",
++]
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",
+diff --git a/revproxy/connection.py b/revproxy/connection.py
+index 7f4d893..c1f54f6 100644
+--- a/revproxy/connection.py
++++ b/revproxy/connection.py
+@@ -1,25 +1,38 @@
++# -*- coding: utf-8 -*-
++import logging
++import sys
+ 
+-from urllib3.connection import HTTPConnection, HTTPSConnection
+-from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
++# We're removing urllib3 dependency, so we need to implement our own connection handling
++from http.client import HTTPConnection, HTTPSConnection
++from urllib.parse import urlencode
+ 
++logger = logging.getLogger('revproxy.connection')
+ 
+-def _output(self, s):
+-    """Host header should always be first"""
++# Custom connection classes that override the _output method to ensure Host header is first
++class RevProxyHTTPConnection(HTTPConnection):
++    def _output(self, s):
++        """Host header should always be first"""
++        if hasattr(self, '_buffer'):
++            if isinstance(s, str):
++                s = s.encode('latin-1')
++            if s.lower().startswith(b'host: '):
++                self._buffer.insert(1, s)
++            else:
++                self._buffer.append(s)
++        else:
++            # Fallback for older Python versions
++            super()._output(s)
+ 
+-    if s.lower().startswith(b'host: '):
+-        self._buffer.insert(1, s)
+-    else:
+-        self._buffer.append(s)
+-
+-
+-HTTPConnectionPool.ConnectionCls = type(
+-    'RevProxyHTTPConnection',
+-    (HTTPConnection,),
+-    {'_output': _output},
+-)
+-
+-HTTPSConnectionPool.ConnectionCls = type(
+-    'RevProxyHTTPSConnection',
+-    (HTTPSConnection,),
+-    {'_output': _output}
+-)
++class RevProxyHTTPSConnection(HTTPSConnection):
++    def _output(self, s):
++        """Host header should always be first"""
++        if hasattr(self, '_buffer'):
++            if isinstance(s, str):
++                s = s.encode('latin-1')
++            if s.lower().startswith(b'host: '):
++                self._buffer.insert(1, s)
++            else:
++                self._buffer.append(s)
++        else:
++            # Fallback for older Python versions
++            super()._output(s)
+diff --git a/revproxy/views.py b/revproxy/views.py
+index f0676d8..9a5e9cd 100644
+--- a/revproxy/views.py
++++ b/revproxy/views.py
+@@ -1,12 +1,13 @@
+ # -*- coding: utf-8 -*-
+-
++import logging
++import mimetypes
+ import os
+ import re
+ import sys
+-import mimetypes
+-import logging
+-
+-import urllib3
++from http.client import HTTPConnection, HTTPSConnection
++from urllib.parse import urlparse, urlencode, quote_plus, quote
++from urllib.request import Request, urlopen
++from urllib.error import HTTPError, URLError
+ 
+ try:
+     from django.utils.six.moves.urllib.parse import (

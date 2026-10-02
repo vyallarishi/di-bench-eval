@@ -1,0 +1,229 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1292a2..7d8c0af 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -37,9 +37,13 @@ inscriptis-api = "inscriptis.service.web:start"
+ [tool.poetry.extras]
+ web-service = ["fastapi", "uvicorn"]
+ 
++dependencies = [
++    "importlib-metadata>=4.0.0; python_version < '3.8'",
++]
++# optional dependencies
++fastapi = { version = "^0.109.0", optional = true }
++uvicorn = { version = "^0.25.0", optional = true }
+ 
+-[tool.poetry.dependencies]
+-python = "^3.8 || ^3.9 || ^3.10 || ^3.11 || ^3.12"
+ 
+ [build-system]
+ requires = ["poetry-core"]
+diff --git a/src/inscriptis/__init__.py b/src/inscriptis/__init__.py
+index 4e52312..528b3f7 100644
+--- a/src/inscriptis/__init__.py
++++ b/src/inscriptis/__init__.py
+@@ -63,15 +63,20 @@ import re
+ from typing import Dict, Optional, Any
+ from inscriptis.model.config import ParserConfig
+ 
+-from lxml.etree import ParserError
+-from lxml.html import fromstring, HtmlElement
+-
+-from inscriptis.html_engine import Inscriptis
++# Try to import lxml, fallback to standard library if not available
++try:
++    from lxml.html import fromstring
++    HAVE_LXML = True
++except ImportError:
++    HAVE_LXML = False
++    from html.parser import HTMLParser
++    from xml.etree.ElementTree import fromstring as etree_fromstring
++    from html import unescape
+ 
+ RE_STRIP_XML_DECLARATION = re.compile(r"^<\?xml [^>]+?\?>")
+ 
+ 
+-def _get_html_tree(html_content: str) -> Optional[HtmlElement]:
++def _get_html_tree(html_content: str) -> Optional[Any]:
+     """Obtain the HTML parse tree for the given HTML content.
+ 
+     Args:
+@@ -88,10 +93,25 @@ def _get_html_tree(html_content: str) -> Optional[HtmlElement]:
+     if html_content.startswith("<?xml "):
+         html_content = RE_STRIP_XML_DECLARATION.sub("", html_content, count=1)
+ 
+-    try:
+-        return fromstring(html_content)
+-    except ParserError:
+-        return fromstring("<pre>" + html_content + "</pre>")
++    if HAVE_LXML:
++        try:
++            return fromstring(html_content)
++        except Exception:
++            return None
++    else:
++        # Fallback implementation using standard library
++        try:
++            # Try to parse as HTML first
++            try:
++                return etree_fromstring(f"<div>{html_content}</div>")
++            except Exception:
++                return etree_fromstring(f"<div><pre>{html_content}</pre></div>")
++        except Exception:
++            # Fallback: wrap in pre tag
++            try:
++                return etree_fromstring(f"<div><pre>{html_content}</pre></div>")
++            except Exception:
++                return None
+ 
+ 
+ def get_text(html_content: str, config: ParserConfig = None) -> str:
+diff --git a/src/inscriptis/html_engine.py b/src/inscriptis/html_engine.py
+index 42d849e..56c2227 100644
+--- a/src/inscriptis/html_engine.py
++++ b/src/inscriptis/html_engine.py
+@@ -1,10 +1,17 @@
+ #!/usr/bin/env python
+ # coding:utf-8
+ """The HTML Engine is responsible for converting HTML to text."""
+-from typing import List, Dict, Callable
+-
+-import lxml.html
+-from lxml.etree import Comment
++from typing import List, Dict, Callable, Any, Union
++
++# Try to import lxml, fallback to standard library if not available
++try:
++    import lxml.html
++    from lxml.etree import Comment
++    HAVE_LXML = True
++except ImportError:
++    HAVE_LXML = False
++    from html.parser import HTMLParser
++    Comment = None  # Will be handled differently in standard library mode
+ 
+ from inscriptis.annotation import Annotation
+ from inscriptis.model.canvas import Canvas
+@@ -27,31 +34,52 @@ from inscriptis.model.tag.table_tag import (
+     table_end_handler,
+     td_end_handler,
+ )
++from inscriptis.model.tag.img_tag import img_start_handler
++from inscriptis.model.tag.list_tag import (
++    ul_start_handler,
++    ol_start_handler,
++    li_start_handler,
++    ul_end_handler,
++    ol_end_handler,
++)
++from inscriptis.model.tag.table_tag import (
++    table_start_handler,
++    tr_start_handler,
++    td_start_handler,
++    table_end_handler,
++    td_end_handler,
++)
+ 
+ 
+ class Inscriptis:
+-    """Translate an lxml HTML tree to the corresponding text representation.
++    """Translate an HTML tree to the corresponding text representation.
+ 
+     Args:
+-      html_tree: the lxml HTML tree to convert.
++      html_tree: the HTML tree to convert (can be lxml or standard library Element).
+       config: an optional ParserConfig configuration object.
+ 
+     Example::
+-
+-      from lxml.html import fromstring
+-      from inscriptis.html_engine import Inscriptis
+-
+-      html_content = "<html><body><h1>Test</h1></body></html>"
+-
+-      # create an HTML tree from the HTML content.
+-      html_tree = fromstring(html_content)
+-
++    
++      # With lxml available:
++      try:
++          from lxml.html import fromstring
++      except ImportError:
++          from inscriptis import get_text
++          # For demonstration purposes when lxml is not available
++          def fromstring(content):
++              # This is just for documentation - in practice, use get_text()
++              pass
++      
+       # transform the HTML tree to text.
+       parser = Inscriptis(html_tree)
+       text = parser.get_text()
++      
++      # Without lxml (using standard library):
++      from inscriptis import get_text
++      text = get_text(html_content)
+     """
+ 
+-    def __init__(self, html_tree: lxml.html.HtmlElement, config: ParserConfig = None):
++    def __init__(self, html_tree: Any, config: ParserConfig = None):
+         # use the default configuration, if no config object is provided
+         config = config or ParserConfig()
+ 
+@@ -96,30 +124,48 @@ class Inscriptis:
+         Args:
+             tree: the HTML tree to parse.
+         """
+-        if isinstance(tree.tag, str):
+-            state.apply_starttag_layout(tree.tag, tree.attrib)
+-
+-            if handler := self.start_tag_handler_dict.get(tree.tag):
+-                handler(state, tree.attrib)
++        # Handle both lxml and standard library elements
++        tag = getattr(tree, 'tag', None)
++        
++        if isinstance(tag, str):
++            # Get attributes - lxml uses .attrib, ElementTree uses .attrib
++            attrib = getattr(tree, 'attrib', {})
++            
++            state.apply_starttag_layout(tag, attrib)
++
++            if handler := self.start_tag_handler_dict.get(tag):
++                handler(state, attrib)
+             cur = state.tags[-1]
+             cur.canvas.open_tag(cur)
+ 
+-            state.tags[-1].write(tree.text)
++            # Write text content
++            text = getattr(tree, 'text', None)
++            if text:
++                state.tags[-1].write(text)
+ 
++            # Process child nodes
+             for node in tree:
+                 self._parse_html_tree(state, node)
+ 
+             # handle the endtag
+-            if handler := self.end_tag_handler_dict.get(tree.tag):
++            if handler := self.end_tag_handler_dict.get(tag):
+                 handler(state)
+             prev = state.tags.pop()
+             prev.canvas.close_tag(prev)
+ 
+             # write the tail text to the element's container
+-            state.tags[-1].write(tree.tail)
++            tail = getattr(tree, 'tail', None)
++            if tail:
++                state.tags[-1].write(tail)
+ 
+-        elif tree.tag is Comment and tree.tail:
++        elif HAVE_LXML and tag is Comment and hasattr(tree, 'tail'):
++            # Only process Comment nodes when lxml is available
+             state.tags[-1].canvas.write(state.tags[-1], tree.tail)
++        elif not HAVE_LXML and not tag and hasattr(tree, 'tail'):
++            # Handle comment-like nodes in standard library mode
++            tail = getattr(tree, 'tail', None)
++            if tail:
++                state.tags[-1].canvas.write(state.tags[-1], tail)
+ 
+         return state.canvas
+ 

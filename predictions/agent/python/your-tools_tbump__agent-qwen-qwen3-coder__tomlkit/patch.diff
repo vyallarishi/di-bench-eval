@@ -1,0 +1,101 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..c3e397e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,15 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++docopt = "^0.6.2"
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++toml = "^0.10.2"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/config.py b/tbump/config.py
+index 84cedde..92d4573 100644
+--- a/tbump/config.py
++++ b/tbump/config.py
+@@ -6,9 +6,7 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
+ 
+ import cli_ui as ui
+ import schema
+-import tomlkit
+-from tomlkit.toml_document import TOMLDocument
+-
++import toml
+ from tbump.action import Action
+ from tbump.error import Error
+ from tbump.hooks import HOOKS_CLASSES, Hook
+@@ -47,7 +45,7 @@ class Config:
+ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+     """Base class representing a config file"""
+ 
+-    def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):
++    def __init__(self, project_path: Path, path: Path, doc: dict):
+         self.project_path = project_path
+         self.path = path
+         self.doc = doc
+@@ -60,7 +58,7 @@ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+         from tbump.cli import print_diff
+ 
+         old_text = self.path.read_text()
+-        new_text = tomlkit.dumps(self.doc)
++        new_text = toml.dumps(self.doc)
+ 
+         lineno = 1
+         for old_line, new_line in zip(old_text.splitlines(), new_text.splitlines()):
+@@ -74,7 +72,7 @@ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+             lineno += 1
+ 
+     def do(self) -> None:
+-        new_text = tomlkit.dumps(self.doc)
++        new_text = toml.dumps(self.doc)
+         self.path.write_text(new_text)
+ 
+     @abc.abstractmethod
+@@ -284,10 +282,10 @@ def _get_config_file(
+     project_path: Path, config_type: str, config_path: Path
+ ) -> ConfigFileUpdater:
+     if config_type == "tbump.toml":
+-        doc = tomlkit.loads(config_path.read_text())
++        doc = toml.loads(config_path.read_text())
+         return TbumpTomlUpdater(project_path, config_path, doc)
+     elif config_type == "pyproject.toml":
+-        doc = tomlkit.loads(config_path.read_text())
++        doc = toml.loads(config_path.read_text())
+         return PyprojectUpdater(project_path, config_path, doc)
+     raise ValueError("unknown config_type: {config_type}")
+ 
+diff --git a/tbump/test/test_config.py b/tbump/test/test_config.py
+index e77e984..55a6e43 100644
+--- a/tbump/test/test_config.py
++++ b/tbump/test/test_config.py
+@@ -78,7 +78,7 @@ def test_uses_pyproject_if_tbump_toml_is_missing(
+ 
+     pyproject_config = tomlkit.document()
+     pyproject_config["tool"] = tools_config
+-    to_write = tomlkit.dumps(pyproject_config)
++    to_write = toml.dumps(pyproject_config)
+ 
+     pyproject_toml = tmp_path / "pyproject.toml"
+     pyproject_toml.write_text(to_write)
+diff --git a/tbump/test/test_hooks.py b/tbump/test/test_hooks.py
+index c819a4a..6b8fc39 100644
+--- a/tbump/test/test_hooks.py
++++ b/tbump/test/test_hooks.py
+@@ -23,7 +23,7 @@ def add_hook(test_repo: Path, name: str, cmd: str, after_push: bool = False) ->
+     hook_config.add("cmd", cmd)
+     hook_config.add("name", name)
+     parsed[key].append(hook_config)  # type: ignore[arg-type, call-arg,  union-attr]
+-    cfg_path.write_text(tomlkit.dumps(parsed))
++    cfg_path.write_text(toml.dumps(parsed))
+     run_git(test_repo, "add", ".")
+     run_git(test_repo, "commit", "--message", "update hooks")
+ 

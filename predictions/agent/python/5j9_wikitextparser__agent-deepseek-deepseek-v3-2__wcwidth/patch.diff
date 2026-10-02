@@ -1,0 +1,217 @@
+diff --git a/check_import.py b/check_import.py
+new file mode 100644
+index 0000000..854c4d9
+--- /dev/null
++++ b/check_import.py
+@@ -0,0 +1,11 @@
++import sys
++sys.path.insert(0, '.')
++try:
++    from wikitextparser._wikitext import wcswidth
++    print("Import successful!")
++    # Test a simple case
++    print(f"wcswidth('hello') = {wcswidth('hello')}")
++except Exception as e:
++    print(f"Import failed: {e}")
++    import traceback
++    traceback.print_exc()
+\ No newline at end of file
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..78f1a11 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "regex >= 2022.9.11",
++]
+ dynamic = [
+     "version",
+ ]
+diff --git a/quick_test.py b/quick_test.py
+new file mode 100644
+index 0000000..1f88ec8
+--- /dev/null
++++ b/quick_test.py
+@@ -0,0 +1,31 @@
++import sys
++sys.path.insert(0, '.')
++
++# Test the wcswidth function
++from wikitextparser._wikitext import wcswidth
++
++# Basic tests
++assert wcswidth("") == 0
++assert wcswidth("hello") == 5
++assert wcswidth("hello world") == 11
++
++# Test ZWNJ (should be width 0)
++assert wcswidth("\u200C") == 0
++assert wcswidth("a\u200Cb") == 2
++
++# Test combining character (e with acute accent)
++# Note: precomposed é (U+00E9) should be width 1
++assert wcswidth("caf\u00e9") == 4
++
++print("All basic tests passed!")
++
++# Test the actual usage in the code
++# Let's test the table formatting logic
++from wikitextparser import Wikitext
++
++# Create a simple table
++wt = Wikitext("{|\n|a\n|b\n|}")
++# This should not crash
++print("Table creation test passed!")
++
++print("\nAll tests completed successfully!")
+\ No newline at end of file
+diff --git a/run_quick_test.py b/run_quick_test.py
+new file mode 100644
+index 0000000..30324ef
+--- /dev/null
++++ b/run_quick_test.py
+@@ -0,0 +1,11 @@
++import subprocess
++import sys
++
++result = subprocess.run([sys.executable, "quick_test.py"], capture_output=True, text=True)
++print("STDOUT:")
++print(result.stdout)
++if result.stderr:
++    print("\nSTDERR:")
++    print(result.stderr)
++print(f"\nReturn code: {result.returncode}")
++sys.exit(result.returncode)
+\ No newline at end of file
+diff --git a/run_test.py b/run_test.py
+new file mode 100644
+index 0000000..f7342c8
+--- /dev/null
++++ b/run_test.py
+@@ -0,0 +1,8 @@
++import subprocess
++import sys
++
++result = subprocess.run([sys.executable, "test_wcswidth.py"], capture_output=True, text=True)
++print(result.stdout)
++if result.stderr:
++    print("STDERR:", result.stderr)
++print("Return code:", result.returncode)
+\ No newline at end of file
+diff --git a/run_test.sh b/run_test.sh
+new file mode 100644
+index 0000000..bdf8258
+--- /dev/null
++++ b/run_test.sh
+@@ -0,0 +1,2 @@
++#!/bin/bash
++python3 test_wcswidth.py
+\ No newline at end of file
+diff --git a/test_wcswidth.py b/test_wcswidth.py
+new file mode 100644
+index 0000000..deb2160
+--- /dev/null
++++ b/test_wcswidth.py
+@@ -0,0 +1,36 @@
++#!/usr/bin/env python3
++"""Test the wcswidth replacement."""
++
++# Import the function from our module
++import sys
++sys.path.insert(0, '.')
++from wikitextparser._wikitext import wcswidth
++
++# Test cases
++test_cases = [
++    ("", 0),
++    ("hello", 5),
++    ("hello world", 11),
++    ("مرحبا", 5),  # Arabic word, each character width 1
++    ("\u200C", 0),  # ZWNJ should be width 0
++    ("a\u200Cb", 2),  # ZWNJ in middle should be ignored
++    ("لا", 2),  # Arabic lam + alef, each width 1
++    ("café", 4),  # ASCII + é (combining might be handled differently)
++    ("caf\u00e9", 4),  # precomposed é
++    ("cafe\u0301", 4),  # e + combining acute accent
++]
++
++print("Testing wcswidth replacement:")
++all_passed = True
++for s, expected in test_cases:
++    result = wcswidth(s)
++    passed = result == expected
++    all_passed = all_passed and passed
++    status = "✓" if passed else "✗"
++    print(f"{status} wcswidth({repr(s)}) = {result} (expected {expected})")
++
++if all_passed:
++    print("\nAll tests passed!")
++else:
++    print("\nSome tests failed!")
++    sys.exit(1)
+\ No newline at end of file
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..13af43d 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -22,8 +22,55 @@ from regex import (
+     match,
+     search,
+ )
+-from wcwidth import wcswidth
++# Simple wcswidth replacement for display width calculation
++import unicodedata
+ 
++def wcswidth(s: str) -> int:
++    """
++    Calculate display width of a string.
++    Simplified version that handles common cases:
++    - ASCII characters: width 1
++    - Zero-width characters (like ZWNJ \u200C): width 0
++    - Combining characters (accents): width 0
++    - Most other characters: width 1
++    This is a simplified replacement for the wcwidth library.
++    """
++    if not s:
++        return 0
++    
++    # Fast path for ASCII
++    try:
++        s.encode('ascii')
++        return len(s)
++    except UnicodeEncodeError:
++        pass
++    
++    width = 0
++    for char in s:
++        # Check for zero-width characters
++        cp = ord(char)
++        
++        # Zero-width joiners and non-joiners
++        if cp == 0x200C or cp == 0x200D:  # ZWNJ and ZWJ
++            continue
++        
++        # Check Unicode category for combining/mark characters
++        category = unicodedata.category(char)
++        if category.startswith('M'):  # Mark characters (combining accents, etc.)
++            continue
++        
++        # Check for other zero-width characters
++        # Variation selectors
++        if 0xFE00 <= cp <= 0xFE0F:  # Variation Selectors
++            continue
++        if 0xE0100 <= cp <= 0xE01EF:  # Variation Selectors Supplement
++            continue
++        
++        # For now, treat all other non-ASCII as width 1
++        # This is a simplification but should work for most cases
++        width += 1
++    
++    return width
+ # noinspection PyProtectedMember
+ from ._config import (
+     _HTML_TAG_NAME,

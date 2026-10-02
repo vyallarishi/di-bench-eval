@@ -1,0 +1,151 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c761b0c..ce1b6a4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,8 @@ classifiers = [
+   "Programming Language :: Python :: 3.11",
+   "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++]
+ 
+ [project.optional-dependencies]
+ nb = [
+diff --git a/removestar/removestar.py b/removestar/removestar.py
+index ad325db..71e2155 100644
+--- a/removestar/removestar.py
++++ b/removestar/removestar.py
+@@ -7,35 +7,66 @@ import sys
+ from functools import lru_cache
+ from pathlib import Path
+ 
+-from pyflakes.checker import _MAGIC_GLOBALS, Checker, ModuleScope
+-from pyflakes.messages import ImportStarUsage, ImportStarUsed
+-
+ with contextlib.suppress(ImportError):
+     from nbconvert import NotebookExporter
+ 
+ from .output import green, yellow
+ 
+-# quit and exit are not included in old versions of pyflakes
+-MAGIC_GLOBALS = set(_MAGIC_GLOBALS).union({"quit", "exit"})
+-
+-
+-def names_to_replace(checker):
+-    names = set()
+-    for message in checker.messages:
+-        if isinstance(message, ImportStarUsage):
+-            name, *modules = message.message_args
+-            names.add(name)
+-    return names
+-
+-
+-def star_imports(checker):
+-    return [
+-        message.message_args[0]
+-        for message in checker.messages
+-        if isinstance(message, ImportStarUsed)
+-    ]
+-
+-
++# Magic globals that are built-in or special
++MAGIC_GLOBALS = {
++    "__name__", "__doc__", "__package__", "__loader__", "__spec__", "__file__",
++    "__cached__", "__builtins__", "__annotations__", "__all__", "quit", "exit"
++}
++
++class StarImportVisitor(ast.NodeVisitor):
++    """AST visitor to find star imports and track used names."""
++    def __init__(self):
++        self.star_imports = []  # List of module names with star imports
++        self.used_names = set()  # Names used from star imports
++        self.current_star_imports = set()  # Modules with star imports in current scope
++        
++    def visit_ImportFrom(self, node):
++        # Check if this is a star import
++        if node.level > 0:
++            # Relative import
++            module_parts = []
++            if node.module:
++                module_parts.append(node.module)
++            module_name = "." * node.level + (node.module or "")
++        else:
++            # Absolute import
++            module_name = node.module or ""
++            
++        for alias in node.names:
++            if alias.name == "*":
++                self.star_imports.append(module_name)
++                self.current_star_imports.add(module_name)
++        self.generic_visit(node)
++    
++    def visit_Name(self, node):
++        # Track name usage
++        if isinstance(node.ctx, ast.Load):
++            self.used_names.add(node.id)
++        self.generic_visit(node)
++    
++    def visit_Attribute(self, node):
++        # For attribute access like module.name, we need to track the attribute name
++        # but only if it's from a star-imported module
++        self.generic_visit(node)
++
++
++def names_to_replace(tree):
++    """Get names that are used from star imports."""
++    visitor = StarImportVisitor()
++    visitor.visit(tree)
++    return visitor.used_names
++
++
++def star_imports(tree):
++    """Get list of modules that have star imports."""
++    visitor = StarImportVisitor()
++    visitor.visit(tree)
++    return visitor.star_imports
+ def fix_code(
+     code,
+     *,
+@@ -440,18 +471,17 @@ def get_names(code, filename="<unknown>"):
+     Returns a set of names, or raises SyntaxError if the code is not valid
+     syntax.
+     """
+-    tree = ast.parse(code, filename=filename)
+-
+-    checker = Checker(tree)
+-    for scope in checker.deadScopes:
+-        if isinstance(scope, ModuleScope):
+-            names = scope.keys() - set(dir(builtins)) - set(MAGIC_GLOBALS)
+-            break
+-    else:
+-        raise RuntimeError("Could not parse the names")
+-
+-    if "__all__" in names:
+-        return set(scope["__all__"].names)
++    try:
++        tree = ast.parse(code, filename=filename)
++    except SyntaxError:
++        raise
++    
++    visitor = NameCollector()
++    visitor.visit(tree)
++    
++    # Filter out builtins and magic globals
++    names = visitor.names - set(dir(builtins)) - MAGIC_GLOBALS
++    
+     return names
+ 
+ 
+diff --git a/tests/test_removestar.py b/tests/test_removestar.py
+index 7da5660..2fac061 100644
+--- a/tests/test_removestar.py
++++ b/tests/test_removestar.py
+@@ -6,7 +6,6 @@ from filecmp import dircmp
+ from pathlib import Path
+ 
+ import pytest
+-from pyflakes.checker import Checker
+ 
+ from removestar.output import get_colored_diff, green, red, yellow
+ from removestar.removestar import (
