@@ -1,0 +1,380 @@
+[
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\"}"
+   },
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import abc\n   2 import re\n   3 from dataclasses import dataclass\n   4 from pathlib import Path\n   5 from typing import Any, Dict, List, Optional, Pattern, Tuple, Union\n   6 \n   7 import cli_ui as ui\n   8 import schema\n   9 import tomlkit\n  10 from tomlkit.toml_document import TOMLDocument\n  11 \n  12 from tbump.action import Action\n  13 from tbump.error import Error\n  14 from tbump.hooks import HOOKS_CLASSES, Hook\n  15 \n  16 \n  17 @dataclass\n  18 class File:\n  19     src: str\n  20     search: Optional[str] = None\n  21     version_template: Optional[str] = None\n  22 \n  23 \n  24 @dataclass\n  25 class Field:\n  26     name: str\n  27     default: Optional[Union[str, int]] = None\n  28 \n  29 \n  30 @dataclass\n  31 class Config:\n  32     current_version: str\n  33     version_regex: Pattern[str]\n  34 \n  35     git_tag_template: str\n  36     git_message_template: str\n  37     atomic_push: bool\n  38     sign: bool\n  39 \n  40     files: List[File]\n  41     hooks: List[Hook]\n  42     fields: List[Field]\n  43 \n  44     github_url: Optional[str]\n  45 \n  46 \n  47 class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):\n  48     \"\"\"Base class representing a config file\"\"\"\n  49 \n  50     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n  51         self.project_path = project_path\n  52         self.path = path\n  53         self.doc = doc\n  54 \n  55     @property\n  56     def relative_path(self) -> Path:\n  57         return self.project_path / self.path\n  58 \n  59     def print_self(self) -> None:\n  60         from tbump.cli import print_diff\n  61 \n  62         old_text = self.path.read_text()\n  63         new_text = tomlkit.dumps(self.doc)\n  64 \n  65         lineno = 1\n  66         for old_line, new_line in zip(old_text.splitlines(), new_text.splitlines()):\n  67             if old_line != new_line:\n  68                 print_diff(\n  69                     str(self.relative_path),\n  70                     lineno + 1,\n  71                     old_line.strip(),\n "
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [tool.isort]\n   2 profile = \"black\"\n   3 \n   4 [tool.poetry]\n   5 name = \"tbump\"\n   6 version = \"6.11.0\"\n   7 description = \"Bump software releases\"\n   8 readme = \"README.rst\"\n   9 authors = [\"Dimitri Merejkowsky <dimitri@dmerej.info>\"]\n  10 license = \"BSD-3-Clause\"\n  11 repository = \"https://github.com/dmerejkowsky/tbump\"\n  12 \n  13 [tool.poetry.urls]\n  14 Changelog = \"https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst\"\n  15 Issues = \"https://github.com/dmerejkowsky/tbump/issues\"\n  16 \n  17 [tool.poetry.dependencies]\n  18 # Note: keep this in sync with .github/workflows/tests.yml\n  19 python = \"^3.8\"\n  20 \n  21 docopt = \"^0.6.2\"\n  22 cli-ui = \">=0.10.3\"\n  23 schema = \"^0.7.1\"\n  24 tomlkit = \"^0.11\"\n  25 packaging = \"^24.0\"\n  26 \n  27 [tool.poetry.dev-dependencies]\n  28 # Task runner\n  29 invoke = \"^2.1.2\"\n  30 \n  31 # Tests\n  32 coverage = \">= 6.0b1\"\n  33 pytest = \"^7.4\"\n  34 pytest-cov = \"^2.10\"\n  35 pytest-mock = \"^2.0.0\"\n  36 \n  37 # Linters\n  38 black = \"^24.3\"\n  39 flake8 = \"3.9.2\"\n  40 flake8-bugbear = \"^21.4.3\"\n  41 flake8-comprehensions = \"^3.4.0\"\n  42 pep8-naming = \"^0.11.1\"\n  43 isort = \"^5.7.0\"\n  44 mypy = \"0.960\"\n  45 \n  46 [tool.poetry.scripts]\n  47 tbump = \"tbump.cli:main\"\n  48 \n  49 [build-system]\n  50 requires = [\"poetry-core>=1.0.0\"]\n  51 build-backend = \"poetry.core.masonry.api\""
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 100, \"end_line\": 270}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 100 \n 101     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n 102         super().__init__(project_path, path, doc)\n 103 \n 104     def get_parsed(self) -> dict:\n 105         # Document -> dict\n 106         return self.doc.value\n 107 \n 108     def set_new_version(self, version: str) -> None:\n 109         self.doc[\"version\"][\"current\"] = version  # type: ignore[index]\n 110 \n 111 \n 112 class PyprojectUpdater(ConfigFileUpdater):\n 113     \"\"\"Represent a config inside a pyproject.toml file,\n 114     under the [tool.tbump] key\n 115     \"\"\"\n 116 \n 117     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n 118         super().__init__(project_path, path, doc)\n 119 \n 120     @staticmethod\n 121     def unwrap_data(data: Any) -> Any:\n 122         if hasattr(data, \"unwrap\") and callable(data.unwrap):\n 123             return data.unwrap()\n 124         else:\n 125             return data\n 126 \n 127     def get_parsed(self) -> dict:\n 128         try:\n 129             tool_section = PyprojectUpdater.unwrap_data(\n 130                 self.doc[\"tool\"][\"tbump\"]  # type: ignore[index]\n 131             )\n 132         except KeyError as e:\n 133             raise InvalidConfig(parse_error=e)\n 134 \n 135         return tool_section  # type: ignore[no-any-return]\n 136 \n 137     def set_new_version(self, new_version: str) -> None:\n 138         self.doc[\"tool\"][\"tbump\"][\"version\"][\"current\"] = new_version  # type: ignore[index]\n 139 \n 140 \n 141 def validate_template(name: str, pattern: str, value: str) -> None:\n 142     if pattern not in value:\n 143         message = \"%s should contain the string %s\" % (name, pattern)\n 144         raise schema.SchemaError(message)\n 145 \n 146 \n 147 def validate_git_tag_template(value: str) -> None:\n 148     validate_template(\"git.tag_template\", \"{new_version}\", value)\n 149 \n 150 \n 151 def validate_git_message_template(value: str) -> None:\n 152     validate_template(\"git.message_template\", \"{new_version}\", value)\n 153 "
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 198, \"end_line\": 371}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 198     tbump_schema = schema.Schema(\n 199         {\n 200             \"version\": {\"current\": str, \"regex\": schema.Use(validate_re)},\n 201             \"git\": {\n 202                 \"message_template\": str,\n 203                 \"tag_template\": str,\n 204                 schema.Optional(\"atomic_push\"): bool,\n 205                 schema.Optional(\"sign\"): bool,\n 206             },\n 207             \"file\": [file_schema],\n 208             schema.Optional(\"field\"): [field_schema],\n 209             schema.Optional(\"hook\"): [hook_schema],  # retro-compat\n 210             schema.Optional(\"before_push\"): [hook_schema],  # retro-compat\n 211             schema.Optional(\"before_commit\"): [hook_schema],\n 212             schema.Optional(\"after_push\"): [hook_schema],\n 213             schema.Optional(\"github_url\"): str,\n 214         }\n 215     )\n 216     tbump_schema.validate(config)\n 217 \n 218 \n 219 def validate_config(cfg: Config) -> None:\n 220     \"\"\"Second pass of validation, using the Config\n 221     class.\n 222 \n 223     \"\"\"\n 224     # Note: separated from validate_basic_schema to keep error\n 225     # messages user friendly\n 226 \n 227     current_version = cfg.current_version\n 228 \n 229     validate_git_message_template(cfg.git_message_template)\n 230     validate_git_tag_template(cfg.git_tag_template)\n 231 \n 232     match = cfg.version_regex.fullmatch(current_version)\n 233     if not match:\n 234         message = \"Current version: %s does not match version regex\" % current_version\n 235         raise schema.SchemaError(message)\n 236     current_version_regex_groups = match.groupdict()\n 237 \n 238     for file_config in cfg.files:\n 239         version_template = file_config.version_template\n 240         if version_template:\n 241             validate_version_template(\n 242                 file_config.src, version_template, current_version_regex_groups\n 243             )\n 244 \n 245     for hook in cfg.hooks:\n 246         validate_hook_cmd(hook.cmd)\n 247 \n 248 \n 249 def get_config_fi"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 295, \"end_line\": 371}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 295 def from_parsed_config(parsed: dict) -> Config:\n 296     validate_basic_schema(parsed)\n 297     current_version = parsed[\"version\"][\"current\"]\n 298     git_message_template = parsed[\"git\"][\"message_template\"]\n 299     git_tag_template = parsed[\"git\"][\"tag_template\"]\n 300     atomic_push = parsed[\"git\"].get(\"atomic_push\", True)\n 301     sign = parsed[\"git\"].get(\"sign\", False)\n 302     version_regex = re.compile(parsed[\"version\"][\"regex\"], re.VERBOSE)\n 303     files = []\n 304     for file_dict in parsed[\"file\"]:\n 305         file_config = File(\n 306             src=file_dict[\"src\"],\n 307             search=file_dict.get(\"search\"),\n 308             version_template=file_dict.get(\"version_template\"),\n 309         )\n 310         files.append(file_config)\n 311     fields = []\n 312     for field_dict in parsed.get(\"field\", []):\n 313         field_config = Field(\n 314             name=field_dict[\"name\"],\n 315             default=field_dict.get(\"default\"),\n 316         )\n 317         fields.append(field_config)\n 318     hooks = []\n 319     for hook_type in (\"hook\", \"before_push\", \"before_commit\", \"after_push\"):\n 320         cls = HOOKS_CLASSES[hook_type]\n 321         if hook_type in parsed:\n 322             for hook_dict in parsed[hook_type]:\n 323                 hook = cls(hook_dict[\"name\"], hook_dict[\"cmd\"])\n 324                 hooks.append(hook)\n 325 \n 326     github_url = parsed.get(\"github_url\")\n 327 \n 328     config = Config(\n 329         current_version=current_version,\n 330         version_regex=version_regex,\n 331         git_message_template=git_message_template,\n 332         git_tag_template=git_tag_template,\n 333         atomic_push=atomic_push,\n 334         sign=sign,\n 335         fields=fields,\n 336         files=files,\n 337         hooks=hooks,\n 338         github_url=github_url,\n 339     )\n 340 \n 341     validate_config(config)\n 342 \n 343     return config\n 344 \n 345 \n 346 class ConfigNotFound(Error):\n 347     def __init__(self, project_path: Path):\n 34"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"schema\"}"
+   },
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/error.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "tbump/config.py:8: import schema\ntbump/config.py:83: by the `schema` library\ntbump/config.py:144: raise schema.SchemaError(message)\ntbump/config.py:162: raise schema.SchemaError(message)\ntbump/config.py:170: raise schema.SchemaError(message)\ntbump/config.py:173: def validate_basic_schema(config: dict) -> None:\ntbump/config.py:174: \"\"\"First pass of validation, using schema\"\"\"\ntbump/config.py:177: file_schema = schema.Schema(\ntbump/config.py:180: schema.Optional(\"search\"): str,\ntbump/config.py:181: schema.Optional(\"version_template\"): str,\ntbump/config.py:185: field_schema = schema.Schema(\ntbump/config.py:188: schema.Optional(\"default\"): schema.Or(str, int),\ntbump/config.py:192: hook_schema = schema.Schema({\"name\": str, \"cmd\": str})\ntbump/config.py:198: tbump_schema = schema.Schema(\ntbump/config.py:200: \"version\": {\"current\": str, \"regex\": schema.Use(validate_re)},\ntbump/config.py:204: schema.Optional(\"atomic_push\"): bool,\ntbump/config.py:205: schema.Optional(\"sign\"): bool,\ntbump/config.py:207: \"file\": [file_schema],\ntbump/config.py:208: schema.Optional(\"field\"): [field_schema],\ntbump/config.py:209: schema.Optional(\"hook\"): [hook_schema],  # retro-compat\ntbump/config.py:210: schema.Optional(\"before_push\"): [hook_schema],  # retro-compat\ntbump/config.py:211: schema.Optional(\"before_commit\"): [hook_schema],\ntbump/config.py:212: schema.Optional(\"after_push\"): [hook_schema],\ntbump/config.py:213: schema.Optional(\"github_url\"): str,\ntbump/config.py:216: tbump_schema.validate(config)\ntbump/config.py:224: # Note: separated from validate_basic_schema to keep error\ntbump/config.py:235: raise schema.SchemaError(message)\ntbump/config.py:262: except schema.SchemaError as parse_error:\ntbump/config.py:296: validate_basic_schema(parsed)\ntbump/test/test_config.py:6: import schema\ntbump/test/test_config.py:17: validate_basic_schema,\ntbump/test/test_config.py:117: def test_validate_schema_in_pyproject_toml(tmp_path: Path) -> None:\ntbump/test/test_config.py:150: pytest.fail(\"should have "
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import pprint\n   2 \n   3 \n   4 class Error(Exception):\n   5     def print_error(self) -> None:\n   6         pass\n   7 \n   8     def __str__(self) -> str:\n   9         pp = pprint.PrettyPrinter(indent=4)\n  10         return pp.pformat(vars(self))"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import re\n   2 import textwrap\n   3 from pathlib import Path\n   4 \n   5 import pytest\n   6 import schema\n   7 import tomlkit\n   8 \n   9 from tbump.config import (\n  10     Config,\n  11     Field,\n  12     File,\n  13     InvalidConfig,\n  14     TbumpTomlUpdater,\n  15     from_parsed_config,\n  16     get_config_file,\n  17     validate_basic_schema,\n  18     validate_config,\n  19 )\n  20 from tbump.hooks import HOOKS_CLASSES, BeforeCommitHook\n  21 \n  22 \n  23 def test_happy_parse(test_project: Path) -> None:\n  24     config_file = get_config_file(test_project)\n  25     config = config_file.get_config()\n  26     foo_json = File(src=\"package.json\", search='\"version\": \"{current_version}\"')\n  27     version_txt = File(src=\"VERSION\")\n  28     pub_js = File(src=\"pub.js\", version_template=\"{major}.{minor}.{patch}\")\n  29     glob = File(src=\"glob*.?\", search='version_[a-z]+ = \"{current_version}\"')\n  30     version_info = File(\n  31         src=\"version_info.py\",\n  32         search=\"version_info = {current_version}\",\n  33         version_template='({major}, {minor}, {patch}, \"{channel}\", {release})',\n  34     )\n  35 \n  36     channel = Field(\n  37         name=\"channel\",\n  38         default=\"\",\n  39     )\n  40     release = Field(\n  41         name=\"release\",\n  42         default=0,\n  43     )\n  44 \n  45     expected_pattern = r\"\"\"  (?P<major>\\d+)\n  46   \\.\n  47   (?P<minor>\\d+)\n  48   \\.\n  49   (?P<patch>\\d+)\n  50   (\n  51     -\n  52     (?P<channel>alpha|beta)\n  53     -\n  54     (?P<release>\\d+)\n  55   )?\n  56   (\n  57     \\+\n  58     (?P<build>[a-z0-9\\.]+)\n  59   )?\n  60   \"\"\"\n  61 \n  62     assert config.version_regex.pattern == expected_pattern\n  63 \n  64     assert config.files == [foo_json, version_txt, pub_js, glob, version_info]\n  65     assert config.fields == [channel, release]\n  66 \n  67     assert config.current_version == \"1.2.41-alpha-1\"\n  68 \n  69 \n  70 def test_uses_pyproject_if_tbump_toml_is_missing(\n  71     test_project: Path, tmp_path: Path\n  72 ) ->"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 100, \"end_line\": 209}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 100     with pytest.raises(InvalidConfig):\n 101         get_config_file(tmp_path)\n 102 \n 103 \n 104 def test_use_specified_path(tmp_path: Path, test_project: Path) -> None:\n 105     other_path = tmp_path / \"other.toml\"\n 106     test_toml = test_project / \"tbump.toml\"\n 107     other_path.write_text(test_toml.read_text())\n 108     expected_file = get_config_file(tmp_path, specified_config_path=other_path)\n 109     assert isinstance(expected_file, TbumpTomlUpdater)\n 110 \n 111 \n 112 def test_raise_when_specified_path_does_not_exists(tmp_path: Path) -> None:\n 113     with pytest.raises(InvalidConfig):\n 114         get_config_file(tmp_path, specified_config_path=tmp_path / \"no-such.toml\")\n 115 \n 116 \n 117 def test_validate_schema_in_pyproject_toml(tmp_path: Path) -> None:\n 118     pyproject_toml = tmp_path / \"pyproject.toml\"\n 119     to_write = textwrap.dedent(\n 120         r\"\"\"\n 121         [[tool.tbump.file]]\n 122         search = '\"version\": \"{current_version}\"'\n 123         src = \"package.json\"\n 124 \n 125         [tool.tbump.git]\n 126         message_template = \"Bump to {new_version}\"\n 127         tag_template = \"v{new_version}\"\n 128 \n 129         [tool.tbump.version]\n 130         # Note: missing 'current'\n 131         regex = '''\n 132           (?P<major>\\d+)\n 133           \\.\n 134           (?P<minor>\\d+)\n 135           \\.\n 136           (?P<patch>\\d+)\n 137           '''\n 138        \"\"\"\n 139     )\n 140     pyproject_toml.write_text(to_write)\n 141 \n 142     with pytest.raises(InvalidConfig) as e:\n 143         get_config_file(tmp_path)\n 144     assert \"'current'\" in str(e.value.parse_error)\n 145 \n 146 \n 147 def assert_validation_error(config: Config, expected_message: str) -> None:\n 148     try:\n 149         validate_config(config)\n 150         pytest.fail(\"should have raised schema error\")\n 151     except schema.SchemaError as error:\n 152         assert expected_message in error.args[0]\n 153 \n 154 \n 155 @pytest.fixture\n 156 def test_config(test_project: Path) -> Conf"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 200, \"end_line\": 230}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 200     )\n 201     data = tomlkit.loads(contents)\n 202     with pytest.raises(schema.SchemaError) as e:\n 203         validate_basic_schema(data.value)\n 204     print(e)\n 205 \n 206 \n 207 def test_invalid_custom_template(test_config: Config) -> None:\n 208     first_file = test_config.files[0]\n 209     first_file.src = \"pub.js\"\n 210     first_file.version_template = \"{major}.{minor}.{no_such_group}\"\n 211     assert_validation_error(\n 212         test_config,\n 213         \"version template for 'pub.js' contains unknown group: 'no_such_group'\",\n 214     )\n 215 \n 216 \n 217 def test_parse_hooks() -> None:\n 218     contents = textwrap.dedent(\n 219         r\"\"\"\n 220         [version]\n 221         current = \"1.2.3\"\n 222         regex = '(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)'\n 223 \n 224         [git]\n 225         message_template = \"Bump to  {new_version}\"\n 226         tag_template = \"v{new_version}\"\n 227 \n 228         [[file]]\n 229         src = \"pub.js\"\n 230 \n 231         [[before_commit]]\n 232         name = \"Check changelog\"\n 233         cmd = \"grep -q {new_version} Changelog.md\"\n 234 \n 235         [[after_push]]\n 236         name = \"After push\"\n 237         cmd = \"cargo publish\"\n 238     \"\"\"\n 239     )\n 240     parsed = tomlkit.loads(contents)\n 241     config = from_parsed_config(parsed.value)\n 242     first_hook = config.hooks[0]\n 243     assert first_hook.name == \"Check changelog\"\n 244     assert first_hook.cmd == \"grep -q {new_version} Changelog.md\"\n 245     expected_class = HOOKS_CLASSES[\"before_commit\"]\n 246     assert isinstance(first_hook, expected_class)\n 247 \n 248     second_hook = config.hooks[1]\n 249     expected_class = HOOKS_CLASSES[\"after_push\"]\n 250     assert isinstance(second_hook, expected_class)\n 251 \n 252 \n 253 def test_retro_compat_hooks() -> None:\n 254     contents = textwrap.dedent(\n 255         r\"\"\"\n 256         [version]\n 257         current = \"1.2.3\"\n 258         regex = '(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)'\n 259 \n 260       "
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 1, \"end_line\": 100}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import abc\n   2 import re\n   3 from dataclasses import dataclass\n   4 from pathlib import Path\n   5 from typing import Any, Dict, List, Optional, Pattern, Tuple, Union\n   6 \n   7 import cli_ui as ui\n   8 import schema\n   9 import tomlkit\n  10 from tomlkit.toml_document import TOMLDocument\n  11 \n  12 from tbump.action import Action\n  13 from tbump.error import Error\n  14 from tbump.hooks import HOOKS_CLASSES, Hook\n  15 \n  16 \n  17 @dataclass\n  18 class File:\n  19     src: str\n  20     search: Optional[str] = None\n  21     version_template: Optional[str] = None\n  22 \n  23 \n  24 @dataclass\n  25 class Field:\n  26     name: str\n  27     default: Optional[Union[str, int]] = None\n  28 \n  29 \n  30 @dataclass\n  31 class Config:\n  32     current_version: str\n  33     version_regex: Pattern[str]\n  34 \n  35     git_tag_template: str\n  36     git_message_template: str\n  37     atomic_push: bool\n  38     sign: bool\n  39 \n  40     files: List[File]\n  41     hooks: List[Hook]\n  42     fields: List[Field]\n  43 \n  44     github_url: Optional[str]\n  45 \n  46 \n  47 class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):\n  48     \"\"\"Base class representing a config file\"\"\"\n  49 \n  50     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n  51         self.project_path = project_path\n  52         self.path = path\n  53         self.doc = doc\n  54 \n  55     @property\n  56     def relative_path(self) -> Path:\n  57         return self.project_path / self.path\n  58 \n  59     def print_self(self) -> None:\n  60         from tbump.cli import print_diff\n  61 \n  62         old_text = self.path.read_text()\n  63         new_text = tomlkit.dumps(self.doc)\n  64 \n  65         lineno = 1\n  66         for old_line, new_line in zip(old_text.splitlines(), new_text.splitlines()):\n  67             if old_line != new_line:\n  68                 print_diff(\n  69                     str(self.relative_path),\n  70                     lineno + 1,\n  71                     old_line.strip(),\n "
+ },
+ {
+  "role": "assistant",
+  "content": "Now let's see lines 200-371 in full for the schema definitions and validate functions.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 100, \"end_line\": 371}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 100 \n 101     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n 102         super().__init__(project_path, path, doc)\n 103 \n 104     def get_parsed(self) -> dict:\n 105         # Document -> dict\n 106         return self.doc.value\n 107 \n 108     def set_new_version(self, version: str) -> None:\n 109         self.doc[\"version\"][\"current\"] = version  # type: ignore[index]\n 110 \n 111 \n 112 class PyprojectUpdater(ConfigFileUpdater):\n 113     \"\"\"Represent a config inside a pyproject.toml file,\n 114     under the [tool.tbump] key\n 115     \"\"\"\n 116 \n 117     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n 118         super().__init__(project_path, path, doc)\n 119 \n 120     @staticmethod\n 121     def unwrap_data(data: Any) -> Any:\n 122         if hasattr(data, \"unwrap\") and callable(data.unwrap):\n 123             return data.unwrap()\n 124         else:\n 125             return data\n 126 \n 127     def get_parsed(self) -> dict:\n 128         try:\n 129             tool_section = PyprojectUpdater.unwrap_data(\n 130                 self.doc[\"tool\"][\"tbump\"]  # type: ignore[index]\n 131             )\n 132         except KeyError as e:\n 133             raise InvalidConfig(parse_error=e)\n 134 \n 135         return tool_section  # type: ignore[no-any-return]\n 136 \n 137     def set_new_version(self, new_version: str) -> None:\n 138         self.doc[\"tool\"][\"tbump\"][\"version\"][\"current\"] = new_version  # type: ignore[index]\n 139 \n 140 \n 141 def validate_template(name: str, pattern: str, value: str) -> None:\n 142     if pattern not in value:\n 143         message = \"%s should contain the string %s\" % (name, pattern)\n 144         raise schema.SchemaError(message)\n 145 \n 146 \n 147 def validate_git_tag_template(value: str) -> None:\n 148     validate_template(\"git.tag_template\", \"{new_version}\", value)\n 149 \n 150 \n 151 def validate_git_message_template(value: str) -> None:\n 152     validate_template(\"git.message_template\", \"{new_version}\", value)\n 153 "
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 198, \"end_line\": 371}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 198     tbump_schema = schema.Schema(\n 199         {\n 200             \"version\": {\"current\": str, \"regex\": schema.Use(validate_re)},\n 201             \"git\": {\n 202                 \"message_template\": str,\n 203                 \"tag_template\": str,\n 204                 schema.Optional(\"atomic_push\"): bool,\n 205                 schema.Optional(\"sign\"): bool,\n 206             },\n 207             \"file\": [file_schema],\n 208             schema.Optional(\"field\"): [field_schema],\n 209             schema.Optional(\"hook\"): [hook_schema],  # retro-compat\n 210             schema.Optional(\"before_push\"): [hook_schema],  # retro-compat\n 211             schema.Optional(\"before_commit\"): [hook_schema],\n 212             schema.Optional(\"after_push\"): [hook_schema],\n 213             schema.Optional(\"github_url\"): str,\n 214         }\n 215     )\n 216     tbump_schema.validate(config)\n 217 \n 218 \n 219 def validate_config(cfg: Config) -> None:\n 220     \"\"\"Second pass of validation, using the Config\n 221     class.\n 222 \n 223     \"\"\"\n 224     # Note: separated from validate_basic_schema to keep error\n 225     # messages user friendly\n 226 \n 227     current_version = cfg.current_version\n 228 \n 229     validate_git_message_template(cfg.git_message_template)\n 230     validate_git_tag_template(cfg.git_tag_template)\n 231 \n 232     match = cfg.version_regex.fullmatch(current_version)\n 233     if not match:\n 234         message = \"Current version: %s does not match version regex\" % current_version\n 235         raise schema.SchemaError(message)\n 236     current_version_regex_groups = match.groupdict()\n 237 \n 238     for file_config in cfg.files:\n 239         version_template = file_config.version_template\n 240         if version_template:\n 241             validate_version_template(\n 242                 file_config.src, version_template, current_version_regex_groups\n 243             )\n 244 \n 245     for hook in cfg.hooks:\n 246         validate_hook_cmd(hook.cmd)\n 247 \n 248 \n 249 def get_config_fi"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let's see rest, from 295-371.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 295, \"end_line\": 370}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 295 def from_parsed_config(parsed: dict) -> Config:\n 296     validate_basic_schema(parsed)\n 297     current_version = parsed[\"version\"][\"current\"]\n 298     git_message_template = parsed[\"git\"][\"message_template\"]\n 299     git_tag_template = parsed[\"git\"][\"tag_template\"]\n 300     atomic_push = parsed[\"git\"].get(\"atomic_push\", True)\n 301     sign = parsed[\"git\"].get(\"sign\", False)\n 302     version_regex = re.compile(parsed[\"version\"][\"regex\"], re.VERBOSE)\n 303     files = []\n 304     for file_dict in parsed[\"file\"]:\n 305         file_config = File(\n 306             src=file_dict[\"src\"],\n 307             search=file_dict.get(\"search\"),\n 308             version_template=file_dict.get(\"version_template\"),\n 309         )\n 310         files.append(file_config)\n 311     fields = []\n 312     for field_dict in parsed.get(\"field\", []):\n 313         field_config = Field(\n 314             name=field_dict[\"name\"],\n 315             default=field_dict.get(\"default\"),\n 316         )\n 317         fields.append(field_config)\n 318     hooks = []\n 319     for hook_type in (\"hook\", \"before_push\", \"before_commit\", \"after_push\"):\n 320         cls = HOOKS_CLASSES[hook_type]\n 321         if hook_type in parsed:\n 322             for hook_dict in parsed[hook_type]:\n 323                 hook = cls(hook_dict[\"name\"], hook_dict[\"cmd\"])\n 324                 hooks.append(hook)\n 325 \n 326     github_url = parsed.get(\"github_url\")\n 327 \n 328     config = Config(\n 329         current_version=current_version,\n 330         version_regex=version_regex,\n 331         git_message_template=git_message_template,\n 332         git_tag_template=git_tag_template,\n 333         atomic_push=atomic_push,\n 334         sign=sign,\n 335         fields=fields,\n 336         files=files,\n 337         hooks=hooks,\n 338         github_url=github_url,\n 339     )\n 340 \n 341     validate_config(config)\n 342 \n 343     return config\n 344 \n 345 \n 346 class ConfigNotFound(Error):\n 347     def __init__(self, project_path: Path):\n 34"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 1, \"end_line\": 100}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import re\n   2 import textwrap\n   3 from pathlib import Path\n   4 \n   5 import pytest\n   6 import schema\n   7 import tomlkit\n   8 \n   9 from tbump.config import (\n  10     Config,\n  11     Field,\n  12     File,\n  13     InvalidConfig,\n  14     TbumpTomlUpdater,\n  15     from_parsed_config,\n  16     get_config_file,\n  17     validate_basic_schema,\n  18     validate_config,\n  19 )\n  20 from tbump.hooks import HOOKS_CLASSES, BeforeCommitHook\n  21 \n  22 \n  23 def test_happy_parse(test_project: Path) -> None:\n  24     config_file = get_config_file(test_project)\n  25     config = config_file.get_config()\n  26     foo_json = File(src=\"package.json\", search='\"version\": \"{current_version}\"')\n  27     version_txt = File(src=\"VERSION\")\n  28     pub_js = File(src=\"pub.js\", version_template=\"{major}.{minor}.{patch}\")\n  29     glob = File(src=\"glob*.?\", search='version_[a-z]+ = \"{current_version}\"')\n  30     version_info = File(\n  31         src=\"version_info.py\",\n  32         search=\"version_info = {current_version}\",\n  33         version_template='({major}, {minor}, {patch}, \"{channel}\", {release})',\n  34     )\n  35 \n  36     channel = Field(\n  37         name=\"channel\",\n  38         default=\"\",\n  39     )\n  40     release = Field(\n  41         name=\"release\",\n  42         default=0,\n  43     )\n  44 \n  45     expected_pattern = r\"\"\"  (?P<major>\\d+)\n  46   \\.\n  47   (?P<minor>\\d+)\n  48   \\.\n  49   (?P<patch>\\d+)\n  50   (\n  51     -\n  52     (?P<channel>alpha|beta)\n  53     -\n  54     (?P<release>\\d+)\n  55   )?\n  56   (\n  57     \\+\n  58     (?P<build>[a-z0-9\\.]+)\n  59   )?\n  60   \"\"\"\n  61 \n  62     assert config.version_regex.pattern == expected_pattern\n  63 \n  64     assert config.files == [foo_json, version_txt, pub_js, glob, version_info]\n  65     assert config.fields == [channel, release]\n  66 \n  67     assert config.current_version == \"1.2.41-alpha-1\"\n  68 \n  69 \n  70 def test_uses_pyproject_if_tbump_toml_is_missing(\n  71     test_project: Path, tmp_path: Path\n  72 ) ->"
+ },
+ {
+  "role": "assistant",
+  "content": "Now find usages of `schema.` in test file.",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"schema\\\\.\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "tbump/config.py:144: raise schema.SchemaError(message)\ntbump/config.py:162: raise schema.SchemaError(message)\ntbump/config.py:170: raise schema.SchemaError(message)\ntbump/config.py:177: file_schema = schema.Schema(\ntbump/config.py:180: schema.Optional(\"search\"): str,\ntbump/config.py:181: schema.Optional(\"version_template\"): str,\ntbump/config.py:185: field_schema = schema.Schema(\ntbump/config.py:188: schema.Optional(\"default\"): schema.Or(str, int),\ntbump/config.py:192: hook_schema = schema.Schema({\"name\": str, \"cmd\": str})\ntbump/config.py:198: tbump_schema = schema.Schema(\ntbump/config.py:200: \"version\": {\"current\": str, \"regex\": schema.Use(validate_re)},\ntbump/config.py:204: schema.Optional(\"atomic_push\"): bool,\ntbump/config.py:205: schema.Optional(\"sign\"): bool,\ntbump/config.py:208: schema.Optional(\"field\"): [field_schema],\ntbump/config.py:209: schema.Optional(\"hook\"): [hook_schema],  # retro-compat\ntbump/config.py:210: schema.Optional(\"before_push\"): [hook_schema],  # retro-compat\ntbump/config.py:211: schema.Optional(\"before_commit\"): [hook_schema],\ntbump/config.py:212: schema.Optional(\"after_push\"): [hook_schema],\ntbump/config.py:213: schema.Optional(\"github_url\"): str,\ntbump/config.py:216: tbump_schema.validate(config)\ntbump/config.py:235: raise schema.SchemaError(message)\ntbump/config.py:262: except schema.SchemaError as parse_error:\ntbump/test/test_config.py:151: except schema.SchemaError as error:\ntbump/test/test_config.py:202: with pytest.raises(schema.SchemaError) as e:"
+ },
+ {
+  "role": "assistant",
+  "content": "Let's see test_config.py around line 100-209 fully for context on exact validation error expectations.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 100, \"end_line\": 209}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 100     with pytest.raises(InvalidConfig):\n 101         get_config_file(tmp_path)\n 102 \n 103 \n 104 def test_use_specified_path(tmp_path: Path, test_project: Path) -> None:\n 105     other_path = tmp_path / \"other.toml\"\n 106     test_toml = test_project / \"tbump.toml\"\n 107     other_path.write_text(test_toml.read_text())\n 108     expected_file = get_config_file(tmp_path, specified_config_path=other_path)\n 109     assert isinstance(expected_file, TbumpTomlUpdater)\n 110 \n 111 \n 112 def test_raise_when_specified_path_does_not_exists(tmp_path: Path) -> None:\n 113     with pytest.raises(InvalidConfig):\n 114         get_config_file(tmp_path, specified_config_path=tmp_path / \"no-such.toml\")\n 115 \n 116 \n 117 def test_validate_schema_in_pyproject_toml(tmp_path: Path) -> None:\n 118     pyproject_toml = tmp_path / \"pyproject.toml\"\n 119     to_write = textwrap.dedent(\n 120         r\"\"\"\n 121         [[tool.tbump.file]]\n 122         search = '\"version\": \"{current_version}\"'\n 123         src = \"package.json\"\n 124 \n 125         [tool.tbump.git]\n 126         message_template = \"Bump to {new_version}\"\n 127         tag_template = \"v{new_version}\"\n 128 \n 129         [tool.tbump.version]\n 130         # Note: missing 'current'\n 131         regex = '''\n 132           (?P<major>\\d+)\n 133           \\.\n 134           (?P<minor>\\d+)\n 135           \\.\n 136           (?P<patch>\\d+)\n 137           '''\n 138        \"\"\"\n 139     )\n 140     pyproject_toml.write_text(to_write)\n 141 \n 142     with pytest.raises(InvalidConfig) as e:\n 143         get_config_file(tmp_path)\n 144     assert \"'current'\" in str(e.value.parse_error)\n 145 \n 146 \n 147 def assert_validation_error(config: Config, expected_message: str) -> None:\n 148     try:\n 149         validate_config(config)\n 150         pytest.fail(\"should have raised schema error\")\n 151     except schema.SchemaError as error:\n 152         assert expected_message in error.args[0]\n 153 \n 154 \n 155 @pytest.fixture\n 156 def test_config(test_project: Path) -> Conf"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 199, \"end_line\": 280}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 199         \"\"\"\n 200     )\n 201     data = tomlkit.loads(contents)\n 202     with pytest.raises(schema.SchemaError) as e:\n 203         validate_basic_schema(data.value)\n 204     print(e)\n 205 \n 206 \n 207 def test_invalid_custom_template(test_config: Config) -> None:\n 208     first_file = test_config.files[0]\n 209     first_file.src = \"pub.js\"\n 210     first_file.version_template = \"{major}.{minor}.{no_such_group}\"\n 211     assert_validation_error(\n 212         test_config,\n 213         \"version template for 'pub.js' contains unknown group: 'no_such_group'\",\n 214     )\n 215 \n 216 \n 217 def test_parse_hooks() -> None:\n 218     contents = textwrap.dedent(\n 219         r\"\"\"\n 220         [version]\n 221         current = \"1.2.3\"\n 222         regex = '(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)'\n 223 \n 224         [git]\n 225         message_template = \"Bump to  {new_version}\"\n 226         tag_template = \"v{new_version}\"\n 227 \n 228         [[file]]\n 229         src = \"pub.js\"\n 230 \n 231         [[before_commit]]\n 232         name = \"Check changelog\"\n 233         cmd = \"grep -q {new_version} Changelog.md\"\n 234 \n 235         [[after_push]]\n 236         name = \"After push\"\n 237         cmd = \"cargo publish\"\n 238     \"\"\"\n 239     )\n 240     parsed = tomlkit.loads(contents)\n 241     config = from_parsed_config(parsed.value)\n 242     first_hook = config.hooks[0]\n 243     assert first_hook.name == \"Check changelog\"\n 244     assert first_hook.cmd == \"grep -q {new_version} Changelog.md\"\n 245     expected_class = HOOKS_CLASSES[\"before_commit\"]\n 246     assert isinstance(first_hook, expected_class)\n 247 \n 248     second_hook = config.hooks[1]\n 249     expected_class = HOOKS_CLASSES[\"after_push\"]\n 250     assert isinstance(second_hook, expected_class)\n 251 \n 252 \n 253 def test_retro_compat_hooks() -> None:\n 254     contents = textwrap.dedent(\n 255         r\"\"\"\n 256         [version]\n 257         current = \"1.2.3\"\n 258         regex = '(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)'\n"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 1, \"end_line\": 35}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import abc\n   2 import re\n   3 from dataclasses import dataclass\n   4 from pathlib import Path\n   5 from typing import Any, Dict, List, Optional, Pattern, Tuple, Union\n   6 \n   7 import cli_ui as ui\n   8 import schema\n   9 import tomlkit\n  10 from tomlkit.toml_document import TOMLDocument\n  11 \n  12 from tbump.action import Action\n  13 from tbump.error import Error\n  14 from tbump.hooks import HOOKS_CLASSES, Hook\n  15 \n  16 \n  17 @dataclass\n  18 class File:\n  19     src: str\n  20     search: Optional[str] = None\n  21     version_template: Optional[str] = None\n  22 \n  23 \n  24 @dataclass\n  25 class Field:\n  26     name: str\n  27     default: Optional[Union[str, int]] = None\n  28 \n  29 \n  30 @dataclass\n  31 class Config:\n  32     current_version: str\n  33     version_regex: Pattern[str]\n  34 \n  35     git_tag_template: str\n  36     git_message_template: str\n  37     atomic_push: bool\n  38     sign: bool\n  39 \n  40     files: List[File]\n  41     hooks: List[Hook]\n  42     fields: List[Field]\n  43 \n  44     github_url: Optional[str]\n  45 \n  46 \n  47 class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):\n  48     \"\"\"Base class representing a config file\"\"\"\n  49 \n  50     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n  51         self.project_path = project_path\n  52         self.path = path\n  53         self.doc = doc\n  54 \n  55     @property\n  56     def relative_path(self) -> Path:\n  57         return self.project_path / self.path\n  58 \n  59     def print_self(self) -> None:\n  60         from tbump.cli import print_diff\n  61 \n  62         old_text = self.path.read_text()\n  63         new_text = tomlkit.dumps(self.doc)\n  64 \n  65         lineno = 1\n  66         for old_line, new_line in zip(old_text.splitlines(), new_text.splitlines()):\n  67             if old_line != new_line:\n  68                 print_diff(\n  69                     str(self.relative_path),\n  70                     lineno + 1,\n  71                     old_line.strip(),\n "
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 100, \"end_line\": 270}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 100 \n 101     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n 102         super().__init__(project_path, path, doc)\n 103 \n 104     def get_parsed(self) -> dict:\n 105         # Document -> dict\n 106         return self.doc.value\n 107 \n 108     def set_new_version(self, version: str) -> None:\n 109         self.doc[\"version\"][\"current\"] = version  # type: ignore[index]\n 110 \n 111 \n 112 class PyprojectUpdater(ConfigFileUpdater):\n 113     \"\"\"Represent a config inside a pyproject.toml file,\n 114     under the [tool.tbump] key\n 115     \"\"\"\n 116 \n 117     def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):\n 118         super().__init__(project_path, path, doc)\n 119 \n 120     @staticmethod\n 121     def unwrap_data(data: Any) -> Any:\n 122         if hasattr(data, \"unwrap\") and callable(data.unwrap):\n 123             return data.unwrap()\n 124         else:\n 125             return data\n 126 \n 127     def get_parsed(self) -> dict:\n 128         try:\n 129             tool_section = PyprojectUpdater.unwrap_data(\n 130                 self.doc[\"tool\"][\"tbump\"]  # type: ignore[index]\n 131             )\n 132         except KeyError as e:\n 133             raise InvalidConfig(parse_error=e)\n 134 \n 135         return tool_section  # type: ignore[no-any-return]\n 136 \n 137     def set_new_version(self, new_version: str) -> None:\n 138         self.doc[\"tool\"][\"tbump\"][\"version\"][\"current\"] = new_version  # type: ignore[index]\n 139 \n 140 \n 141 def validate_template(name: str, pattern: str, value: str) -> None:\n 142     if pattern not in value:\n 143         message = \"%s should contain the string %s\" % (name, pattern)\n 144         raise schema.SchemaError(message)\n 145 \n 146 \n 147 def validate_git_tag_template(value: str) -> None:\n 148     validate_template(\"git.tag_template\", \"{new_version}\", value)\n 149 \n 150 \n 151 def validate_git_message_template(value: str) -> None:\n 152     validate_template(\"git.message_template\", \"{new_version}\", value)\n 153 "
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 198, \"end_line\": 270}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 198     tbump_schema = schema.Schema(\n 199         {\n 200             \"version\": {\"current\": str, \"regex\": schema.Use(validate_re)},\n 201             \"git\": {\n 202                 \"message_template\": str,\n 203                 \"tag_template\": str,\n 204                 schema.Optional(\"atomic_push\"): bool,\n 205                 schema.Optional(\"sign\"): bool,\n 206             },\n 207             \"file\": [file_schema],\n 208             schema.Optional(\"field\"): [field_schema],\n 209             schema.Optional(\"hook\"): [hook_schema],  # retro-compat\n 210             schema.Optional(\"before_push\"): [hook_schema],  # retro-compat\n 211             schema.Optional(\"before_commit\"): [hook_schema],\n 212             schema.Optional(\"after_push\"): [hook_schema],\n 213             schema.Optional(\"github_url\"): str,\n 214         }\n 215     )\n 216     tbump_schema.validate(config)\n 217 \n 218 \n 219 def validate_config(cfg: Config) -> None:\n 220     \"\"\"Second pass of validation, using the Config\n 221     class.\n 222 \n 223     \"\"\"\n 224     # Note: separated from validate_basic_schema to keep error\n 225     # messages user friendly\n 226 \n 227     current_version = cfg.current_version\n 228 \n 229     validate_git_message_template(cfg.git_message_template)\n 230     validate_git_tag_template(cfg.git_tag_template)\n 231 \n 232     match = cfg.version_regex.fullmatch(current_version)\n 233     if not match:\n 234         message = \"Current version: %s does not match version regex\" % current_version\n 235         raise schema.SchemaError(message)\n 236     current_version_regex_groups = match.groupdict()\n 237 \n 238     for file_config in cfg.files:\n 239         version_template = file_config.version_template\n 240         if version_template:\n 241             validate_version_template(\n 242                 file_config.src, version_template, current_version_regex_groups\n 243             )\n 244 \n 245     for hook in cfg.hooks:\n 246         validate_hook_cmd(hook.cmd)\n 247 \n 248 \n 249 def get_config_fi"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let's view the rest (295-371) fully.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/config.py\", \"start_line\": 295, \"end_line\": 371}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 295 def from_parsed_config(parsed: dict) -> Config:\n 296     validate_basic_schema(parsed)\n 297     current_version = parsed[\"version\"][\"current\"]\n 298     git_message_template = parsed[\"git\"][\"message_template\"]\n 299     git_tag_template = parsed[\"git\"][\"tag_template\"]\n 300     atomic_push = parsed[\"git\"].get(\"atomic_push\", True)\n 301     sign = parsed[\"git\"].get(\"sign\", False)\n 302     version_regex = re.compile(parsed[\"version\"][\"regex\"], re.VERBOSE)\n 303     files = []\n 304     for file_dict in parsed[\"file\"]:\n 305         file_config = File(\n 306             src=file_dict[\"src\"],\n 307             search=file_dict.get(\"search\"),\n 308             version_template=file_dict.get(\"version_template\"),\n 309         )\n 310         files.append(file_config)\n 311     fields = []\n 312     for field_dict in parsed.get(\"field\", []):\n 313         field_config = Field(\n 314             name=field_dict[\"name\"],\n 315             default=field_dict.get(\"default\"),\n 316         )\n 317         fields.append(field_config)\n 318     hooks = []\n 319     for hook_type in (\"hook\", \"before_push\", \"before_commit\", \"after_push\"):\n 320         cls = HOOKS_CLASSES[hook_type]\n 321         if hook_type in parsed:\n 322             for hook_dict in parsed[hook_type]:\n 323                 hook = cls(hook_dict[\"name\"], hook_dict[\"cmd\"])\n 324                 hooks.append(hook)\n 325 \n 326     github_url = parsed.get(\"github_url\")\n 327 \n 328     config = Config(\n 329         current_version=current_version,\n 330         version_regex=version_regex,\n 331         git_message_template=git_message_template,\n 332         git_tag_template=git_tag_template,\n 333         atomic_push=atomic_push,\n 334         sign=sign,\n 335         fields=fields,\n 336         files=files,\n 337         hooks=hooks,\n 338         github_url=github_url,\n 339     )\n 340 \n 341     validate_config(config)\n 342 \n 343     return config\n 344 \n 345 \n 346 class ConfigNotFound(Error):\n 347     def __init__(self, project_path: Path):\n 34"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 100, \"end_line\": 206}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 100     with pytest.raises(InvalidConfig):\n 101         get_config_file(tmp_path)\n 102 \n 103 \n 104 def test_use_specified_path(tmp_path: Path, test_project: Path) -> None:\n 105     other_path = tmp_path / \"other.toml\"\n 106     test_toml = test_project / \"tbump.toml\"\n 107     other_path.write_text(test_toml.read_text())\n 108     expected_file = get_config_file(tmp_path, specified_config_path=other_path)\n 109     assert isinstance(expected_file, TbumpTomlUpdater)\n 110 \n 111 \n 112 def test_raise_when_specified_path_does_not_exists(tmp_path: Path) -> None:\n 113     with pytest.raises(InvalidConfig):\n 114         get_config_file(tmp_path, specified_config_path=tmp_path / \"no-such.toml\")\n 115 \n 116 \n 117 def test_validate_schema_in_pyproject_toml(tmp_path: Path) -> None:\n 118     pyproject_toml = tmp_path / \"pyproject.toml\"\n 119     to_write = textwrap.dedent(\n 120         r\"\"\"\n 121         [[tool.tbump.file]]\n 122         search = '\"version\": \"{current_version}\"'\n 123         src = \"package.json\"\n 124 \n 125         [tool.tbump.git]\n 126         message_template = \"Bump to {new_version}\"\n 127         tag_template = \"v{new_version}\"\n 128 \n 129         [tool.tbump.version]\n 130         # Note: missing 'current'\n 131         regex = '''\n 132           (?P<major>\\d+)\n 133           \\.\n 134           (?P<minor>\\d+)\n 135           \\.\n 136           (?P<patch>\\d+)\n 137           '''\n 138        \"\"\"\n 139     )\n 140     pyproject_toml.write_text(to_write)\n 141 \n 142     with pytest.raises(InvalidConfig) as e:\n 143         get_config_file(tmp_path)\n 144     assert \"'current'\" in str(e.value.parse_error)\n 145 \n 146 \n 147 def assert_validation_error(config: Config, expected_message: str) -> None:\n 148     try:\n 149         validate_config(config)\n 150         pytest.fail(\"should have raised schema error\")\n 151     except schema.SchemaError as error:\n 152         assert expected_message in error.args[0]\n 153 \n 154 \n 155 @pytest.fixture\n 156 def test_config(test_project: Path) -> Conf"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 199, \"end_line\": 281}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 199         \"\"\"\n 200     )\n 201     data = tomlkit.loads(contents)\n 202     with pytest.raises(schema.SchemaError) as e:\n 203         validate_basic_schema(data.value)\n 204     print(e)\n 205 \n 206 \n 207 def test_invalid_custom_template(test_config: Config) -> None:\n 208     first_file = test_config.files[0]\n 209     first_file.src = \"pub.js\"\n 210     first_file.version_template = \"{major}.{minor}.{no_such_group}\"\n 211     assert_validation_error(\n 212         test_config,\n 213         \"version template for 'pub.js' contains unknown group: 'no_such_group'\",\n 214     )\n 215 \n 216 \n 217 def test_parse_hooks() -> None:\n 218     contents = textwrap.dedent(\n 219         r\"\"\"\n 220         [version]\n 221         current = \"1.2.3\"\n 222         regex = '(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)'\n 223 \n 224         [git]\n 225         message_template = \"Bump to  {new_version}\"\n 226         tag_template = \"v{new_version}\"\n 227 \n 228         [[file]]\n 229         src = \"pub.js\"\n 230 \n 231         [[before_commit]]\n 232         name = \"Check changelog\"\n 233         cmd = \"grep -q {new_version} Changelog.md\"\n 234 \n 235         [[after_push]]\n 236         name = \"After push\"\n 237         cmd = \"cargo publish\"\n 238     \"\"\"\n 239     )\n 240     parsed = tomlkit.loads(contents)\n 241     config = from_parsed_config(parsed.value)\n 242     first_hook = config.hooks[0]\n 243     assert first_hook.name == \"Check changelog\"\n 244     assert first_hook.cmd == \"grep -q {new_version} Changelog.md\"\n 245     expected_class = HOOKS_CLASSES[\"before_commit\"]\n 246     assert isinstance(first_hook, expected_class)\n 247 \n 248     second_hook = config.hooks[1]\n 249     expected_class = HOOKS_CLASSES[\"after_push\"]\n 250     assert isinstance(second_hook, expected_class)\n 251 \n 252 \n 253 def test_retro_compat_hooks() -> None:\n 254     contents = textwrap.dedent(\n 255         r\"\"\"\n 256         [version]\n 257         current = \"1.2.3\"\n 258         regex = '(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)'\n"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 1, \"end_line\": 25}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import re\n   2 import textwrap\n   3 from pathlib import Path\n   4 \n   5 import pytest\n   6 import schema\n   7 import tomlkit\n   8 \n   9 from tbump.config import (\n  10     Config,\n  11     Field,\n  12     File,\n  13     InvalidConfig,\n  14     TbumpTomlUpdater,\n  15     from_parsed_config,\n  16     get_config_file,\n  17     validate_basic_schema,\n  18     validate_config,\n  19 )\n  20 from tbump.hooks import HOOKS_CLASSES, BeforeCommitHook\n  21 \n  22 \n  23 def test_happy_parse(test_project: Path) -> None:\n  24     config_file = get_config_file(test_project)\n  25     config = config_file.get_config()\n  26     foo_json = File(src=\"package.json\", search='\"version\": \"{current_version}\"')\n  27     version_txt = File(src=\"VERSION\")\n  28     pub_js = File(src=\"pub.js\", version_template=\"{major}.{minor}.{patch}\")\n  29     glob = File(src=\"glob*.?\", search='version_[a-z]+ = \"{current_version}\"')\n  30     version_info = File(\n  31         src=\"version_info.py\",\n  32         search=\"version_info = {current_version}\",\n  33         version_template='({major}, {minor}, {patch}, \"{channel}\", {release})',\n  34     )\n  35 \n  36     channel = Field(\n  37         name=\"channel\",\n  38         default=\"\",\n  39     )\n  40     release = Field(\n  41         name=\"release\",\n  42         default=0,\n  43     )\n  44 \n  45     expected_pattern = r\"\"\"  (?P<major>\\d+)\n  46   \\.\n  47   (?P<minor>\\d+)\n  48   \\.\n  49   (?P<patch>\\d+)\n  50   (\n  51     -\n  52     (?P<channel>alpha|beta)\n  53     -\n  54     (?P<release>\\d+)\n  55   )?\n  56   (\n  57     \\+\n  58     (?P<build>[a-z0-9\\.]+)\n  59   )?\n  60   \"\"\"\n  61 \n  62     assert config.version_regex.pattern == expected_pattern\n  63 \n  64     assert config.files == [foo_json, version_txt, pub_js, glob, version_info]\n  65     assert config.fields == [channel, release]\n  66 \n  67     assert config.current_version == \"1.2.41-alpha-1\"\n  68 \n  69 \n  70 def test_uses_pyproject_if_tbump_toml_is_missing(\n  71     test_project: Path, tmp_path: Path\n  72 ) ->"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let's make all edits. First update test_config.py imports and usages.",
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"tbump/test/test_config.py\", \"start_line\": 1, \"end_line\": 20, \"replacement_text\": \"import re\\nimport textwrap\\nfrom pathlib import Path\\n\\nimport pytest\\nimport tomlkit\\n\\nfrom tbump.config import (\\n    Config,\\n    Field,\\n    File,\\n    InvalidConfig,\\n    SchemaError,\\n    TbumpTomlUpdater,\\n    from_parsed_config,\\n    get_config_file,\\n    validate_basic_schema,\\n    validate_config,\\n)\\nfrom tbump.hooks import HOOKS_CLASSES, BeforeCommitHook\\n\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited tbump/test/test_config.py (lines 1-20 -> 20 lines). Result:\n   1 import re\n   2 import textwrap\n   3 from pathlib import Path\n   4 \n   5 import pytest\n   6 import tomlkit\n   7 \n   8 from tbump.config import (\n   9     Config,\n  10     Field,\n  11     File,\n  12     InvalidConfig,\n  13     SchemaError,\n  14     TbumpTomlUpdater,\n  15     from_parsed_config,\n  16     get_config_file,\n  17     validate_basic_schema,\n  18     validate_config,\n  19 )\n  20 from tbump.hooks import HOOKS_CLASSES, BeforeCommitHook\n  21 \n  22 \n  23 def test_happy_parse(test_project: Path) -> None:"
+ }
+]

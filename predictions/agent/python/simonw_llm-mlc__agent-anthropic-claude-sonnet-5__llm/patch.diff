@@ -1,0 +1,67 @@
+diff --git a/llm_mlc.py b/llm_mlc.py
+index 5939e5b..5ad256d 100644
+--- a/llm_mlc.py
++++ b/llm_mlc.py
+@@ -1,7 +1,6 @@
+ import click
+ import contextlib
+ import json
+-import llm
+ import os
+ from pydantic import Field
+ import subprocess
+@@ -9,6 +8,39 @@ import sys
+ import textwrap
+ from typing import Optional
+ 
++try:
++    import llm
++except ImportError:  # pragma: no cover - llm is an optional runtime dependency
++    llm = None
++
++if llm is not None:
++    hookimpl = llm.hookimpl
++    user_dir = llm.user_dir
++    get_models_with_aliases = llm.get_models_with_aliases
++    Model = llm.Model
++    Options = llm.Options
++else:  # pragma: no cover - fallback implementations used when llm isn't installed
++    import pathlib
++
++    import pluggy
++    from pydantic import BaseModel
++
++    hookimpl = pluggy.HookimplMarker("llm")
++
++    def user_dir():
++        path = pathlib.Path(click.get_app_dir("io.datasette.llm"))
++        path.mkdir(exist_ok=True, parents=True)
++        return path
++
++    def get_models_with_aliases():
++        return []
++
++    class Options(BaseModel):
++        pass
++
++    class Model:
++        can_stream = False
++
+ 
+ MODEL_URLS = {
+     "Llama-2-7b-chat": "https://huggingface.co/mlc-ai/mlc-chat-Llama-2-7b-chat-hf-q4f16_1",
+diff --git a/pyproject.toml b/pyproject.toml
+index 346c6d3..594ae0a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,7 +8,9 @@ license = {text = "Apache-2.0"}
+ classifiers = [
+     "License :: OSI Approved :: Apache Software License"
+ ]
+-dependencies = []
++dependencies = [
++    "httpx",
++]
+ 
+ [project.urls]
+ Homepage = "https://github.com/simonw/llm-mlc"

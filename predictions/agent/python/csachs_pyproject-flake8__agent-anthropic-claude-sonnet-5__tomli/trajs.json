@@ -1,0 +1,221 @@
+[
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pflake8/__init__.py\"}"
+   },
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 \"\"\" pyproject-flake8 (`pflake8`), a monkey patching wrapper to connect flake8 with pyproject.toml configuration \"\"\"  # noqa\n   2 \n   3 __version__ = '7.0.0'\n   4 \n   5 import ast\n   6 import configparser\n   7 import multiprocessing.pool\n   8 import sys\n   9 from pathlib import Path\n  10 from types import ModuleType\n  11 \n  12 import flake8.main.cli\n  13 import flake8.options.config\n  14 \n  15 try:\n  16     # from Python 3.11 onward\n  17     from tomllib import load as toml_load\n  18 except ImportError:\n  19     from tomli import load as toml_load\n  20 \n  21 \n  22 class ConfigParserTomlMixin:\n  23     def _read(self, fp, filename):\n  24         filename_path = Path(filename)\n  25         if filename_path.suffix == '.toml':\n  26             is_pyproject = filename_path.name == 'pyproject.toml'\n  27 \n  28             toml_config = toml_load(fp.buffer)\n  29 \n  30             section_to_copy = (\n  31                 toml_config if not is_pyproject else toml_config.get('tool', {})\n  32             )\n  33 \n  34             for section, config in section_to_copy.items():\n  35                 try:\n  36                     self.add_section(section)\n  37                 except (configparser.DuplicateSectionError):\n  38                     pass\n  39                 self._sections.setdefault(section, self._dict()).update(self._dict(config))\n  40         else:\n  41             super(ConfigParserTomlMixin, self)._read(fp, filename)\n  42 \n  43     def _convert_to_boolean(self, value):\n  44         if isinstance(value, bool):\n  45             return value\n  46         else:\n  47             return super()._convert_to_boolean(value)\n  48 \n  49 \n  50 class DivertingRawConfigParser(ConfigParserTomlMixin, configparser.RawConfigParser):\n  51     pass\n  52 \n  53 \n  54 class DivertingConfigParser(ConfigParserTomlMixin, configparser.ConfigParser):\n  55     pass\n  56 \n  57 \n  58 try:\n  59 \n  60     class DivertingSafeConfigParser(\n  61         ConfigParserTomlMixin, configparser.SafeCon"
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = [\"flit_core >=3.2,<4\"]\n   3 build-backend = \"flit_core.buildapi\"\n   4 \n   5 [project]\n   6 dynamic = [\"version\", \"description\"]\n   7 name = \"pyproject-flake8\"\n   8 authors = [{name = \"Christian Sachs\", email = \"sachs.christian@gmail.com\"}]\n   9 readme = \"README.md\"\n  10 license = { file = \"LICENSE\" } \n  11 classifiers = []\n  12 requires-python = \">=3.8.1\"\n  13 dependencies = [\n  14     \"tomli; python_version < '3.11'\",\n  15     \"flake8 == 7.0.0\"\n  16 ]\n  17 \n  18 [project.urls]\n  19 Home = \"https://github.com/csachs/pyproject-flake8\"\n  20 \n  21 [project.scripts]\n  22 pflake8 = \"pflake8.__main__:main\"\n  23 \n  24 [tool.flit.module]\n  25 name = \"pflake8\"\n  26 \n  27 [tool.black]\n  28 skip-string-normalization = 1\n  29 force-exclude = [\n  30     \"test/data/dummy.py\",\n  31 ]\n  32 \n  33 [tool.isort]\n  34 profile = \"black\"\n  35 multi_line_output = 3\n  36 \n  37 [tool.flake8]\n  38 max-line-length = 88\n  39 extend-ignore = [\"E203\"]\n  40 max-complexity = 10\n  41 exclude = [\"venv\", \"test/data/\"]"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "list_files",
+    "args": "{\"path\": \"test\"}"
+   },
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"tomli\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "list_files",
+  "content": "test/data/dummy.py\ntest/data/pyproject.toml\ntest/data/setup.cfg\ntest/data/setup_custom.cfg\ntest/test_append_config.py"
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "pflake8/__init__.py:19: from tomli import load as toml_load\n.github/workflows/maintenance.py:7: import tomli\n.github/workflows/maintenance.py:51: result = tomli.load(fp)"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \".github/workflows/maintenance.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import sys\n   2 from ast import literal_eval\n   3 from pathlib import Path\n   4 from typing import Any, Dict, List, Tuple, Union\n   5 \n   6 import requests\n   7 import tomli\n   8 \n   9 \n  10 def get_package_info(name: str) -> Dict[str, Any]:\n  11     return requests.get(f\"https://pypi.org/pypi/{name}/json\").json()\n  12 \n  13 \n  14 VERSION = \"__version__\"\n  15 \n  16 \n  17 def _get_lines(path: Union[Path, str], encoding: str = \"utf-8\"):\n  18     return Path(path).read_text(encoding).splitlines(keepends=True)\n  19 \n  20 \n  21 def get_version(\n  22     file_name: Union[Path, str], token: str = VERSION, encoding: str = \"utf-8\"\n  23 ) -> str:\n  24     for line in _get_lines(file_name, encoding=encoding):\n  25         if line.startswith(token):\n  26             return literal_eval(line.split(\"=\", 1)[1])\n  27     raise RuntimeError(f\"{token} not found\")\n  28 \n  29 \n  30 def patch_version(\n  31     file_name: Union[Path, str],\n  32     new_version: str,\n  33     token: str = VERSION,\n  34     encoding: str = \"utf-8\",\n  35 ) -> None:\n  36 \n  37     patched_string = \"\".join(\n  38         line\n  39         if not line.startswith(token)\n  40         else f\"{token} = '{new_version}'{line[len(line.strip()):]}\"\n  41         for line in _get_lines(file_name, encoding=encoding)\n  42     )\n  43 \n  44     Path(file_name).write_text(patched_string, encoding=encoding)\n  45 \n  46 \n  47 def find_dependency_version_string(\n  48     pyproject: Union[Path, str], search_string: str\n  49 ) -> str:\n  50     with Path(pyproject).open('rb') as fp:\n  51         result = tomli.load(fp)\n  52 \n  53     deps = [dep for dep in result[\"project\"][\"dependencies\"] if search_string in dep]\n  54     assert len(deps) == 1, \"Multiple dependencies matched!\"\n  55     return deps[0]\n  56 \n  57 \n  58 def patch_pyproject_string(\n  59     pyproject: Union[Path, str],\n  60     search_string: str,\n  61     replacement_str: str,\n  62     quotes: Tuple[str, ...] = ('\"', \"'\"),\n  63     encoding: str = \"utf-8\",\n  64 )"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"python_requires|requires-python\"}"
+   },
+   {
+    "name": "list_files",
+    "args": "{\"path\": \".github/workflows\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "no matches"
+ },
+ {
+  "role": "tool",
+  "name": "list_files",
+  "content": ".github/workflows/black.yml\n.github/workflows/build.yml\n.github/workflows/check.yml\n.github/workflows/maintenance.py\n.github/workflows/test.yml"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pflake8/__init__.py\"}"
+   },
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 \"\"\" pyproject-flake8 (`pflake8`), a monkey patching wrapper to connect flake8 with pyproject.toml configuration \"\"\"  # noqa\n   2 \n   3 __version__ = '7.0.0'\n   4 \n   5 import ast\n   6 import configparser\n   7 import multiprocessing.pool\n   8 import sys\n   9 from pathlib import Path\n  10 from types import ModuleType\n  11 \n  12 import flake8.main.cli\n  13 import flake8.options.config\n  14 \n  15 try:\n  16     # from Python 3.11 onward\n  17     from tomllib import load as toml_load\n  18 except ImportError:\n  19     from tomli import load as toml_load\n  20 \n  21 \n  22 class ConfigParserTomlMixin:\n  23     def _read(self, fp, filename):\n  24         filename_path = Path(filename)\n  25         if filename_path.suffix == '.toml':\n  26             is_pyproject = filename_path.name == 'pyproject.toml'\n  27 \n  28             toml_config = toml_load(fp.buffer)\n  29 \n  30             section_to_copy = (\n  31                 toml_config if not is_pyproject else toml_config.get('tool', {})\n  32             )\n  33 \n  34             for section, config in section_to_copy.items():\n  35                 try:\n  36                     self.add_section(section)\n  37                 except (configparser.DuplicateSectionError):\n  38                     pass\n  39                 self._sections.setdefault(section, self._dict()).update(self._dict(config))\n  40         else:\n  41             super(ConfigParserTomlMixin, self)._read(fp, filename)\n  42 \n  43     def _convert_to_boolean(self, value):\n  44         if isinstance(value, bool):\n  45             return value\n  46         else:\n  47             return super()._convert_to_boolean(value)\n  48 \n  49 \n  50 class DivertingRawConfigParser(ConfigParserTomlMixin, configparser.RawConfigParser):\n  51     pass\n  52 \n  53 \n  54 class DivertingConfigParser(ConfigParserTomlMixin, configparser.ConfigParser):\n  55     pass\n  56 \n  57 \n  58 try:\n  59 \n  60     class DivertingSafeConfigParser(\n  61         ConfigParserTomlMixin, configparser.SafeCon"
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = [\"flit_core >=3.2,<4\"]\n   3 build-backend = \"flit_core.buildapi\"\n   4 \n   5 [project]\n   6 dynamic = [\"version\", \"description\"]\n   7 name = \"pyproject-flake8\"\n   8 authors = [{name = \"Christian Sachs\", email = \"sachs.christian@gmail.com\"}]\n   9 readme = \"README.md\"\n  10 license = { file = \"LICENSE\" } \n  11 classifiers = []\n  12 requires-python = \">=3.8.1\"\n  13 dependencies = [\n  14     \"tomli; python_version < '3.11'\",\n  15     \"flake8 == 7.0.0\"\n  16 ]\n  17 \n  18 [project.urls]\n  19 Home = \"https://github.com/csachs/pyproject-flake8\"\n  20 \n  21 [project.scripts]\n  22 pflake8 = \"pflake8.__main__:main\"\n  23 \n  24 [tool.flit.module]\n  25 name = \"pflake8\"\n  26 \n  27 [tool.black]\n  28 skip-string-normalization = 1\n  29 force-exclude = [\n  30     \"test/data/dummy.py\",\n  31 ]\n  32 \n  33 [tool.isort]\n  34 profile = \"black\"\n  35 multi_line_output = 3\n  36 \n  37 [tool.flake8]\n  38 max-line-length = 88\n  39 extend-ignore = [\"E203\"]\n  40 max-complexity = 10\n  41 exclude = [\"venv\", \"test/data/\"]"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"python_requires|Programming Language :: Python\"}"
+   },
+   {
+    "name": "list_files",
+    "args": "{\"path\": \"test\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "no matches"
+ },
+ {
+  "role": "tool",
+  "name": "list_files",
+  "content": "test/data/dummy.py\ntest/data/pyproject.toml\ntest/data/setup.cfg\ntest/data/setup_custom.cfg\ntest/test_append_config.py"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"pflake8/__init__.py\", \"start_line\": 15, \"end_line\": 19, \"replacement_text\": \"from tomllib import load as toml_load\\n\"}"
+   },
+   {
+    "name": "edit",
+    "args": "{\"path\": \"pyproject.toml\", \"start_line\": 12, \"end_line\": 16, \"replacement_text\": \"requires-python = \\\">=3.11\\\"\\ndependencies = [\\n    \\\"flake8 == 7.0.0\\\"\\n]\\n\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited pflake8/__init__.py (lines 15-19 -> 1 lines). Result:\n  12 import flake8.main.cli\n  13 import flake8.options.config\n  14 \n  15 from tomllib import load as toml_load\n  16 \n  17 \n  18 class ConfigParserTomlMixin:"
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited pyproject.toml (lines 12-16 -> 4 lines). Result:\n   9 readme = \"README.md\"\n  10 license = { file = \"LICENSE\" } \n  11 classifiers = []\n  12 requires-python = \">=3.11\"\n  13 dependencies = [\n  14     \"flake8 == 7.0.0\"\n  15 ]\n  16 \n  17 [project.urls]\n  18 Home = \"https://github.com/csachs/pyproject-flake8\""
+ },
+ {
+  "role": "assistant",
+  "content": "Let's verify the rest of the file to ensure `toml_load` usage matches previous naming and check surrounding context for consistency.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pflake8/__init__.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 \"\"\" pyproject-flake8 (`pflake8`), a monkey patching wrapper to connect flake8 with pyproject.toml configuration \"\"\"  # noqa\n   2 \n   3 __version__ = '7.0.0'\n   4 \n   5 import ast\n   6 import configparser\n   7 import multiprocessing.pool\n   8 import sys\n   9 from pathlib import Path\n  10 from types import ModuleType\n  11 \n  12 import flake8.main.cli\n  13 import flake8.options.config\n  14 \n  15 from tomllib import load as toml_load\n  16 \n  17 \n  18 class ConfigParserTomlMixin:\n  19     def _read(self, fp, filename):\n  20         filename_path = Path(filename)\n  21         if filename_path.suffix == '.toml':\n  22             is_pyproject = filename_path.name == 'pyproject.toml'\n  23 \n  24             toml_config = toml_load(fp.buffer)\n  25 \n  26             section_to_copy = (\n  27                 toml_config if not is_pyproject else toml_config.get('tool', {})\n  28             )\n  29 \n  30             for section, config in section_to_copy.items():\n  31                 try:\n  32                     self.add_section(section)\n  33                 except (configparser.DuplicateSectionError):\n  34                     pass\n  35                 self._sections.setdefault(section, self._dict()).update(self._dict(config))\n  36         else:\n  37             super(ConfigParserTomlMixin, self)._read(fp, filename)\n  38 \n  39     def _convert_to_boolean(self, value):\n  40         if isinstance(value, bool):\n  41             return value\n  42         else:\n  43             return super()._convert_to_boolean(value)\n  44 \n  45 \n  46 class DivertingRawConfigParser(ConfigParserTomlMixin, configparser.RawConfigParser):\n  47     pass\n  48 \n  49 \n  50 class DivertingConfigParser(ConfigParserTomlMixin, configparser.ConfigParser):\n  51     pass\n  52 \n  53 \n  54 try:\n  55 \n  56     class DivertingSafeConfigParser(\n  57         ConfigParserTomlMixin, configparser.SafeConfigParser\n  58     ):\n  59         pass\n  60 \n  61     configparser.SafeConfigParser = DivertingSafeConfigParser\n  62 e"
+ },
+ {
+  "role": "assistant",
+  "content": "This looks good. Now let's check pyproject.toml fully for correctness.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = [\"flit_core >=3.2,<4\"]\n   3 build-backend = \"flit_core.buildapi\"\n   4 \n   5 [project]\n   6 dynamic = [\"version\", \"description\"]\n   7 name = \"pyproject-flake8\"\n   8 authors = [{name = \"Christian Sachs\", email = \"sachs.christian@gmail.com\"}]\n   9 readme = \"README.md\"\n  10 license = { file = \"LICENSE\" } \n  11 classifiers = []\n  12 requires-python = \">=3.11\"\n  13 dependencies = [\n  14     \"flake8 == 7.0.0\"\n  15 ]\n  16 \n  17 [project.urls]\n  18 Home = \"https://github.com/csachs/pyproject-flake8\"\n  19 \n  20 [project.scripts]\n  21 pflake8 = \"pflake8.__main__:main\"\n  22 \n  23 [tool.flit.module]\n  24 name = \"pflake8\"\n  25 \n  26 [tool.black]\n  27 skip-string-normalization = 1\n  28 force-exclude = [\n  29     \"test/data/dummy.py\",\n  30 ]\n  31 \n  32 [tool.isort]\n  33 profile = \"black\"\n  34 multi_line_output = 3\n  35 \n  36 [tool.flake8]\n  37 max-line-length = 88\n  38 extend-ignore = [\"E203\"]\n  39 max-complexity = 10\n  40 exclude = [\"venv\", \"test/data/\"]"
+ },
+ {
+  "role": "assistant",
+  "content": "This is clean. Now let's double check the test file uses nothing related to tomli directly.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"test/test_append_config.py\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 import sys\n   2 import unittest\n   3 import pflake8\n   4 \n   5 \n   6 class TestAppendConfig(unittest.TestCase):\n   7     def test_append_config_toml(self):\n   8         sys.argv = [\n   9             \"pflake8\",\n  10             \"--config\",\n  11             \"./test/data/setup.cfg\",\n  12             \"--append-config\",\n  13             \"./test/data/pyproject.toml\",\n  14             \"./test/data/dummy.py\",\n  15         ]\n  16 \n  17         pflake8.main()  # OK if this raises no exception.\n  18 \n  19     def test_append_config_normal(self):\n  20         sys.argv = [\n  21             \"pflake8\",\n  22             \"--config\",\n  23             \"./test/data/setup.cfg\",\n  24             \"--append-config\",\n  25             \"./test/data/setup_custom.cfg\",\n  26             \"./test/data/dummy.py\",\n  27         ]\n  28 \n  29         pflake8.main()  # OK if this raises no exception.\n  30 \n  31 \n  32 if __name__ == '__main__':\n  33     unittest.main()"
+ },
+ {
+  "role": "assistant",
+  "content": "Good, nothing else needed. The changes are complete and self-consistent.",
+  "tool_calls": [
+   {
+    "name": "finish",
+    "args": "{\"summary\": \"Removed the tomli dependency:\\n- pflake8/__init__.py: replaced the try/except tomllib-or-tomli fallback with a direct `from tomllib import load as toml_load`, since tomllib is part of the standard library (Python 3.11+).\\n- pyproject.toml: removed the `tomli` dependency declaration and bumped `requires-python` to `>=3.11` to match the now-mandatory use of the stdlib `tomllib` module.\\nNo other files in the installed package reference tomli; the test suite (test/test_append_config.py) exercises the TOML config loading path and does not need changes.\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "finish",
+  "content": "ok"
+ }
+]

@@ -1,0 +1,241 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1292a2..de616fe 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,6 +40,12 @@ web-service = ["fastapi", "uvicorn"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8 || ^3.9 || ^3.10 || ^3.11 || ^3.12"
++requests = ">=2.31.0"
++
++# optional dependencies
++fastapi = { version = "^0.109.0", optional = true }
++uvicorn = { version = "^0.25.0", optional = true }
++
+ 
+ [build-system]
+ requires = ["poetry-core"]
+diff --git a/src/inscriptis/__init__.py b/src/inscriptis/__init__.py
+index 4e52312..547fee4 100644
+--- a/src/inscriptis/__init__.py
++++ b/src/inscriptis/__init__.py
+@@ -63,8 +63,7 @@ import re
+ from typing import Dict, Optional, Any
+ from inscriptis.model.config import ParserConfig
+ 
+-from lxml.etree import ParserError
+-from lxml.html import fromstring, HtmlElement
++from inscriptis.html_parser import fromstring, HtmlElement
+ 
+ from inscriptis.html_engine import Inscriptis
+ 
+@@ -88,10 +87,7 @@ def _get_html_tree(html_content: str) -> Optional[HtmlElement]:
+     if html_content.startswith("<?xml "):
+         html_content = RE_STRIP_XML_DECLARATION.sub("", html_content, count=1)
+ 
+-    try:
+-        return fromstring(html_content)
+-    except ParserError:
+-        return fromstring("<pre>" + html_content + "</pre>")
++    return fromstring(html_content)
+ 
+ 
+ def get_text(html_content: str, config: ParserConfig = None) -> str:
+diff --git a/src/inscriptis/html_engine.py b/src/inscriptis/html_engine.py
+index 42d849e..26fc7e8 100644
+--- a/src/inscriptis/html_engine.py
++++ b/src/inscriptis/html_engine.py
+@@ -3,8 +3,7 @@
+ """The HTML Engine is responsible for converting HTML to text."""
+ from typing import List, Dict, Callable
+ 
+-import lxml.html
+-from lxml.etree import Comment
++from inscriptis.html_parser import HtmlElement, Comment
+ 
+ from inscriptis.annotation import Annotation
+ from inscriptis.model.canvas import Canvas
+@@ -30,15 +29,15 @@ from inscriptis.model.tag.table_tag import (
+ 
+ 
+ class Inscriptis:
+-    """Translate an lxml HTML tree to the corresponding text representation.
++    """Translate an HTML tree to the corresponding text representation.
+ 
+     Args:
+-      html_tree: the lxml HTML tree to convert.
++      html_tree: the HTML tree to convert.
+       config: an optional ParserConfig configuration object.
+ 
+     Example::
+ 
+-      from lxml.html import fromstring
++      from inscriptis.html_parser import fromstring
+       from inscriptis.html_engine import Inscriptis
+ 
+       html_content = "<html><body><h1>Test</h1></body></html>"
+@@ -51,7 +50,7 @@ class Inscriptis:
+       text = parser.get_text()
+     """
+ 
+-    def __init__(self, html_tree: lxml.html.HtmlElement, config: ParserConfig = None):
++    def __init__(self, html_tree: HtmlElement, config: ParserConfig = None):
+         # use the default configuration, if no config object is provided
+         config = config or ParserConfig()
+ 
+diff --git a/src/inscriptis/html_parser.py b/src/inscriptis/html_parser.py
+new file mode 100644
+index 0000000..066c186
+--- /dev/null
++++ b/src/inscriptis/html_parser.py
+@@ -0,0 +1,150 @@
++"""A minimal, dependency-free HTML parser used to replace lxml.
++
++The parser produces a tree of :class:`HtmlElement` objects that mimics the
++small subset of the ``lxml.html`` element API used throughout Inscriptis:
++``tag``, ``attrib``, ``text``, ``tail`` and iteration over the element's
++children.
++
++Comments are represented by elements whose ``tag`` attribute is the
++:data:`Comment` sentinel (mirroring ``lxml.etree.Comment``).
++"""
++
++from html.parser import HTMLParser
++from typing import Dict, List, Optional
++
++
++class Comment:
++    """Sentinel class used to mark comment nodes (``tag is Comment``)."""
++
++
++VOID_ELEMENTS = {
++    "area",
++    "base",
++    "br",
++    "col",
++    "embed",
++    "hr",
++    "img",
++    "input",
++    "link",
++    "meta",
++    "param",
++    "source",
++    "track",
++    "wbr",
++}
++
++
++class HtmlElement:
++    """A lightweight stand-in for ``lxml.html.HtmlElement``."""
++
++    __slots__ = ("tag", "attrib", "text", "tail", "children")
++
++    def __init__(self, tag, attrib: Optional[Dict[str, str]] = None):
++        self.tag = tag
++        self.attrib = attrib if attrib is not None else {}
++        self.text: Optional[str] = None
++        self.tail: Optional[str] = None
++        self.children: List["HtmlElement"] = []
++
++    def __iter__(self):
++        return iter(self.children)
++
++    def __len__(self):
++        return len(self.children)
++
++    def __repr__(self):  # pragma: no cover - debugging helper
++        return f"<HtmlElement {self.tag!r}>"
++
++
++class _TreeBuilder(HTMLParser):
++    """Builds a tree of :class:`HtmlElement` objects from HTML markup."""
++
++    def __init__(self):
++        super().__init__(convert_charrefs=True)
++        self.root = HtmlElement("--root--")
++        self._stack = [self.root]
++
++    def _append_data(self, data: str) -> None:
++        if not data:
++            return
++        parent = self._stack[-1]
++        if parent.children:
++            last = parent.children[-1]
++            last.tail = (last.tail or "") + data
++        else:
++            parent.text = (parent.text or "") + data
++
++    def handle_starttag(self, tag, attrs):
++        tag = tag.lower()
++        attrib = {name.lower(): (value if value is not None else "") for name, value in attrs}
++        element = HtmlElement(tag, attrib)
++        self._stack[-1].children.append(element)
++        if tag not in VOID_ELEMENTS:
++            self._stack.append(element)
++
++    def handle_startendtag(self, tag, attrs):
++        tag = tag.lower()
++        attrib = {name.lower(): (value if value is not None else "") for name, value in attrs}
++        element = HtmlElement(tag, attrib)
++        self._stack[-1].children.append(element)
++
++    def handle_endtag(self, tag):
++        tag = tag.lower()
++        if tag in VOID_ELEMENTS:
++            return
++        # search for a matching open element on the stack (ignoring the root)
++        for index in range(len(self._stack) - 1, 0, -1):
++            if self._stack[index].tag == tag:
++                del self._stack[index:]
++                return
++        # no matching start tag found -- ignore the stray end tag
++
++    def handle_data(self, data):
++        self._append_data(data)
++
++    def handle_comment(self, data):
++        comment = HtmlElement(Comment)
++        comment.text = data
++        self._stack[-1].children.append(comment)
++
++    def handle_entityref(self, name):  # pragma: no cover - convert_charrefs=True
++        pass
++
++    def handle_charref(self, name):  # pragma: no cover - convert_charrefs=True
++        pass
++
++
++def fromstring(html: str) -> HtmlElement:
++    """Parse the given HTML string and return the root :class:`HtmlElement`.
++
++    This mimics the relevant behavior of ``lxml.html.fromstring``:
++
++    * if the document starts with ``<html`` or ``<!doctype`` the parsed
++      ``<html>`` element is returned as is.
++    * otherwise, the HTML is treated as a fragment. If it contains a single
++      top-level element (and no surrounding text) that element is returned
++      directly; otherwise all top-level nodes are wrapped inside a
++      synthetic ``<body>`` element.
++    """
++    builder = _TreeBuilder()
++    builder.feed(html)
++    builder.close()
++    root = builder.root
++
++    start = html[:50].lstrip().lower()
++    if start.startswith("<html") or start.startswith("<!doctype"):
++        for child in root.children:
++            if isinstance(child.tag, str) and child.tag == "html":
++                return child
++
++    # fragment handling
++    if len(root.children) == 1 and not (root.text and root.text.strip()):
++        only_child = root.children[0]
++        if not (only_child.tail and only_child.tail.strip()):
++            return only_child
++
++    body = HtmlElement("body")
++    body.text = root.text
++    body.children = root.children
++    return body

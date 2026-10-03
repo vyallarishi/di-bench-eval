@@ -1,0 +1,254 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index faad941..c1b55a9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,7 +7,7 @@ name = "thehive4py"
+ description = "Python client for TheHive5"
+ version = "2.0.0b6"
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = ["requests~=2.27"]
+ readme = "README.md"
+ keywords = ["thehive5", "api", "client"]
+ license = { text = "MIT" }
+diff --git a/thehive4py/errors.py b/thehive4py/errors.py
+index bab6f9b..1908334 100644
+--- a/thehive4py/errors.py
++++ b/thehive4py/errors.py
+@@ -1,18 +1,16 @@
+-from typing import Optional
+-
+-from requests import Response
++from typing import Any, Optional
+ 
+ 
+ class TheHiveError(Exception):
+ 
+     def __init__(
+-        self, message: str, response: Optional[Response] = None, *args, **kwargs
++        self, message: str, response: Optional[Any] = None, *args, **kwargs
+     ):
+         """Base error class of thehive4py.
+ 
+         Args:
+             message: The exception message.
+-            response: Either `None`, or a `Response` object of a failed request.
++            response: Either `None`, or a response object of a failed request.
+         """
+         super().__init__(message, *args, **kwargs)
+         self.message = message
+diff --git a/thehive4py/session.py b/thehive4py/session.py
+index 3ffb2a6..77b25c4 100644
+--- a/thehive4py/session.py
++++ b/thehive4py/session.py
+@@ -2,11 +2,12 @@ import json as jsonlib
+ from collections import UserDict
+ from os import PathLike
+ from typing import Any, Optional, Union
++from urllib.parse import urlencode
+ 
+-import requests
+-import requests.adapters
+-import requests.auth
+-from urllib3 import Retry
++import urllib3
++from urllib3 import HTTPResponse, Retry
++from urllib3.filepost import encode_multipart_formdata
++from urllib3.util import make_headers
+ 
+ from thehive4py.__version__ import __version__
+ from thehive4py.errors import TheHiveError
+@@ -33,7 +34,7 @@ class _SessionJSONEncoder(jsonlib.JSONEncoder):
+         return super().default(o)
+ 
+ 
+-class TheHiveSession(requests.Session):
++class TheHiveSession:
+     def __init__(
+         self,
+         url: str,
+@@ -43,16 +44,14 @@ class TheHiveSession(requests.Session):
+         verify: VerifyValue = True,
+         max_retries: RetryValue = DEFAULT_RETRY,
+     ):
+-        super().__init__()
+         self.hive_url = self._sanitize_hive_url(url)
+         self.verify = verify
+-        self.headers["User-Agent"] = f"thehive4py/{__version__}"
+-        self._set_retries(max_retries=max_retries)
++        self.headers: dict = {"User-Agent": f"thehive4py/{__version__}"}
+ 
+         if username and password:
+-            self.headers["Authorization"] = requests.auth._basic_auth_str(
+-                username, password
+-            )
++            self.headers["Authorization"] = make_headers(
++                basic_auth=f"{username}:{password}"
++            )["authorization"]
+         elif apikey:
+             self.headers["Authorization"] = f"Bearer {apikey}"
+         else:
+@@ -60,11 +59,25 @@ class TheHiveSession(requests.Session):
+                 "Either apikey or the username/password combination must be provided!"
+             )
+ 
+-    def _set_retries(self, max_retries: RetryValue):
+-        """Configure the session to retry."""
+-        retry_adapter = requests.adapters.HTTPAdapter(max_retries=max_retries)
+-        self.mount("http://", retry_adapter)
+-        self.mount("https://", retry_adapter)
++        self.pool_manager = self._build_pool_manager(
++            verify=verify, max_retries=max_retries
++        )
++
++    def _build_pool_manager(
++        self, verify: VerifyValue, max_retries: RetryValue
++    ) -> urllib3.PoolManager:
++        """Build the urllib3 pool manager used to issue requests."""
++        pool_kwargs: dict = {"retries": max_retries}
++
++        if verify is False:
++            pool_kwargs["cert_reqs"] = "CERT_NONE"
++            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
++        else:
++            pool_kwargs["cert_reqs"] = "CERT_REQUIRED"
++            if isinstance(verify, str):
++                pool_kwargs["ca_certs"] = verify
++
++        return urllib3.PoolManager(**pool_kwargs)
+ 
+     def _sanitize_hive_url(self, hive_url: str) -> str:
+         """Sanitize the base url for the client."""
+@@ -72,6 +85,30 @@ class TheHiveSession(requests.Session):
+             return hive_url[:-1]
+         return hive_url
+ 
++    def _build_multipart_fields(self, data, files) -> list:
++        fields: list = []
++
++        if data:
++            items = data.items() if isinstance(data, dict) else data
++            fields.extend(list(items))
++
++        if files:
++            items = files.items() if isinstance(files, dict) else files
++            for name, value in items:
++                if isinstance(value, (tuple, list)):
++                    filename, filedata = value[0], value[1]
++                    content_type = value[2] if len(value) > 2 else None
++                    if hasattr(filedata, "read"):
++                        filedata = filedata.read()
++                    if content_type:
++                        fields.append((name, (filename, filedata, content_type)))
++                    else:
++                        fields.append((name, (filename, filedata)))
++                else:
++                    fields.append((name, value))
++
++        return fields
++
+     def make_request(
+         self,
+         method: str,
+@@ -85,64 +122,78 @@ class TheHiveSession(requests.Session):
+         endpoint_url = f"{self.hive_url}{path}"
+ 
+         headers = {**self.headers}
+-        if json:
+-            data = jsonlib.dumps(json, cls=_SessionJSONEncoder)
+-            headers = {**headers, "Content-Type": "application/json"}
++        body = None
++
++        if json is not None:
++            body = jsonlib.dumps(json, cls=_SessionJSONEncoder).encode("utf-8")
++            headers["Content-Type"] = "application/json"
++        elif files:
++            fields = self._build_multipart_fields(data=data, files=files)
++            body, content_type = encode_multipart_formdata(fields)
++            headers["Content-Type"] = content_type
++        elif data is not None:
++            if isinstance(data, bytes):
++                body = data
++            elif isinstance(data, str):
++                body = data.encode("utf-8")
++            else:
++                body = urlencode(data).encode("utf-8")
++                headers["Content-Type"] = "application/x-www-form-urlencoded"
++
++        if params:
++            endpoint_url = f"{endpoint_url}?{urlencode(params, doseq=True)}"
+ 
+-        response = self.request(
++        response = self.pool_manager.request(
+             method,
+             url=endpoint_url,
+-            params=params,
+-            data=data,
+-            files=files,
++            body=body,
+             headers=headers,
+-            verify=self.verify,
+-            stream=bool(download_path),
++            preload_content=download_path is None,
+         )
+ 
+         return self._process_response(response, download_path=download_path)
+ 
+     def _process_response(
+         self,
+-        response: requests.Response,
++        response: HTTPResponse,
+         download_path: Union[str, PathLike, None] = None,
+     ):
+-        if response.ok:
++        if response.status < 400:
+             if download_path is None:
+                 return self._process_text_response(response)
+             else:
+                 self._process_stream_response(
+                     response=response, download_path=download_path
+                 )
+-
+-        if not response.ok:
++        else:
+             self._process_error_response(response=response)
+ 
+-    def _process_text_response(self, response: requests.Response):
++    def _process_text_response(self, response: HTTPResponse):
+         try:
+-            json_data = response.json()
+-        except requests.exceptions.JSONDecodeError:
++            json_data = jsonlib.loads(response.data)
++        except (jsonlib.JSONDecodeError, UnicodeDecodeError, TypeError):
+             json_data = None
+ 
+         if json_data is None:
+-            return response.text
++            return response.data.decode("utf-8", errors="replace")
+         return json_data
+ 
+     def _process_stream_response(
+-        self, response: requests.Response, download_path: Union[str, PathLike]
++        self, response: HTTPResponse, download_path: Union[str, PathLike]
+     ):
+         with open(download_path, "wb") as download_fp:
+-            for chunk in response.iter_content(chunk_size=4096):
++            for chunk in response.stream(4096):
+                 download_fp.write(chunk)
++        response.release_conn()
+ 
+-    def _process_error_response(self, response: requests.Response):
++    def _process_error_response(self, response: HTTPResponse):
+         try:
+-            json_data = response.json()
+-        except requests.exceptions.JSONDecodeError:
++            json_data = jsonlib.loads(response.data)
++        except (jsonlib.JSONDecodeError, UnicodeDecodeError, TypeError):
+             json_data = None
+ 
+         if json_data is None:
+-            error_text = response.text
++            error_text = response.data.decode("utf-8", errors="replace")
+         else:
+             error_text = f"{json_data['type']} - {json_data['message']}"
+         raise TheHiveError(message=error_text, response=response)

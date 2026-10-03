@@ -1,0 +1,62 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..78f1a11 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "regex >= 2022.9.11",
++]
+ dynamic = [
+     "version",
+ ]
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..76d5f94 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -10,6 +10,7 @@ from typing import (
+     MutableSequence,
+     overload,
+ )
++from unicodedata import combining, east_asian_width
+ from warnings import warn
+ 
+ from regex import (
+@@ -22,7 +23,6 @@ from regex import (
+     match,
+     search,
+ )
+-from wcwidth import wcswidth
+ 
+ # noinspection PyProtectedMember
+ from ._config import (
+@@ -174,6 +174,26 @@ DEAD_INDEX = DeadIndex()  # == int() == 0
+ DEAD_SPAN = DEAD_INDEX, DEAD_INDEX, None, None
+ 
+ 
++def wcswidth(s: str) -> int:
++    """Return the display width of a string.
++
++    This is a lightweight replacement for the third-party `wcwidth`
++    package's `wcswidth` function, using the `unicodedata` module from
++    the standard library. Combining characters are treated as having
++    zero width and East-Asian wide/full-width characters are treated as
++    having a width of two columns; everything else counts as one column.
++    """
++    width = 0
++    for c in s:
++        if combining(c):
++            continue
++        if east_asian_width(c) in ('W', 'F'):
++            width += 2
++        else:
++            width += 1
++    return width
++
++
+ def _table_to_text(t: Table) -> str:
+     data = [
+         [(cell if cell is not None else '') for cell in row]

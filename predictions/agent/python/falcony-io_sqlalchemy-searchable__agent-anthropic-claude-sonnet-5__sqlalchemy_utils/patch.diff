@@ -1,0 +1,143 @@
+diff --git a/docs/conf.py b/docs/conf.py
+index d10fb4b..b4cc760 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -268,5 +268,4 @@ texinfo_documents = [
+ intersphinx_mapping = {
+     "python": ("https://docs.python.org/", None),
+     "sqlalchemy": ("https://docs.sqlalchemy.org/", None),
+-    "sqlalchemy_utils": ("https://sqlalchemy-utils.readthedocs.io/en/latest/", None),
+ }
+diff --git a/pyproject.toml b/pyproject.toml
+index 6c15ed9..34cfe10 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "SQLAlchemy>=1.4",
++]
+ 
+ [project.urls]
+ Code            = "https://github.com/falcony-io/sqlalchemy-searchable"
+diff --git a/sqlalchemy_searchable/__init__.py b/sqlalchemy_searchable/__init__.py
+index 03c3f19..772a93e 100644
+--- a/sqlalchemy_searchable/__init__.py
++++ b/sqlalchemy_searchable/__init__.py
+@@ -6,8 +6,8 @@ from sqlalchemy import event
+ from sqlalchemy.ext.compiler import compiles
+ from sqlalchemy.schema import DDL, DDLElement
+ from sqlalchemy.sql.expression import Executable
+-from sqlalchemy_utils import TSVectorType
+ 
++from .types import TSVectorType
+ from .vectorizers import Vectorizer
+ 
+ __version__ = "2.1.0"
+diff --git a/sqlalchemy_searchable/types.py b/sqlalchemy_searchable/types.py
+new file mode 100644
+index 0000000..7d9caa7
+--- /dev/null
++++ b/sqlalchemy_searchable/types.py
+@@ -0,0 +1,23 @@
++import sqlalchemy as sa
++from sqlalchemy.dialects.postgresql import TSVECTOR
++
++
++class TSVectorType(sa.types.TypeDecorator):
++    """
++    Provides additional functionality for PostgreSQL TSVector type.
++
++    This is a minimal reimplementation of the ``TSVectorType`` that used to
++    be provided by the ``sqlalchemy_utils`` package, kept here so that this
++    project no longer depends on that package.
++    """
++
++    impl = TSVECTOR
++    cache_ok = True
++
++    def __init__(self, *args, **kwargs):
++        self.columns = args
++        self.options = {}
++        for option in ("regconfig", "weights", "auto_index"):
++            if option in kwargs:
++                self.options[option] = kwargs.pop(option)
++        super().__init__(**kwargs)
+diff --git a/tests/conftest.py b/tests/conftest.py
+index e5d18cd..24d7cf2 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -17,7 +17,7 @@ from sqlalchemy.orm import (
+     declarative_base,
+     sessionmaker,
+ )
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable.types import TSVectorType
+ 
+ from sqlalchemy_searchable import (
+     make_searchable,
+diff --git a/tests/test_multiple_vectors_per_class.py b/tests/test_multiple_vectors_per_class.py
+index a7290c2..1857b02 100644
+--- a/tests/test_multiple_vectors_per_class.py
++++ b/tests/test_multiple_vectors_per_class.py
+@@ -1,6 +1,6 @@
+ import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable.types import TSVectorType
+ 
+ from sqlalchemy_searchable import search
+ from tests.schema_test_case import SchemaTestCase
+diff --git a/tests/test_schema_creation.py b/tests/test_schema_creation.py
+index 4fc4d8f..1050fd6 100644
+--- a/tests/test_schema_creation.py
++++ b/tests/test_schema_creation.py
+@@ -1,6 +1,6 @@
+ import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable.types import TSVectorType
+ 
+ from tests.schema_test_case import SchemaTestCase
+ 
+diff --git a/tests/test_single_table_inheritance.py b/tests/test_single_table_inheritance.py
+index 21a52f3..31b6a7c 100644
+--- a/tests/test_single_table_inheritance.py
++++ b/tests/test_single_table_inheritance.py
+@@ -1,6 +1,6 @@
+ import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable.types import TSVectorType
+ 
+ from tests.schema_test_case import SchemaTestCase
+ 
+diff --git a/tests/test_vectorizers.py b/tests/test_vectorizers.py
+index a43bd21..d9fddad 100644
+--- a/tests/test_vectorizers.py
++++ b/tests/test_vectorizers.py
+@@ -1,7 +1,7 @@
+ import pytest
+ import sqlalchemy as sa
+ from sqlalchemy.dialects.postgresql import HSTORE
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable.types import TSVectorType
+ 
+ from sqlalchemy_searchable import vectorizer
+ 
+diff --git a/tests/test_weighted_search_vector.py b/tests/test_weighted_search_vector.py
+index 3d561d0..9a8b4bf 100644
+--- a/tests/test_weighted_search_vector.py
++++ b/tests/test_weighted_search_vector.py
+@@ -3,7 +3,7 @@ import re
+ import pytest
+ import sqlalchemy as sa
+ from sqlalchemy import text
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable.types import TSVectorType
+ 
+ from sqlalchemy_searchable import search
+ from tests.schema_test_case import SchemaTestCase

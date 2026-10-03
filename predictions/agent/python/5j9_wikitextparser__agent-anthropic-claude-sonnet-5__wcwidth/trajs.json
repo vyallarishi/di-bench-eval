@@ -1,0 +1,263 @@
+[
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcwidth\"}"
+   },
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:25: from wcwidth import wcswidth"
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = ['flit_core >=3.2,<4']\n   3 build-backend = 'flit_core.buildapi'\n   4 \n   5 [project]\n   6 name = \"wikitextparser\"\n   7 authors = [\n   8     { name = \"5j9\", email = \"5j9@users.noreply.github.com\" },\n   9 ]\n  10 description = \"A simple parsing tool for MediaWiki's wikitext markup.\"\n  11 keywords = [\n  12     \"MediaWiki\",\n  13     \"wikitext\",\n  14     \"parser\",\n  15 ]\n  16 readme = \"README.rst\"\n  17 classifiers = [\n  18     \"Programming Language :: Python\",\n  19     \"License :: OSI Approved :: GNU General Public License v3 (GPLv3)\",\n  20     \"Topic :: Text Processing\",\n  21 ]\n  22 requires-python = \">= 3.8\"\n  23 dependencies = [\n  24     \"regex >= 2022.9.11\",\n  25     \"wcwidth\",\n  26 ]\n  27 dynamic = [\n  28     \"version\",\n  29 ]\n  30 \n  31 [project.license]\n  32 text = \"GNU General Public License v3 (GPLv3)\"\n  33 \n  34 [project.urls]\n  35 Homepage = \"https://github.com/5j9/wikitextparser\"\n  36 \n  37 [project.optional-dependencies]\n  38 dev = [\n  39     \"coverage\",\n  40 ]\n  41 tests = [\n  42     \"pytest\",\n  43 ]\n  44 \n  45 [tool.flit.sdist]\n  46 exclude = ['tests/', 'doc/', 'dev/']\n  47 \n  48 [tool.ruff]\n  49 line-length = 79\n  50 format.quote-style = 'single'\n  51 lint.isort.combine-as-imports = true\n  52 lint.extend-select = [\n  53     'FA',  # flake8-future-annotations\n  54     'I',  # isort\n  55     'UP',  # pyupgrade\n  56 ]\n  57 lint.ignore = [\n  58     'UP027',  # list comprehensions are faster than generator expressions\n  59     'E721',  # Do not compare types, use `isinstance()`\n  60 ]\n  61 \n  62 [tool.pytest.ini_options]\n  63 addopts = '--quiet --tb=short'\n  64 \n  65 [tool.pyright]\n  66 typeCheckingMode = 'standard'\n  67 reportDeprecated = \"warning\"\n  68 reportPropertyTypeMismatch = \"warning\"\n  69 reportUnnecessaryCast = \"warning\"\n  70 reportUnnecessaryContains = \"warning\"\n  71 reportUnnecessaryIsInstance = \"warning\"\n  72 reportUnnecessaryTypeIgnoreComment = true"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcswidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:25: from wcwidth import wcswidth\nwikitextparser/_wikitext.py:187: widths[ri] = max(widths[ri], wcswidth(d))\nwikitextparser/_wikitext.py:803: wcswidth(n.replace('\u0644\u0627', '?')) if not p else 0"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 1, \"end_line\": 40}"
+   },
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 160, \"end_line\": 200}"
+   },
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 780, \"end_line\": 815}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 from __future__ import annotations\n   2 \n   3 from bisect import bisect_left, bisect_right, insort_right\n   4 from html import unescape\n   5 from itertools import islice\n   6 from operator import attrgetter\n   7 from typing import (\n   8     Callable,\n   9     Iterable,\n  10     MutableSequence,\n  11     overload,\n  12 )\n  13 from warnings import warn\n  14 \n  15 from regex import (\n  16     DOTALL,\n  17     IGNORECASE,\n  18     MULTILINE,\n  19     VERBOSE,\n  20     Match,\n  21     finditer,\n  22     match,\n  23     search,\n  24 )\n  25 from wcwidth import wcswidth\n  26 \n  27 # noinspection PyProtectedMember\n  28 from ._config import (\n  29     _HTML_TAG_NAME,\n  30     KNOWN_FILE_EXTENSIONS,\n  31     _bare_external_link_schemes,\n  32     _parsable_tag_extensions,\n  33     _tag_extensions,\n  34     regex_pattern,\n  35 )\n  36 from ._spans import (\n  37     BARE_EXTERNAL_LINK,\n  38     END_TAG_PATTERN,\n  39     EXTERNAL_LINK_URL_TAIL,\n  40     INVALID_URL_CHARS,\n  41     START_TAG_PATTERN,\n  42     TypeToSpans,\n  43     parse_to_spans,\n  44     rc,\n  45 )\n  46 \n  47 NAME_CAPTURING_HTML_START_TAG_FINDITER = rc(\n  48     START_TAG_PATTERN.replace(\n  49         b'{name}', rb'(?<name>' + _HTML_TAG_NAME + rb')', 1\n  50     )\n  51 ).finditer\n  52 \n  53 # External links\n  54 BRACKET_EXTERNAL_LINK_SCHEMES = regex_pattern(\n  55     _bare_external_link_schemes | {'//'}\n  56 )\n  57 BRACKET_EXTERNAL_LINK_URL = (\n  58     BRACKET_EXTERNAL_LINK_SCHEMES + EXTERNAL_LINK_URL_TAIL\n  59 )\n  60 BRACKET_EXTERNAL_LINK = rb'\\[' + BRACKET_EXTERNAL_LINK_URL + rb'[^\\]\\n]*+\\]'\n  61 EXTERNAL_LINK = (\n  62     rb'(?>' + BARE_EXTERNAL_LINK + rb'|' + BRACKET_EXTERNAL_LINK + rb')'\n  63 )\n  64 EXTERNAL_LINK_FINDITER = rc(EXTERNAL_LINK, IGNORECASE).finditer\n  65 INVALID_EL_TPP_CHRS_SUB = rc(  # the [:-4] slice allows \\[ and \\]\n  66     rb'[' + INVALID_URL_CHARS[:-4] + rb'{}|]'\n  67 ).sub\n  68 \n  69 # Sections\n  70 SECTION_HEADING = rb'^(?<equals>={1,6})[^\\n]+?(?P=equals)[ \\t]*+$'\n  71 SUB_SECTION = "
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 160 \n 161     def __add__(self, o):\n 162         raise DeadIndexError(\n 163             'this usually means that the object has died '\n 164             '(overwritten or deleted) and cannot be mutated'\n 165         )\n 166 \n 167     __radd__ = __add__\n 168 \n 169     def __repr__(self):\n 170         return 'DeadIndex()'\n 171 \n 172 \n 173 DEAD_INDEX = DeadIndex()  # == int() == 0\n 174 DEAD_SPAN = DEAD_INDEX, DEAD_INDEX, None, None\n 175 \n 176 \n 177 def _table_to_text(t: Table) -> str:\n 178     data = [\n 179         [(cell if cell is not None else '') for cell in row]\n 180         for row in t.data()\n 181     ]\n 182     if not data:\n 183         return ''\n 184     widths = [0] * len(data[0])\n 185     for row in data:\n 186         for ri, d in enumerate(row[:-1]):\n 187             widths[ri] = max(widths[ri], wcswidth(d))\n 188     caption = t.caption\n 189     return (\n 190         (f'\\n{caption}\\n' if caption is not None else '')\n 191         + '\\n'\n 192         + '\\n'.join(\n 193             '\\t'.join(f'{d:<{w}}' for (w, d) in zip(widths, r)) for r in data\n 194         )\n 195         + '\\n'\n 196     )\n 197 \n 198 \n 199 class WikiText:\n 200     # In subclasses of WikiText _type is used as the key for _type_to_spans\n 201     # Therefore: self._span can be found in self._type_to_spans[self._type].\n 202     # The following class attribute acts as a default value.\n 203     _type = 'WikiText'\n 204 \n 205     __slots__ = '_type_to_spans', '_lststr', '_span_data'\n 206 \n 207     def __init__(\n 208         self,\n 209         string: MutableSequence[str] | str,\n 210         _type_to_spans: TypeToSpans | None = None,\n 211     ) -> None:\n 212         \"\"\"Initialize the object.\n 213 \n 214         Set the initial values for self._lststr, self._type_to_spans.\n 215 \n 216         :param string: The string to be parsed or a list containing the string\n 217             of the parent object.\n 218         :param _type_to_spans: If the lststr is already parsed, pass its\n 219             _type_to_spa"
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 780             for c in parsed.comments:\n 781                 if not c.contents.strip(ws):\n 782                     del c[:]\n 783         # First remove all current spacings.\n 784         for template in reversed(parsed.templates):\n 785             stripped_tl_name = template.name.strip(ws)\n 786             template.name = (\n 787                 ' ' + stripped_tl_name + ' '\n 788                 if stripped_tl_name[0] == '{'\n 789                 else stripped_tl_name\n 790             )\n 791             args = template.arguments\n 792             if not args:\n 793                 continue\n 794             if ':' in stripped_tl_name:\n 795                 # Don't use False because we don't know for sure.\n 796                 not_a_parser_function = None\n 797             else:\n 798                 not_a_parser_function = True\n 799             # Required for alignment\n 800             arg_stripped_names = [a.name.strip(ws) for a in args]\n 801             arg_positionalities = [a.positional for a in args]\n 802             arg_name_lengths = [\n 803                 wcswidth(n.replace('\u0644\u0627', '?')) if not p else 0\n 804                 for n, p in zip(arg_stripped_names, arg_positionalities)\n 805             ]\n 806             max_name_len = max(arg_name_lengths)\n 807             # Format template.name.\n 808             level = template.nesting_level\n 809             newline_indent = '\\n' + indent * level\n 810             template.name += newline_indent\n 811             if level == 1:\n 812                 last_comment_indent = '<!--\\n-->'\n 813             else:\n 814                 last_comment_indent = '<!--\\n' + indent * (level - 2) + ' -->'\n 815             # Special formatting for the last argument.\n 816             last_arg = args.pop()\n 817             last_is_positional = arg_positionalities.pop()\n 818             last_value = last_arg.value\n 819             last_stripped_value = last_value.strip(ws)\n 820             if last_is_positional and last_value != last_stripped_"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 1, \"end_line\": 25, \"replacement_text\": \"from __future__ import annotations\\n\\nfrom bisect import bisect_left, bisect_right, insort_right\\nfrom html import unescape\\nfrom itertools import islice\\nfrom operator import attrgetter\\nfrom typing import (\\n    Callable,\\n    Iterable,\\n    MutableSequence,\\n    overload,\\n)\\nfrom unicodedata import combining, east_asian_width\\nfrom warnings import warn\\n\\nfrom regex import (\\n    DOTALL,\\n    IGNORECASE,\\n    MULTILINE,\\n    VERBOSE,\\n    Match,\\n    finditer,\\n    match,\\n    search,\\n)\\n\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited wikitextparser/_wikitext.py (lines 1-25 -> 25 lines). Result:\n   1 from __future__ import annotations\n   2 \n   3 from bisect import bisect_left, bisect_right, insort_right\n   4 from html import unescape\n   5 from itertools import islice\n   6 from operator import attrgetter\n   7 from typing import (\n   8     Callable,\n   9     Iterable,\n  10     MutableSequence,\n  11     overload,\n  12 )\n  13 from unicodedata import combining, east_asian_width\n  14 from warnings import warn\n  15 \n  16 from regex import (\n  17     DOTALL,\n  18     IGNORECASE,\n  19     MULTILINE,\n  20     VERBOSE,\n  21     Match,\n  22     finditer,\n  23     match,\n  24     search,\n  25 )\n  26 \n  27 # noinspection PyProtectedMember\n  28 from ._config import ("
+ },
+ {
+  "role": "assistant",
+  "content": "Now add a helper function `_wcswidth` and replace usages.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 170, \"end_line\": 198}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 170         return 'DeadIndex()'\n 171 \n 172 \n 173 DEAD_INDEX = DeadIndex()  # == int() == 0\n 174 DEAD_SPAN = DEAD_INDEX, DEAD_INDEX, None, None\n 175 \n 176 \n 177 def _table_to_text(t: Table) -> str:\n 178     data = [\n 179         [(cell if cell is not None else '') for cell in row]\n 180         for row in t.data()\n 181     ]\n 182     if not data:\n 183         return ''\n 184     widths = [0] * len(data[0])\n 185     for row in data:\n 186         for ri, d in enumerate(row[:-1]):\n 187             widths[ri] = max(widths[ri], wcswidth(d))\n 188     caption = t.caption\n 189     return (\n 190         (f'\\n{caption}\\n' if caption is not None else '')\n 191         + '\\n'\n 192         + '\\n'.join(\n 193             '\\t'.join(f'{d:<{w}}' for (w, d) in zip(widths, r)) for r in data\n 194         )\n 195         + '\\n'\n 196     )\n 197 \n 198 \n 199 class WikiText:\n 200     # In subclasses of WikiText _type is used as the key for _type_to_spans\n 201     # Therefore: self._span can be found in self._type_to_spans[self._type].\n 202     # The following class attribute acts as a default value.\n 203     _type = 'WikiText'\n 204 \n 205     __slots__ = '_type_to_spans', '_lststr', '_span_data'\n 206 \n 207     def __init__(\n 208         self,\n 209         string: MutableSequence[str] | str,\n 210         _type_to_spans: TypeToSpans | None = None,\n 211     ) -> None:\n 212         \"\"\"Initialize the object.\n 213 \n 214         Set the initial values for self._lststr, self._type_to_spans.\n 215 \n 216         :param string: The string to be parsed or a list containing the string\n 217             of the parent object.\n 218         :param _type_to_spans: If the lststr is already parsed, pass its\n 219             _type_to_spans property as _type_to_spans to avoid parsing it\n 220             again.\n 221         \"\"\"\n 222         if _type_to_spans is not None:\n 223             self._type_to_spans = _type_to_spans\n 224             self._lststr: MutableSequence[str] = string  # type: ignore\n 225             ret"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 173, \"end_line\": 187, \"replacement_text\": \"DEAD_INDEX = DeadIndex()  # == int() == 0\\nDEAD_SPAN = DEAD_INDEX, DEAD_INDEX, None, None\\n\\n\\ndef wcswidth(s: str) -> int:\\n    \\\"\\\"\\\"Return the display width of a string.\\n\\n    This is a lightweight replacement for the third-party `wcwidth`\\n    package's `wcswidth` function, using the `unicodedata` module from\\n    the standard library. Combining characters are treated as having\\n    zero width and East-Asian wide/full-width characters are treated as\\n    having a width of two columns; everything else counts as one column.\\n    \\\"\\\"\\\"\\n    width = 0\\n    for c in s:\\n        if combining(c):\\n            continue\\n        if east_asian_width(c) in ('W', 'F'):\\n            width += 2\\n        else:\\n            width += 1\\n    return width\\n\\n\\ndef _table_to_text(t: Table) -> str:\\n    data = [\\n        [(cell if cell is not None else '') for cell in row]\\n        for row in t.data()\\n    ]\\n    if not data:\\n        return ''\\n    widths = [0] * len(data[0])\\n    for row in data:\\n        for ri, d in enumerate(row[:-1]):\\n            widths[ri] = max(widths[ri], wcswidth(d))\\n\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited wikitextparser/_wikitext.py (lines 173-187 -> 35 lines). Result:\n 170         return 'DeadIndex()'\n 171 \n 172 \n 173 DEAD_INDEX = DeadIndex()  # == int() == 0\n 174 DEAD_SPAN = DEAD_INDEX, DEAD_INDEX, None, None\n 175 \n 176 \n 177 def wcswidth(s: str) -> int:\n 178     \"\"\"Return the display width of a string.\n 179 \n 180     This is a lightweight replacement for the third-party `wcwidth`\n 181     package's `wcswidth` function, using the `unicodedata` module from\n 182     the standard library. Combining characters are treated as having\n 183     zero width and East-Asian wide/full-width characters are treated as\n 184     having a width of two columns; everything else counts as one column.\n 185     \"\"\"\n 186     width = 0\n 187     for c in s:\n 188         if combining(c):\n 189             continue\n 190         if east_asian_width(c) in ('W', 'F'):\n 191             width += 2\n 192         else:\n 193             width += 1\n 194     return width\n 195 \n 196 \n 197 def _table_to_text(t: Table) -> str:\n 198     data = [\n 199         [(cell if cell is not None else '') for cell in row]\n 200         for row in t.data()\n 201     ]\n 202     if not data:\n 203         return ''\n 204     widths = [0] * len(data[0])\n 205     for row in data:\n 206         for ri, d in enumerate(row[:-1]):\n 207             widths[ri] = max(widths[ri], wcswidth(d))\n 208     caption = t.caption\n 209     return (\n 210         (f'\\n{caption}\\n' if caption is not None else '')"
+ },
+ {
+  "role": "assistant",
+  "content": "Now check pyproject.toml for wcwidth dependency entry.",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcwidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:180: This is a lightweight replacement for the third-party `wcwidth`"
+ },
+ {
+  "role": "assistant",
+  "content": "Good, pyproject.toml already had no wcwidth reference found by grep now (the earlier grep elided output may have included it in pyproject.toml). Let's check pyproject.toml directly.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = ['flit_core >=3.2,<4']\n   3 build-backend = 'flit_core.buildapi'\n   4 \n   5 [project]\n   6 name = \"wikitextparser\"\n   7 authors = [\n   8     { name = \"5j9\", email = \"5j9@users.noreply.github.com\" },\n   9 ]\n  10 description = \"A simple parsing tool for MediaWiki's wikitext markup.\"\n  11 keywords = [\n  12     \"MediaWiki\",\n  13     \"wikitext\",\n  14     \"parser\",\n  15 ]\n  16 readme = \"README.rst\"\n  17 classifiers = [\n  18     \"Programming Language :: Python\",\n  19     \"License :: OSI Approved :: GNU General Public License v3 (GPLv3)\",\n  20     \"Topic :: Text Processing\",\n  21 ]\n  22 requires-python = \">= 3.8\"\n  23 dependencies = [\n  24     \"regex >= 2022.9.11\",\n  25     \"wcwidth\",\n  26 ]\n  27 dynamic = [\n  28     \"version\",\n  29 ]\n  30 \n  31 [project.license]\n  32 text = \"GNU General Public License v3 (GPLv3)\"\n  33 \n  34 [project.urls]\n  35 Homepage = \"https://github.com/5j9/wikitextparser\"\n  36 \n  37 [project.optional-dependencies]\n  38 dev = [\n  39     \"coverage\",\n  40 ]\n  41 tests = [\n  42     \"pytest\",\n  43 ]\n  44 \n  45 [tool.flit.sdist]\n  46 exclude = ['tests/', 'doc/', 'dev/']\n  47 \n  48 [tool.ruff]\n  49 line-length = 79\n  50 format.quote-style = 'single'\n  51 lint.isort.combine-as-imports = true\n  52 lint.extend-select = [\n  53     'FA',  # flake8-future-annotations\n  54     'I',  # isort\n  55     'UP',  # pyupgrade\n  56 ]\n  57 lint.ignore = [\n  58     'UP027',  # list comprehensions are faster than generator expressions\n  59     'E721',  # Do not compare types, use `isinstance()`\n  60 ]\n  61 \n  62 [tool.pytest.ini_options]\n  63 addopts = '--quiet --tb=short'\n  64 \n  65 [tool.pyright]\n  66 typeCheckingMode = 'standard'\n  67 reportDeprecated = \"warning\"\n  68 reportPropertyTypeMismatch = \"warning\"\n  69 reportUnnecessaryCast = \"warning\"\n  70 reportUnnecessaryContains = \"warning\"\n  71 reportUnnecessaryIsInstance = \"warning\"\n  72 reportUnnecessaryTypeIgnoreComment = true"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\": \"pyproject.toml\", \"start_line\": 23, \"end_line\": 26, \"replacement_text\": \"dependencies = [\\n    \\\"regex >= 2022.9.11\\\",\\n]\\n\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited pyproject.toml (lines 23-26 -> 3 lines). Result:\n  20     \"Topic :: Text Processing\",\n  21 ]\n  22 requires-python = \">= 3.8\"\n  23 dependencies = [\n  24     \"regex >= 2022.9.11\",\n  25 ]\n  26 dynamic = [\n  27     \"version\",\n  28 ]"
+ },
+ {
+  "role": "assistant",
+  "content": "Now let's verify the import section is correct and no other `from wcwidth import` leftover.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 1, \"end_line\": 45}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 from __future__ import annotations\n   2 \n   3 from bisect import bisect_left, bisect_right, insort_right\n   4 from html import unescape\n   5 from itertools import islice\n   6 from operator import attrgetter\n   7 from typing import (\n   8     Callable,\n   9     Iterable,\n  10     MutableSequence,\n  11     overload,\n  12 )\n  13 from unicodedata import combining, east_asian_width\n  14 from warnings import warn\n  15 \n  16 from regex import (\n  17     DOTALL,\n  18     IGNORECASE,\n  19     MULTILINE,\n  20     VERBOSE,\n  21     Match,\n  22     finditer,\n  23     match,\n  24     search,\n  25 )\n  26 \n  27 # noinspection PyProtectedMember\n  28 from ._config import (\n  29     _HTML_TAG_NAME,\n  30     KNOWN_FILE_EXTENSIONS,\n  31     _bare_external_link_schemes,\n  32     _parsable_tag_extensions,\n  33     _tag_extensions,\n  34     regex_pattern,\n  35 )\n  36 from ._spans import (\n  37     BARE_EXTERNAL_LINK,\n  38     END_TAG_PATTERN,\n  39     EXTERNAL_LINK_URL_TAIL,\n  40     INVALID_URL_CHARS,\n  41     START_TAG_PATTERN,\n  42     TypeToSpans,\n  43     parse_to_spans,\n  44     rc,\n  45 )\n  46 \n  47 NAME_CAPTURING_HTML_START_TAG_FINDITER = rc(\n  48     START_TAG_PATTERN.replace(\n  49         b'{name}', rb'(?<name>' + _HTML_TAG_NAME + rb')', 1\n  50     )\n  51 ).finditer\n  52 \n  53 # External links\n  54 BRACKET_EXTERNAL_LINK_SCHEMES = regex_pattern(\n  55     _bare_external_link_schemes | {'//'}\n  56 )\n  57 BRACKET_EXTERNAL_LINK_URL = (\n  58     BRACKET_EXTERNAL_LINK_SCHEMES + EXTERNAL_LINK_URL_TAIL\n  59 )\n  60 BRACKET_EXTERNAL_LINK = rb'\\[' + BRACKET_EXTERNAL_LINK_URL + rb'[^\\]\\n]*+\\]'\n  61 EXTERNAL_LINK = (\n  62     rb'(?>' + BARE_EXTERNAL_LINK + rb'|' + BRACKET_EXTERNAL_LINK + rb')'\n  63 )\n  64 EXTERNAL_LINK_FINDITER = rc(EXTERNAL_LINK, IGNORECASE).finditer\n  65 INVALID_EL_TPP_CHRS_SUB = rc(  # the [:-4] slice allows \\[ and \\]\n  66     rb'[' + INVALID_URL_CHARS[:-4] + rb'{}|]'\n  67 ).sub\n  68 \n  69 # Sections\n  70 SECTION_HEADING = rb'^(?<equals>={1,6})[^\\n]+?(?P=equals)[ \\t]*"
+ },
+ {
+  "role": "assistant",
+  "content": "Good, imports are clean. Now let's check remaining usages of wcswidth (old import probably was `from wcwidth import wcswidth`), confirm no leftover references.",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"from wcwidth\"}"
+   },
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcswidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "no matches"
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:177: def wcswidth(s: str) -> int:\nwikitextparser/_wikitext.py:181: package's `wcswidth` function, using the `unicodedata` module from\nwikitextparser/_wikitext.py:207: widths[ri] = max(widths[ri], wcswidth(d))\nwikitextparser/_wikitext.py:823: wcswidth(n.replace('\u0644\u0627', '?')) if not p else 0"
+ },
+ {
+  "role": "assistant",
+  "content": "Both usages reference the new local `wcswidth` function correctly. Let's view surrounding context of line 823 and other usage areas to confirm correctness.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"wikitextparser/_wikitext.py\", \"start_line\": 795, \"end_line\": 835}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": " 795         if remove_comments:\n 796             for c in parsed.comments:\n 797                 del c[:]\n 798         else:\n 799             # Only remove comments that contain whitespace.\n 800             for c in parsed.comments:\n 801                 if not c.contents.strip(ws):\n 802                     del c[:]\n 803         # First remove all current spacings.\n 804         for template in reversed(parsed.templates):\n 805             stripped_tl_name = template.name.strip(ws)\n 806             template.name = (\n 807                 ' ' + stripped_tl_name + ' '\n 808                 if stripped_tl_name[0] == '{'\n 809                 else stripped_tl_name\n 810             )\n 811             args = template.arguments\n 812             if not args:\n 813                 continue\n 814             if ':' in stripped_tl_name:\n 815                 # Don't use False because we don't know for sure.\n 816                 not_a_parser_function = None\n 817             else:\n 818                 not_a_parser_function = True\n 819             # Required for alignment\n 820             arg_stripped_names = [a.name.strip(ws) for a in args]\n 821             arg_positionalities = [a.positional for a in args]\n 822             arg_name_lengths = [\n 823                 wcswidth(n.replace('\u0644\u0627', '?')) if not p else 0\n 824                 for n, p in zip(arg_stripped_names, arg_positionalities)\n 825             ]\n 826             max_name_len = max(arg_name_lengths)\n 827             # Format template.name.\n 828             level = template.nesting_level\n 829             newline_indent = '\\n' + indent * level\n 830             template.name += newline_indent\n 831             if level == 1:\n 832                 last_comment_indent = '<!--\\n-->'\n 833             else:\n 834                 last_comment_indent = '<!--\\n' + indent * (level - 2) + ' -->'\n 835             # Special formatting for the last argument.\n 836             last_arg = args.pop()\n 837             last_is_positional = arg_position"
+ },
+ {
+  "role": "assistant",
+  "content": "This looks fine, using the local `wcswidth` function. Now let's check pyproject.toml for test dependencies mentioning wcwidth (dev dependencies).",
+  "tool_calls": [
+   {
+    "name": "grep",
+    "args": "{\"pattern\": \"wcwidth\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "grep",
+  "content": "wikitextparser/_wikitext.py:180: This is a lightweight replacement for the third-party `wcwidth`"
+ },
+ {
+  "role": "assistant",
+  "content": "Good \u2014 only the docstring references the removed package name now (informational). Let's run a final check of the full pyproject.toml file for completeness.",
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\": \"pyproject.toml\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = ['flit_core >=3.2,<4']\n   3 build-backend = 'flit_core.buildapi'\n   4 \n   5 [project]\n   6 name = \"wikitextparser\"\n   7 authors = [\n   8     { name = \"5j9\", email = \"5j9@users.noreply.github.com\" },\n   9 ]\n  10 description = \"A simple parsing tool for MediaWiki's wikitext markup.\"\n  11 keywords = [\n  12     \"MediaWiki\",\n  13     \"wikitext\",\n  14     \"parser\",\n  15 ]\n  16 readme = \"README.rst\"\n  17 classifiers = [\n  18     \"Programming Language :: Python\",\n  19     \"License :: OSI Approved :: GNU General Public License v3 (GPLv3)\",\n  20     \"Topic :: Text Processing\",\n  21 ]\n  22 requires-python = \">= 3.8\"\n  23 dependencies = [\n  24     \"regex >= 2022.9.11\",\n  25 ]\n  26 dynamic = [\n  27     \"version\",\n  28 ]\n  29 \n  30 [project.license]\n  31 text = \"GNU General Public License v3 (GPLv3)\"\n  32 \n  33 [project.urls]\n  34 Homepage = \"https://github.com/5j9/wikitextparser\"\n  35 \n  36 [project.optional-dependencies]\n  37 dev = [\n  38     \"coverage\",\n  39 ]\n  40 tests = [\n  41     \"pytest\",\n  42 ]\n  43 \n  44 [tool.flit.sdist]\n  45 exclude = ['tests/', 'doc/', 'dev/']\n  46 \n  47 [tool.ruff]\n  48 line-length = 79\n  49 format.quote-style = 'single'\n  50 lint.isort.combine-as-imports = true\n  51 lint.extend-select = [\n  52     'FA',  # flake8-future-annotations\n  53     'I',  # isort\n  54     'UP',  # pyupgrade\n  55 ]\n  56 lint.ignore = [\n  57     'UP027',  # list comprehensions are faster than generator expressions\n  58     'E721',  # Do not compare types, use `isinstance()`\n  59 ]\n  60 \n  61 [tool.pytest.ini_options]\n  62 addopts = '--quiet --tb=short'\n  63 \n  64 [tool.pyright]\n  65 typeCheckingMode = 'standard'\n  66 reportDeprecated = \"warning\"\n  67 reportPropertyTypeMismatch = \"warning\"\n  68 reportUnnecessaryCast = \"warning\"\n  69 reportUnnecessaryContains = \"warning\"\n  70 reportUnnecessaryIsInstance = \"warning\"\n  71 reportUnnecessaryTypeIgnoreComment = true"
+ },
+ {
+  "role": "assistant",
+  "content": "All changes are complete. The wcwidth dependency has been removed from pyproject.toml and replaced with a local implementation using `unicodedata`.",
+  "tool_calls": [
+   {
+    "name": "finish",
+    "args": "{\"summary\": \"Removed the wcwidth dependency:\\n1. In wikitextparser/_wikitext.py, replaced `from wcwidth import wcswidth` with a local `wcswidth()` function implemented using the standard-library `unicodedata` module (`combining` and `east_asian_width`), which approximates the same display-width semantics (combining chars = 0 width, East-Asian wide/full-width chars = 2, everything else = 1). All existing call sites (`_table_to_text` and the reformatting logic in `pformat`) now use this local function instead of the external package.\\n2. Removed the `wcwidth` entry from the `dependencies` list in pyproject.toml, leaving only `regex`.\\n3. Verified no other files in the repo reference `wcwidth`.\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "finish",
+  "content": "ok"
+ }
+]
