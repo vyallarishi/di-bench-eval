@@ -1,0 +1,432 @@
+\documentclass[11pt]{article}
+
+% Change "review" to "final" for the camera-ready version,
+% or to "preprint" for a non-anonymous version with page numbers.
+\usepackage[review]{acl}
+
+% Standard package includes
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{inconsolata}
+\usepackage{graphicx}
+
+% ---- draft annotations: set \draftfalse to hide ----------------------
+\usepackage{xcolor}
+\newif\ifdraft
+\drafttrue
+\newcommand{\todo}[1]{\ifdraft\textcolor{red}{\textbf{[TODO: #1]}}\fi}
+
+% ---- shorthands ------------------------------------------------------
+\newcommand{\bench}{\textsc{UnpinBench}}
+\newcommand{\dibench}{DI-Bench}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{Remove This Dependency: Why Passing Tests Cannot Tell You\\
+a Dependency Is Gone}
+
+\author{First Author \\
+  Affiliation / Address line 1 \\
+  Affiliation / Address line 2 \\
+  \texttt{email@domain} \\\And
+  Second Author \\
+  Affiliation / Address line 1 \\
+  Affiliation / Address line 2 \\
+  \texttt{email@domain} \\}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Execution-based benchmarks judge a repository-level change by whether the project's test suite still passes.
+We show this oracle is substantially blind for dependency-related changes, and we quantify the blindness.
+Mutating the ground-truth manifests of \dibench's Python subset one dependency at a time, we find that 49.4\% of declared dependencies can be deleted without any test failing: 91 of 115 because the package is still installed transitively (a \emph{phantom}), and 24 because no test reaches the code that uses it (a \emph{blind spot}).
+Both are invisible to execution pass rate, the headline metric of the benchmark.
+We then show the blindness is predictable without running anything: a two-layer static signal over the dependency graph and the import graph identifies CI-invisible deletions with precision 0.81 and recall 0.83.
+Building on this, we introduce \bench, an executable benchmark for a task existing work does not cover: removing a dependency the code \emph{actually uses}, by rewriting the code, with behaviour preserved.
+Unlike dependency-removal datasets mined from commit histories, every \bench{} instance is verified so that deleting the dependency provably breaks CI, which makes the test suite a meaningful oracle for that instance.
+Because tests alone still accept several ways of faking a removal, we pair the benchmark with a six-gate oracle and validate it against 176 automatically constructed cheats.
+Tests alone accept 34.7\% of cheats; install-level gates close vendoring and hiding completely, while 8 stubbed removals pass every install-level check and are caught only by a structural signal.
+A pilot of two open-weight coding agents over 28 runs finds that execution pass rate reports 5 successes where only 3 are genuine removals.
+\end{abstract}
+
+\section{Introduction}
+
+A program's dependencies are a property of its code, not of its manifest file.
+The manifest is a claim about that property, and claims drift.
+\citet{drosos2024bloat} found that over half of declared dependencies in the PyPI ecosystem are bloated, and that the single largest cause---34\% of cases---is refactoring that removed the last use of a library without removing its declaration.
+Code and build configuration co-evolve, and they co-evolve imperfectly: \citet{mcintosh2011build} reported that up to a quarter of source changes and nearly half of test changes require a matching build change.
+
+Benchmarks that evaluate automated systems on dependency tasks resolve this by execution.
+\dibench{} \citep{dibench2025} masks a repository's dependency declarations, asks a model to restore them, and scores the result by whether the project's continuous-integration (CI) suite passes.
+This is an appealing oracle: it is objective, it is automatic, and it measures something users care about.
+
+This paper argues that it is also substantially blind, and quantifies how blind.
+The argument is simple.
+A test suite can only notice a missing dependency if some test reaches the code that imports it.
+A test suite can only notice an \emph{extra} dependency if that dependency fails to install.
+Neither condition holds often enough for the oracle to be trusted on its own.
+
+\paragraph{Contributions.}
+\begin{itemize}
+\item \textbf{A measurement of oracle blindness} (\S\ref{sec:blindness}).
+We mutate the ground-truth manifests of \dibench's Python subset, deleting one dependency at a time and re-running the real CI suite in a container: 531 mutants in total.
+On instances whose ground-truth patch still passes, 49.4\% of deletions go unnoticed.
+We separate the two mechanisms---phantom installation and test blind spots---because they call for different remedies.
+
+\item \textbf{A static predictor of that blindness} (\S\ref{sec:predictor}).
+Combining the package-level dependency graph with import-level reachability predicts which deletions CI will miss, at precision 0.81 and recall 0.83, with no container and no test run.
+
+\item \textbf{\bench} (\S\ref{sec:benchmark}).
+An executable benchmark for in-situ dependency removal, where each instance is verified so that deleting the target provably fails CI.
+We release a pool of 162 candidate instances over 47 repositories.
+
+\item \textbf{A gate stack validated against constructed cheats} (\S\ref{sec:gates}).
+Six gates, of which tests are one.
+We generate 176 cheats automatically---vendoring, stubbing, and hiding---and show that tests alone accept 34.7\% of them, that install-level gates close two cheat families entirely, and that stubbing survives every install-level check.
+
+\item \textbf{An agent pilot} (\S\ref{sec:agents}) over two open-weight coding agents and 28 runs, in which execution pass rate reports 5 successes against 3 genuine removals.
+\end{itemize}
+
+\paragraph{Scope.}
+All experiments are on Python.
+\S\ref{sec:limitations} discusses what this costs us.
+The harness, the mutants, the cheat generator, and the agent scaffold are released; the harness runs on free GitHub Actions runners, so every result here is reproducible without dedicated hardware.
+
+\section{Background and Related Work}
+\label{sec:related}
+
+\paragraph{Dependency inference and its oracle.}
+\dibench{} \citep{dibench2025} is the closest benchmark to our setting: 581 repositories across four languages, dependency declarations masked, and both textual metrics (precision and recall over package names) and an execution metric.
+Its authors note that ``test coverage for each repository may not be exhaustive'' and leave the consequence unexplored.
+We quantify that consequence.
+DependEval \citep{dependeval2025} evaluates repository dependency \emph{understanding} through static tasks and does not execute.
+Environment-setup benchmarks \citep{envbench2025,repo2run2025} ask an agent to make a repository runnable at all, a different task with the same oracle and, we expect, the same blindness.
+
+\paragraph{Tests as an oracle.}
+That test suites miss dependency-induced faults is known.
+\citet{hejderup2022trust} seeded faults into library call sites in Java projects and found test suites detected a minority.
+More recently, \citet{timemachine2026} report agents producing ``spurious solutions that exploit low test coverage'' on dependency upgrades, and \citet{sweatlas2026} measure a 15--40 point gap between passing behavioural checks and meeting maintainability rubrics on refactoring tasks.
+Our contribution is to mutate the \emph{manifest} rather than the code, which isolates the dependency oracle specifically, and to separate phantom installation from genuine test blindness.
+
+\paragraph{Dependency bloat and debloating.}
+A substantial literature detects and removes \emph{unused} dependencies: DepClean \citep{soto2021longitudinal} for Maven, PyTrim \citep{pytrim2025} for Python, and the fine-grained PyPI analysis of \citet{drosos2024bloat}.
+These tools solve the easy case, where no code calls the library.
+\bench{} targets the hard case, where the library is in use and removal requires writing a replacement.
+
+\paragraph{Removal and migration datasets.}
+\citet{he2021migration} mined 19,652 Java projects and found 8,065 with at least one library removal; a 2024 dataset of dependency-removal commits and their pull requests is publicly available \citep{jaisri2024dataset}.
+Both are \emph{mined metadata}: they record that removals happened, but cannot score a candidate removal, because they carry no executable environment.
+Library \emph{migration} benchmarks \citep{pymigbench2023,migrationbench2025} cover replacing library $A$ with library $B$, not eliminating a library in favour of one's own code.
+LibReuseBench \citep{libreuse2026} and Commit0 \citep{commit02024} ask models to write code that avoids or reimplements libraries, but on greenfield problems with no existing code whose behaviour must be preserved.
+To our knowledge no executable benchmark exists for in-situ removal of a used dependency.
+
+\paragraph{Agent scaffolds and reward hacking.}
+Our agent scaffold follows the agent-computer interface of SWE-agent \citep{sweagent2024}: a line-numbered viewer with a 100-line window, search results capped at 50, a range-based edit command with an integrated syntax linter, and collapsing of observations older than the last five.
+Evaluation uses greedy decoding at temperature 0 with a single attempt, the standard \textit{pass@1} protocol.
+That agents exploit weak verifiers is well documented.
+\citet{specbench2026} separate visible from held-out tests and find most of the gap arises from compositional failure rather than deliberate cheating; \citet{hackerfixer2026} found 16\% of tasks across five agent benchmarks hackable from the task description alone.
+We do not claim to measure reward hacking in general.
+We claim something narrower and testable: on one concrete task, we enumerate the ways a change can pass the test oracle without doing the work, and we measure which gates catch which.
+
+\section{How Blind Is the Test Oracle?}
+\label{sec:blindness}
+
+\subsection{Setup}
+
+We use the Python subset of \dibench{} (98 repositories).
+Each instance carries a masked manifest, a ground-truth (``gold'') patch restoring the declarations, and an \code{act} command that replays the repository's own GitHub Actions workflow inside a container.
+We re-implemented the execution harness to run on free GitHub Actions runners under the \code{sysbox} runtime.\footnote{The published harness requires \code{sysbox}, which is unavailable on standard CI runners; we install it in the job. Plain privileged Docker-in-Docker fails because the inner daemon cannot stack overlay filesystems.}
+
+\paragraph{Benchmark decay.}
+Of 98 gold patches, only 51 of 96 still pass CI at the time of writing, roughly 21 months after release.\footnote{Two instances are excluded: their \code{act} job never started, because an action they use requires a newer Node runtime than \code{act} supports. \code{act} prints \emph{Job succeeded} in this situation, so an evaluator that trusts its output alone records a false pass.}
+The failures are environmental drift: an installer that dropped support for old Python versions, a discontinued distribution download, and unpinned libraries whose newer releases break the projects' own assertions.
+This is a measurement problem for anyone using the benchmark today, and it is the same drift the paper is about, appearing inside the benchmark itself.
+All execution numbers below are therefore conditioned on gold-passing instances.
+
+\subsection{Dependency Mutation Analysis}
+
+For every declared dependency $d$ of every instance, we construct a mutant: the gold manifest with $d$'s declaration removed and nothing else changed.
+We verify syntactically that the resulting dependency set equals the gold set minus $d$.
+Each mutant is then scored by the real harness.
+This yields 531 mutants, of which 233 belong to gold-passing instances.
+
+We call the fraction of deletions that still pass CI the \emph{dependency mutation score}.
+It bounds what execution pass rate can ever detect: a dependency whose deletion goes unnoticed cannot be scored correctly by an execution oracle, whether the system under test omits it or invents it.
+
+\begin{table}[t]
+  \centering
+  \begin{tabular}{lr}
+    \hline
+    \textbf{Measure} & \textbf{Value} \\
+    \hline
+    Deletion mutants scored & 233 \\
+    Deletions that still pass CI & 115 (49.4\%) \\
+    \quad phantom (installed anyway) & 91 \\
+    \quad blind spot (absent, tests pass) & 24 \\
+    Instances with $\geq$1 invisible dep. & 38 of 51 \\
+    Instances with $\geq$1 blind spot & 15 of 51 \\
+    \hline
+    Sanity: visible deletions where & \\
+    \quad the package was truly absent & 114 of 118 \\
+    \hline
+  \end{tabular}
+  \caption{Dependency mutation analysis on \dibench{} Python, restricted to mutants of gold-passing instances.}
+  \label{tab:mutation}
+\end{table}
+
+\subsection{Two Mechanisms, Two Remedies}
+
+Table~\ref{tab:mutation} separates the result by mechanism, determined by parsing the CI installation log for each mutant.
+
+\paragraph{Phantom installation (91 cases).}
+The declaration is removed, but the package is installed regardless, pulled in transitively by another declared dependency or by a test-runner configuration.
+The code's imports resolve and the suite passes.
+These declarations are redundant: this is the ``transitive dependency listed unnecessarily'' category that \citet{drosos2024bloat} measure at 30\% of bloat causes, here sitting inside a benchmark's ground truth.
+\dibench's curation verified that removing \emph{all} dependencies fails; it never verified that removing \emph{one} does.
+
+\paragraph{Test blind spot (24 cases, 10.3\% of mutants).}
+The package is genuinely absent from the environment, the import would fail, and the suite still passes, because no test reaches the importing code.
+These are real coverage gaps, present in 15 of 51 instances.
+
+The remedies differ.
+Phantoms are a ground-truth quality problem, fixable by curation.
+Blind spots are intrinsic to the projects' test suites and can only be addressed by adding an oracle that does not depend on tests.
+
+\section{Predicting Blindness Without Execution}
+\label{sec:predictor}
+
+If an execution oracle is blind in a predictable way, the prediction is itself useful: for curating instances, for flagging unreliable scores, and for building the non-test gates of \S\ref{sec:gates}.
+We test whether two static signals suffice.
+
+\paragraph{Dependency layer.}
+Package $d$ is predicted phantom if it lies in the transitive requirement closure of the \emph{other} declared dependencies, computed from PyPI metadata (\code{requires\_dist}, ignoring extras-conditioned requirements, depth 6).
+
+\paragraph{Code layer.}
+Package $d$ is predicted unreachable if no test file reaches, directly or transitively through project modules, a file that imports it.
+
+\begin{table}[t]
+  \centering
+  \begin{tabular}{lrrr}
+    \hline
+    \textbf{Predictor} & \textbf{Pred.} & \textbf{Prec.} & \textbf{Rec.} \\
+    \hline
+    Dependency layer & 73 & 0.97 & 0.62 \\
+    Code layer & 70 & 0.69 & 0.42 \\
+    Both (disjunction) & 118 & 0.81 & 0.83 \\
+    \hline
+  \end{tabular}
+  \caption{Static prediction of CI-invisible deletions, evaluated against the 233 executed mutants, of which 115 are invisible.}
+  \label{tab:predictor}
+\end{table}
+
+Table~\ref{tab:predictor} reports the result.
+The dependency layer is almost never wrong, which matches its mechanism: if the package is in the closure it \emph{will} be installed.
+The code layer is noisier, because static import reachability under-approximates dynamic imports.
+Together they recover five in six invisible deletions at four in five precision, from the manifest, public package metadata, and import statements alone.
+
+\paragraph{Symbol-level reachability.}
+We also evaluated a symbol-level variant using PyCG \citep{pycg2021} call graphs.
+PyCG completed on 18 of 51 repositories within a four-minute budget and timed out on the rest; on those it covered, symbol-level reachability performed \emph{worse} than the file-level signal (precision 0.47, recall 0.64), because missed dynamic calls cause it to report reachable dependencies as unreachable.
+We therefore use the file-level signal and leave a scalable symbol-level layer to future work.
+
+\section{\bench: Removing a Dependency That Is Used}
+\label{sec:benchmark}
+
+\subsection{Task Definition}
+
+An instance is a triple $(R, d, T)$: a repository $R$ at a fixed commit, a target package $d$ that $R$'s code imports, and $R$'s own test suite $T$.
+The task is to produce a change to $R$ such that $R$ no longer requires $d$, with behaviour preserved.
+The agent must rewrite the code that uses $d$, remove $d$'s declaration, and leave $T$ passing.
+
+This is deliberately the \emph{hard} case.
+Removing an unused declaration is solved by static tools \citep{pytrim2025,soto2021longitudinal}.
+Migrating from $A$ to $B$ is covered by existing benchmarks \citep{pymigbench2023,migrationbench2025}.
+Removing a library that is in use, by writing the replacement, is neither, and it is what developers do when a dependency is abandoned, vulnerable, or disproportionate to what it provides.
+
+\subsection{Instance Verification}
+
+The defining property of a \bench{} instance is that deleting $d$'s declaration provably fails CI.
+This is the mutation result of \S\ref{sec:blindness} used constructively: we keep only those $(R,d)$ pairs whose deletion mutant \emph{failed}.
+Without this filter, an instance would be unscoreable, since an agent could delete the declaration, change nothing, and pass.
+
+This verification step is what distinguishes \bench{} from mined removal datasets \citep{jaisri2024dataset,he2021migration}.
+Those record that a removal occurred; they cannot tell whether a candidate removal is correct, because they carry no executable environment.
+
+\subsection{Instance Pool and Difficulty}
+
+From the gold-passing \dibench{} Python instances we derive 162 candidate pairs over 47 repositories, in three tiers.
+\textbf{Strong} (62 pairs, 38 repositories): the package is imported by one or two source files, is reachable from tests, and its deletion fails CI; these are scoreable and tractable.
+\textbf{Medium} (19 pairs): three to five importing files.
+\textbf{Weak} (81 pairs): deletion does \emph{not} fail CI; these are excluded from scoring but retained, since they are precisely the instances where the test oracle is blind.
+
+We label each instance by \emph{used API surface}: the number of distinct symbols of $d$ that $R$ calls, plus call sites.
+In the strong tier this ranges from 1 to 22 (median 1).
+We hypothesise, and \S\ref{sec:agents} begins to test, that success falls and cheating rises with surface size.
+
+\todo{full run: extend the pool by mining removal commits (repositories cloned with full history) for human reference solutions, and extend to \dibench's \emph{large} subset (50 further Python repositories).}
+
+\section{A Gate Stack, and What Tests Miss}
+\label{sec:gates}
+
+\subsection{Six Gates}
+
+Tests are one oracle among several.
+We define six gates; a change is accepted only if it passes all of them.
+\textbf{G1 Declaration gone}: $d$ is absent from the manifest and from the resolved environment.
+\textbf{G2 Tests pass}: $R$'s own CI suite passes in a container.
+\textbf{G3 No vendored copy}: no file added by the change is token-similar to $d$'s own distributed source.
+\textbf{G4 Behaviour preserved beyond the tests}: the replacement is not a stub, meaning added functions have non-trivial bodies and no added package shadows $d$'s import name.
+\textbf{G5 No phantom use}: no import is now served by a transitively installed package.
+\textbf{G6 Quality not worse}: the replacement does not degrade structural quality.
+
+G1 and G2 are what an execution benchmark already does.
+G3 through G6 are the contribution.
+\todo{full run: G6 is specified but not yet instantiated; we plan to use a learned pairwise refactoring-quality metric.}
+
+\subsection{Validating the Gates Against Constructed Cheats}
+
+A gate stack is only as good as the attacks it is tested against.
+For each of the 62 strong-tier instances we generate three cheats automatically.
+\textbf{Hide} moves $d$ from the main dependency list to an optional extra or development group, which CI installs anyway.
+\textbf{Vendor} copies $d$'s own distributed source into the repository and deletes the declaration.
+\textbf{Stub} creates a local package shadowing $d$'s import name, whose imported symbols are no-ops, and deletes the declaration.
+
+Each variant is a patch against the masked repository, scored by the same harness as any other candidate.
+Of 186 possible variants, 176 were generated; 10 vendor variants were skipped because the package ships compiled extensions and cannot be vendored as source.
+
+\begin{table}[t]
+  \centering
+  \begin{tabular}{lrrr}
+    \hline
+    \textbf{Cheat} & \textbf{$n$} & \textbf{Pass G2} & \textbf{Caught} \\
+    \hline
+    Hide & 62 & 35 & 35 of 35 \\
+    Vendor & 52 & 18 & 18 of 18 \\
+    Stub & 62 & 8 & 0 of 8 \\
+    \hline
+    Total & 176 & 61 & 53 of 61 \\
+    \hline
+  \end{tabular}
+  \caption{Constructed cheats through the real CI harness. ``Caught'' counts variants that pass G2 but fail another gate: hiding is caught by G1 and G5, vendoring by G3, and stubbing by none of the install-level gates.}
+  \label{tab:cheats}
+\end{table}
+
+Table~\ref{tab:cheats} gives the result, and it is the central justification for the gate stack.
+Tests alone accept 61 of 176 cheats.
+Install-level gates close hiding and vendoring completely: every cheat of those families that passes the tests fails G1, G5, or G3.
+
+Stubbing is different.
+Eight stub variants pass CI, and no install-level gate sees them, because nothing is installed and nothing is copied.
+Their replacement code is between 4 and 27 lines of functions returning nothing.
+They are detectable only structurally: our trivial-body and shadow-package signals flag 61 of 62 stub variants.
+This is why G4 is necessary rather than decorative, and it is the sharpest statement we can make about what an execution oracle cannot do.
+
+\section{Agent Pilot}
+\label{sec:agents}
+
+This section reports a pilot sized to a \$3 budget.
+It establishes feasibility and direction; it does not support rate estimates.
+\todo{full run: frontier models, all 62 strong instances, three seeds, and the strict-prompt condition as an ablation.}
+
+\subsection{Setup}
+
+We evaluate two open-weight coding models through an OpenRouter endpoint: \code{deepseek-v3.2} and \code{qwen3-coder}, chosen as the strongest models within budget.
+The scaffold follows SWE-agent's interface (\S\ref{sec:related}) with a 32-step budget.
+The task prompt is deliberately \emph{neutral}: it states the goal and an expected procedure but names no prohibition, so that any cheat observed is unprompted.
+Sixteen strong-tier instances were selected, nine with the largest used API surface and seven with the smallest; both models stopped at a per-model budget guard, yielding 15 and 13 runs respectively.
+
+\subsection{Results}
+
+\begin{table}[t]
+  \centering
+  \begin{tabular}{lrrrr}
+    \hline
+    \textbf{Model} & \textbf{Runs} & \textbf{G2} & \textbf{Genuine} & \textbf{Cheats} \\
+    \hline
+    \code{deepseek-v3.2} & 15 & 5 & 3 & 0 \\
+    \code{qwen3-coder} & 13 & 0 & 0 & 0 \\
+    \hline
+    Total & 28 & 5 & 3 & 0 \\
+    \hline
+  \end{tabular}
+  \caption{Agent pilot over 28 runs. ``G2'' counts runs whose CI suite passes; ``Genuine'' counts removals that pass every gate.}
+  \label{tab:agents}
+\end{table}
+
+Table~\ref{tab:agents} reports three findings.
+
+\paragraph{The test oracle overstates success by 67\%.}
+CI reports five passes; three are genuine removals.
+Of the other two, one left the declaration in place while CI passed anyway, and one changed nothing at all, the package remaining installed transitively.
+Both are caught by G1 and G5.
+On a task where the headline number is 5, the correct number is 3.
+
+\paragraph{No spontaneous cheating was observed.}
+Across 28 runs there is no vendoring, no stubbing, and no weakened test suite.
+The constructed cheats of \S\ref{sec:gates} are therefore not an observation about these models; they are a statement about what the oracle would accept.
+The closest case is an agent that replaced \code{wcwidth} with a self-described ``simplified replacement'' for a Unicode width function, which passes CI and is plausibly a silent behaviour change.
+
+\paragraph{The task is hard.}
+Three clean successes in 28 runs.
+Failures are mechanical as often as semantic: four agents left the manifest syntactically invalid, others produced import errors or undefined names.
+
+\paragraph{Interpretation.}
+The honest reading is that these models fail this task far more often than they fake it.
+This does not weaken the case for the gate stack, since \S\ref{sec:gates} shows the gates are necessary against attacks the oracle admits, but it does bound what the pilot shows.
+Whether more capable models, which succeed more often, also cheat more often is the question the full study must answer.
+
+\section{Conclusion}
+
+Execution-based benchmarks are trusted because running code seems objective.
+We show that for dependency tasks this trust is misplaced in a measurable way: in \dibench's Python subset, half of all declared dependencies can be deleted with no test noticing.
+We give a static predictor of that blindness, an executable benchmark for the removal task whose instances are verified so the oracle is meaningful, and a gate stack validated against constructed attacks, where tests alone accept a third of cheats and stubbing defeats every install-level check.
+A pilot of two open-weight agents finds execution pass rate reporting five successes against three genuine removals.
+
+The broader point is that an oracle should be measured, not assumed.
+Mutation analysis of the ground truth is cheap, mechanical, and applicable to any execution-based benchmark.
+We suspect many would not survive it.
+
+\section*{Limitations}
+\label{sec:limitations}
+
+\paragraph{Pilot scale.}
+The agent results rest on 28 runs over 16 instances and two models, sized to a \$3 budget.
+Confidence intervals on proportions at this scale span roughly $\pm$18 points; we report counts, not rates.
+The mutation and cheat results, which carry the paper's main claims, rest on 531 and 176 executed variants respectively.
+
+\paragraph{Step budget confound.}
+\code{deepseek-v3.2} exhausted its step budget on 13 of 15 runs, so its patches are frequently incomplete work rather than considered answers.
+Its lower success rate partly reflects our budget, not the model.
+
+\paragraph{Benchmark decay.}
+Only 51 of 96 gold patches still pass.
+We condition on gold-passing instances throughout, but the surviving set may be systematically simpler, for instance better pinned.
+
+\paragraph{Harness fidelity.}
+We found and report two defects in the upstream evaluation path: the fake-package check crashes on VCS-URL dependencies, and \code{act} prints \emph{Job succeeded} for a job that never started, which an evaluator that ignores the exit code records as a pass.
+We fixed both; results predating the fix are excluded.
+Measurement infrastructure requires auditing as much as the systems it measures.
+
+\paragraph{Static predictor approximations.}
+The dependency layer ignores extras-conditioned requirements and installs driven by CI configuration rather than the manifest, which is the main source of its missed phantoms.
+The code layer under-approximates dynamic imports.
+
+\paragraph{Language scope.}
+All results are Python.
+The mechanisms, transitive installation and uneven test coverage, are not Python-specific, but their magnitudes certainly are: ecosystems with stricter dependency resolution should exhibit fewer phantoms.
+
+\paragraph{Cheat realism.}
+Our cheats are constructed, not observed.
+They establish what the oracle \emph{admits}, not what agents \emph{do}.
+
+\section*{Acknowledgments}
+
+\todo{acknowledgments}
+
+% Custom bibliography entries only
+\bibliography{custom}
+
+\end{document}
