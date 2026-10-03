@@ -1,0 +1,195 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..40e6d37 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,15 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++docopt = "^0.6.2"
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+@@ -30,15 +37,5 @@ pytest-mock = "^2.0.0"
+ # Linters
+ black = "^24.3"
+ flake8 = "3.9.2"
+-flake8-bugbear = "^21.4.3"
+-flake8-comprehensions = "^3.4.0"
+-pep8-naming = "^0.11.1"
+-isort = "^5.7.0"
+-mypy = "0.960"
+-
+-[tool.poetry.scripts]
+-tbump = "tbump.cli:main"
+-
+-[build-system]
+-requires = ["poetry-core>=1.0.0"]
+-build-backend = "poetry.core.masonry.api"
++[project.optional-dependencies]
++qa = ["pytest>=6", "pytest-cov", "coverage", "pytest-mock", "black"]
+diff --git a/tbump/config.py b/tbump/config.py
+index 84cedde..9caa6fb 100644
+--- a/tbump/config.py
++++ b/tbump/config.py
+@@ -6,21 +6,13 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
+ 
+ import cli_ui as ui
+ import schema
+-import tomlkit
+-from tomlkit.toml_document import TOMLDocument
++import tomllib
++import tomli_w
+ 
+ from tbump.action import Action
+ from tbump.error import Error
+ from tbump.hooks import HOOKS_CLASSES, Hook
+ 
+-
+-@dataclass
+-class File:
+-    src: str
+-    search: Optional[str] = None
+-    version_template: Optional[str] = None
+-
+-
+ @dataclass
+ class Field:
+     name: str
+@@ -47,11 +39,10 @@ class Config:
+ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+     """Base class representing a config file"""
+ 
+-    def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):
++    def __init__(self, project_path: Path, path: Path, doc: Dict[str, Any]):
+         self.project_path = project_path
+         self.path = path
+         self.doc = doc
+-
+     @property
+     def relative_path(self) -> Path:
+         return self.project_path / self.path
+@@ -60,7 +51,7 @@ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+         from tbump.cli import print_diff
+ 
+         old_text = self.path.read_text()
+-        new_text = tomlkit.dumps(self.doc)
++        new_text = tomli_w.dumps(self.doc)
+ 
+         lineno = 1
+         for old_line, new_line in zip(old_text.splitlines(), new_text.splitlines()):
+@@ -74,7 +65,7 @@ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+             lineno += 1
+ 
+     def do(self) -> None:
+-        new_text = tomlkit.dumps(self.doc)
++        new_text = tomli_w.dumps(self.doc)
+         self.path.write_text(new_text)
+ 
+     @abc.abstractmethod
+@@ -98,15 +89,15 @@ class ConfigFileUpdater(Action, metaclass=abc.ABCMeta):
+ class TbumpTomlUpdater(ConfigFileUpdater):
+     """Represent config inside a tbump.toml file"""
+ 
+-    def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):
++    def __init__(self, project_path: Path, path: Path, doc: Dict[str, Any]):
+         super().__init__(project_path, path, doc)
+ 
+     def get_parsed(self) -> dict:
+         # Document -> dict
+-        return self.doc.value
++        return self.doc
+ 
+     def set_new_version(self, version: str) -> None:
+-        self.doc["version"]["current"] = version  # type: ignore[index]
++        self.doc["version"]["current"] = version
+ 
+ 
+ class PyprojectUpdater(ConfigFileUpdater):
+@@ -114,29 +105,25 @@ class PyprojectUpdater(ConfigFileUpdater):
+     under the [tool.tbump] key
+     """
+ 
+-    def __init__(self, project_path: Path, path: Path, doc: TOMLDocument):
++    def __init__(self, project_path: Path, path: Path, doc: Dict[str, Any]):
+         super().__init__(project_path, path, doc)
+ 
+-    @staticmethod
+-    def unwrap_data(data: Any) -> Any:
+-        if hasattr(data, "unwrap") and callable(data.unwrap):
+-            return data.unwrap()
+-        else:
+-            return data
++    def get_parsed(self) -> dict:
++        try:
++            tool_section = self.doc["tool"]["tbump"]
++        except KeyError as e:
++            raise InvalidConfig(parse_error=e)
+ 
+     def get_parsed(self) -> dict:
+         try:
+-            tool_section = PyprojectUpdater.unwrap_data(
+-                self.doc["tool"]["tbump"]  # type: ignore[index]
+-            )
++            tool_section = self.doc["tool"]["tbump"]
+         except KeyError as e:
+             raise InvalidConfig(parse_error=e)
+ 
+-        return tool_section  # type: ignore[no-any-return]
++        return tool_section
+ 
+     def set_new_version(self, new_version: str) -> None:
+-        self.doc["tool"]["tbump"]["version"]["current"] = new_version  # type: ignore[index]
+-
++        self.doc["tool"]["tbump"]["version"]["current"] = new_version
+ 
+ def validate_template(name: str, pattern: str, value: str) -> None:
+     if pattern not in value:
+@@ -278,19 +265,26 @@ def _get_config_path_and_type(
+         return "pyproject.toml", pyproject_path
+ 
+     raise ConfigNotFound(project_path)
+-
+-
+-def _get_config_file(
+-    project_path: Path, config_type: str, config_path: Path
+-) -> ConfigFileUpdater:
+-    if config_type == "tbump.toml":
+-        doc = tomlkit.loads(config_path.read_text())
+-        return TbumpTomlUpdater(project_path, config_path, doc)
+-    elif config_type == "pyproject.toml":
+-        doc = tomlkit.loads(config_path.read_text())
+-        return PyprojectUpdater(project_path, config_path, doc)
+-    raise ValueError("unknown config_type: {config_type}")
+-
++    if tbump_toml_path.exists():
++        try:
++            doc = tomllib.loads(tbump_toml_path.read_text())
++        except tomllib.TOMLDecodeError as error:
++            raise ConfigParseError(path=tbump_toml_path, parse_error=error)
++        updater = TbumpTomlUpdater(project_path, tbump_toml_path, doc)
++    elif config_path.exists():
++        try:
++            doc = tomllib.loads(config_path.read_text())
++        except tomllib.TOMLDecodeError as error:
++            raise ConfigParseError(path=config_path, parse_error=error)
++        updater = TbumpTomlUpdater(project_path, config_path, doc)
++    elif pyproject_path.exists():
++        try:
++            doc = tomllib.loads(pyproject_path.read_text())
++        except tomllib.TOMLDecodeError as error:
++            raise ConfigParseError(path=pyproject_path, parse_error=error)
++        updater = PyprojectUpdater(project_path, pyproject_path, doc)
++    else:
++        raise Error("Could not find configuration file")
+ 
+ def from_parsed_config(parsed: dict) -> Config:
+     validate_basic_schema(parsed)

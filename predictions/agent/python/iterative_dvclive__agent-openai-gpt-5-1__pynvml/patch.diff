@@ -1,0 +1,140 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..04b9182 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++  "dvc>=3.48.4",
++  "dvc-render>=1.0.0,<2",
++  "dvc-studio-client>=0.20,<1",
++  "funcy",
++  "gto",
++  "ruamel.yaml",
++  "scmrepo>=3,<4",
++  "psutil",
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/dvclive/monitor_system.py b/src/dvclive/monitor_system.py
+index f6d26d8..4df2c5f 100644
+--- a/src/dvclive/monitor_system.py
++++ b/src/dvclive/monitor_system.py
+@@ -9,32 +9,23 @@ from funcy import merge_with
+ 
+ try:
+     from pynvml import (
+-        nvmlInit,
++        NVMLError,
+         nvmlDeviceGetCount,
+         nvmlDeviceGetHandleByIndex,
+         nvmlDeviceGetMemoryInfo,
+         nvmlDeviceGetUtilizationRates,
++        nvmlInit,
+         nvmlShutdown,
+-        NVMLError,
+     )
+ 
+     GPU_AVAILABLE = True
+ except ImportError:
+     GPU_AVAILABLE = False
++    NVMLError = RuntimeError
+ 
+ logger = logging.getLogger("dvclive")
+ GIGABYTES_DIVIDER = 1024.0**3
+ 
+-MINIMUM_CPU_USAGE_TO_BE_ACTIVE = 20
+-
+-METRIC_CPU_COUNT = "system/cpu/count"
+-METRIC_CPU_USAGE_PERCENT = "system/cpu/usage (%)"
+-METRIC_CPU_PARALLELIZATION_PERCENT = "system/cpu/parallelization (%)"
+-
+-METRIC_RAM_USAGE_PERCENT = "system/ram/usage (%)"
+-METRIC_RAM_USAGE_GB = "system/ram/usage (GB)"
+-METRIC_RAM_TOTAL_GB = "system/ram/total (GB)"
+-
+ METRIC_DISK_USAGE_PERCENT = "system/disk/usage (%)"
+ METRIC_DISK_USAGE_GB = "system/disk/usage (GB)"
+ METRIC_DISK_TOTAL_GB = "system/disk/total (GB)"
+@@ -204,37 +195,46 @@ class _SystemMonitor:
+         if not GPU_AVAILABLE:
+             return {}
+ 
+-        nvmlInit()
+-        num_gpus = nvmlDeviceGetCount()
+-        gpu_metrics = {
+-            "system/gpu/count": num_gpus,
+-        }
++        try:
++            nvmlInit()
++            num_gpus = nvmlDeviceGetCount()
++            gpu_metrics = {
++                "system/gpu/count": num_gpus,
++            }
++
++            for gpu_idx in range(num_gpus):
++                gpu_handle = nvmlDeviceGetHandleByIndex(gpu_idx)
++                memory_info = nvmlDeviceGetMemoryInfo(gpu_handle)
++                usage_info = nvmlDeviceGetUtilizationRates(gpu_handle)
++
++                gpu_metrics.update(
++                    {
++                        f"{METRIC_GPU_USAGE_PERCENT}/{gpu_idx}": (
++                            100 * usage_info.memory / usage_info.gpu
++                            if usage_info.gpu
++                            else 0
++                        ),
++                        f"{METRIC_VRAM_USAGE_PERCENT}/{gpu_idx}": (
++                            100 * memory_info.used / memory_info.total
++                        ),
++                        f"{METRIC_VRAM_USAGE_GB}/{gpu_idx}": (
++                            memory_info.used / GIGABYTES_DIVIDER
++                        ),
++                        f"{METRIC_VRAM_TOTAL_GB}/{gpu_idx}": (
++                            memory_info.total / GIGABYTES_DIVIDER
++                        ),
++                    }
++                )
++        except NVMLError:
++            if self._warn_gpu_problem:
++                logger.warning("There's a problem with monitoring the GPUs usage.")
++                self._warn_gpu_problem = False
++        finally:
++            if GPU_AVAILABLE:
++                try:
++                    nvmlShutdown()
++                except Exception:
++                    pass
+ 
+-        for gpu_idx in range(num_gpus):
+-            gpu_handle = nvmlDeviceGetHandleByIndex(gpu_idx)
+-            memory_info = nvmlDeviceGetMemoryInfo(gpu_handle)
+-            usage_info = nvmlDeviceGetUtilizationRates(gpu_handle)
+-
+-            gpu_metrics.update(
+-                {
+-                    f"{METRIC_GPU_USAGE_PERCENT}/{gpu_idx}": (
+-                        100 * usage_info.memory / usage_info.gpu
+-                        if usage_info.gpu
+-                        else 0
+-                    ),
+-                    f"{METRIC_VRAM_USAGE_PERCENT}/{gpu_idx}": (
+-                        100 * memory_info.used / memory_info.total
+-                    ),
+-                    f"{METRIC_VRAM_USAGE_GB}/{gpu_idx}": (
+-                        memory_info.used / GIGABYTES_DIVIDER
+-                    ),
+-                    f"{METRIC_VRAM_TOTAL_GB}/{gpu_idx}": (
+-                        memory_info.total / GIGABYTES_DIVIDER
+-                    ),
+-                }
+-            )
+-        nvmlShutdown()
+         return gpu_metrics
+ 
+-    def end(self):
+-        self._shutdown_event.set()

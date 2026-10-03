@@ -1,0 +1,86 @@
+[
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\":\"pflake8/__init__.py\",\"start_line\":1}"
+   },
+   {
+    "name": "read_file",
+    "args": "{\"path\":\"pyproject.toml\",\"start_line\":1}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 \"\"\" pyproject-flake8 (`pflake8`), a monkey patching wrapper to connect flake8 with pyproject.toml configuration \"\"\"  # noqa\n   2 \n   3 __version__ = '7.0.0'\n   4 \n   5 import ast\n   6 import configparser\n   7 import multiprocessing.pool\n   8 import sys\n   9 from pathlib import Path\n  10 from types import ModuleType\n  11 \n  12 import flake8.main.cli\n  13 import flake8.options.config\n  14 \n  15 try:\n  16     # from Python 3.11 onward\n  17     from tomllib import load as toml_load\n  18 except ImportError:\n  19     from tomli import load as toml_load\n  20 \n  21 \n  22 class ConfigParserTomlMixin:\n  23     def _read(self, fp, filename):\n  24         filename_path = Path(filename)\n  25         if filename_path.suffix == '.toml':\n  26             is_pyproject = filename_path.name == 'pyproject.toml'\n  27 \n  28             toml_config = toml_load(fp.buffer)\n  29 \n  30             section_to_copy = (\n  31                 toml_config if not is_pyproject else toml_config.get('tool', {})\n  32             )\n  33 \n  34             for section, config in section_to_copy.items():\n  35                 try:\n  36                     self.add_section(section)\n  37                 except (configparser.DuplicateSectionError):\n  38                     pass\n  39                 self._sections.setdefault(section, self._dict()).update(self._dict(config))\n  40         else:\n  41             super(ConfigParserTomlMixin, self)._read(fp, filename)\n  42 \n  43     def _convert_to_boolean(self, value):\n  44         if isinstance(value, bool):\n  45             return value\n  46         else:\n  47             return super()._convert_to_boolean(value)\n  48 \n  49 \n  50 class DivertingRawConfigParser(ConfigParserTomlMixin, configparser.RawConfigParser):\n  51     pass\n  52 \n  53 \n  54 class DivertingConfigParser(ConfigParserTomlMixin, configparser.ConfigParser):\n  55     pass\n  56 \n  57 \n  58 try:\n  59 \n  60     class DivertingSafeConfigParser(\n  61         ConfigParserTomlMixin, configparser.SafeCon"
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "   1 [build-system]\n   2 requires = [\"flit_core >=3.2,<4\"]\n   3 build-backend = \"flit_core.buildapi\"\n   4 \n   5 [project]\n   6 dynamic = [\"version\", \"description\"]\n   7 name = \"pyproject-flake8\"\n   8 authors = [{name = \"Christian Sachs\", email = \"sachs.christian@gmail.com\"}]\n   9 readme = \"README.md\"\n  10 license = { file = \"LICENSE\" } \n  11 classifiers = []\n  12 requires-python = \">=3.8.1\"\n  13 dependencies = [\n  14     \"tomli; python_version < '3.11'\",\n  15     \"flake8 == 7.0.0\"\n  16 ]\n  17 \n  18 [project.urls]\n  19 Home = \"https://github.com/csachs/pyproject-flake8\"\n  20 \n  21 [project.scripts]\n  22 pflake8 = \"pflake8.__main__:main\"\n  23 \n  24 [tool.flit.module]\n  25 name = \"pflake8\"\n  26 \n  27 [tool.black]\n  28 skip-string-normalization = 1\n  29 force-exclude = [\n  30     \"test/data/dummy.py\",\n  31 ]\n  32 \n  33 [tool.isort]\n  34 profile = \"black\"\n  35 multi_line_output = 3\n  36 \n  37 [tool.flake8]\n  38 max-line-length = 88\n  39 extend-ignore = [\"E203\"]\n  40 max-complexity = 10\n  41 exclude = [\"venv\", \"test/data/\"]"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "read_file",
+    "args": "{\"path\":\"pflake8/__init__.py\",\"start_line\":99}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "read_file",
+  "content": "  99         original_ast = ast.parse(\n 100             Path(filename).read_text(encoding='UTF-8'), filename=filename\n 101         )\n 102         transformer = cls()\n 103         fixed_ast = transformer.visit(original_ast)\n 104 \n 105         if not transformer.fix_applied:\n 106             print(\n 107                 \"[pflake8] Warning: Failed applying patch for pyproject.toml parsing.\",\n 108                 file=sys.stderr,\n 109             )\n 110 \n 111         compiled = compile(fixed_ast, filename=filename, mode=\"exec\")\n 112         exec(compiled, module.__dict__)\n 113 \n 114 \n 115 FixFilenames.apply()\n 116 \n 117 \n 118 def _pool_init(real, *args, **kwargs):\n 119     # by having the multiprocessing Pool load this function\n 120     # the monkeypatches are loaded as well\n 121     return real(*args, **kwargs)\n 122 \n 123 \n 124 class PatchingPool(multiprocessing.pool.Pool):\n 125     def __init__(\n 126         self,\n 127         processes=None,\n 128         initializer=None,\n 129         initargs=(),\n 130         maxtasksperchild=None,\n 131         context=None,\n 132         **kwargs\n 133     ):\n 134         super().__init__(\n 135             processes=processes,\n 136             initializer=_pool_init,\n 137             initargs=(initializer,) + initargs,\n 138             maxtasksperchild=maxtasksperchild,\n 139             context=context,\n 140             **kwargs\n 141         )\n 142 \n 143 \n 144 if multiprocessing.get_start_method() == \"spawn\":\n 145     multiprocessing.pool.Pool = PatchingPool\n 146 \n 147 main = flake8.main.cli.main\n 148 \n 149 __all__ = 'main'"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\":\"pflake8/__init__.py\",\"start_line\":15,\"end_line\":20,\"replacement_text\":\"try:\\n    # from Python 3.11 onward\\n    from tomllib import load as toml_load\\nexcept ImportError:  # pragma: no cover - Python < 3.11 no longer supported\\n    raise ImportError(\\\"tomllib is required; Python 3.11+ is needed to run this package without the third-party 'tomli' dependency.\\\")\\n\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited pflake8/__init__.py (lines 15-20 -> 5 lines). Result:\n  12 import flake8.main.cli\n  13 import flake8.options.config\n  14 \n  15 try:\n  16     # from Python 3.11 onward\n  17     from tomllib import load as toml_load\n  18 except ImportError:  # pragma: no cover - Python < 3.11 no longer supported\n  19     raise ImportError(\"tomllib is required; Python 3.11+ is needed to run this package without the third-party 'tomli' dependency.\")\n  20 \n  21 class ConfigParserTomlMixin:\n  22     def _read(self, fp, filename):"
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "edit",
+    "args": "{\"path\":\"pyproject.toml\",\"start_line\":13,\"end_line\":16,\"replacement_text\":\"dependencies = [\\n    \\\"flake8 == 7.0.0\\\"\\n]\\n\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "edit",
+  "content": "edited pyproject.toml (lines 13-16 -> 3 lines). Result:\n  10 license = { file = \"LICENSE\" } \n  11 classifiers = []\n  12 requires-python = \">=3.8.1\"\n  13 dependencies = [\n  14     \"flake8 == 7.0.0\"\n  15 ]\n  16 \n  17 [project.urls]\n  18 Home = \"https://github.com/csachs/pyproject-flake8\""
+ },
+ {
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+   {
+    "name": "finish",
+    "args": "{\"summary\":\"Replaced the optional dependency on the third-party `tomli` package with a hard requirement on the standard-library `tomllib`, and removed `tomli` from the project dependencies.\\n\\nChanges made:\\n\\n1. pflake8/__init__.py\\n   - Previous behavior: attempted to import `tomllib.load` and, on ImportError, fell back to `tomli.load`.\\n   - New behavior: still tries to import `tomllib.load`, but if that fails, raises an ImportError clearly indicating that Python 3.11+ (with `tomllib` in the stdlib) is required and that the old third-party `tomli` dependency has been dropped. This eliminates any reference to `tomli` in the code while keeping TOML loading behavior intact for supported Python versions.\\n\\n2. pyproject.toml\\n   - Removed the conditional dependency on `tomli`:\\n     - Deleted: `\\\"tomli; python_version < '3.11'\\\"` from the `[project].dependencies` list.\\n   - Dependencies list now only includes:\\n     - `\\\"flake8 == 7.0.0\\\"`.\\n\\nWith these edits, the repository no longer depends on `tomli`. On Python 3.11+ the package continues to function as before using the standard-library `tomllib`. On Python < 3.11 it will now fail fast with a clear error instead of implicitly pulling in `tomli`. Existing tests that run on supported Python versions (3.11+) should continue to pass, as behavior for those versions is unchanged aside from the removed fallback.\"}"
+   }
+  ]
+ },
+ {
+  "role": "tool",
+  "name": "finish",
+  "content": "ok"
+ }
+]

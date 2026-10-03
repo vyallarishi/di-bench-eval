@@ -1,0 +1,213 @@
+diff --git a/llm_mlc.py b/llm_mlc.py
+index 5939e5b..1b23140 100644
+--- a/llm_mlc.py
++++ b/llm_mlc.py
+@@ -1,15 +1,14 @@
+ import click
+ import contextlib
+ import json
+-import llm
+ import os
+-from pydantic import Field
++from pathlib import Path
++from pydantic import BaseModel, Field
+ import subprocess
+ import sys
+ import textwrap
+ from typing import Optional
+ 
+-
+ MODEL_URLS = {
+     "Llama-2-7b-chat": "https://huggingface.co/mlc-ai/mlc-chat-Llama-2-7b-chat-hf-q4f16_1",
+     "Llama-2-13b-chat": "https://huggingface.co/mlc-ai/mlc-chat-Llama-2-13b-chat-hf-q4f16_1",
+@@ -52,14 +51,16 @@ def is_git_lfs_installed():
+         return False
+ 
+ 
++
++
+ def _ensure_models_dir():
+-    directory = llm.user_dir() / "llama-cpp" / "models"
++    directory = user_dir() / "llama-cpp" / "models"
+     directory.mkdir(parents=True, exist_ok=True)
+     return directory
+ 
+ 
+ def _ensure_models_file():
+-    directory = llm.user_dir() / "llama-cpp"
++    directory = user_dir() / "llama-cpp"
+     directory.mkdir(parents=True, exist_ok=True)
+     filepath = directory / "models.json"
+     if not filepath.exists():
+@@ -67,15 +68,14 @@ def _ensure_models_file():
+     return filepath
+ 
+ 
+-@llm.hookimpl
++
+ def register_models(register):
+-    directory = llm.user_dir() / "mlc"
++    directory = user_dir() / "mlc"
+     models_dir = directory / "dist" / "prebuilt"
+     if not models_dir.exists():
+         return
+     for child in models_dir.iterdir():
+         if child.is_dir() and child.name != "lib":
+-            # It's a model! Register it
+             register(
+                 MlcModel(
+                     model_id=child.name,
+@@ -83,8 +83,6 @@ def register_models(register):
+                 )
+             )
+ 
+-
+-@llm.hookimpl
+ def register_commands(cli):
+     @cli.group()
+     def mlc():
+@@ -93,7 +91,7 @@ def register_commands(cli):
+     @mlc.command()
+     def setup():
+         "Finish setting up MLC, step by step"
+-        directory = llm.user_dir() / "mlc"
++        directory = user_dir() / "mlc"
+         directory.mkdir(parents=True, exist_ok=True)
+         if not is_git_lfs_command_available():
+             raise click.ClickException(
+@@ -109,13 +107,10 @@ def register_commands(cli):
+                 raise click.ClickException(
+                     "Git LFS is not installed. You should run 'git lfs install'."
+                 )
+-        # Now we have git-lfs installed, ensure we have cloned the repo
+         dist_dir = directory / "dist"
+         if not dist_dir.exists():
+             click.echo("Downloading prebuilt binaries...")
+-            # mkdir -p dist/prebuilt
+             (dist_dir / "prebuilt").mkdir(parents=True, exist_ok=True)
+-            # git clone
+             git_clone_command = [
+                 "git",
+                 "clone",
+@@ -124,9 +119,8 @@ def register_commands(cli):
+             ]
+             subprocess.run(git_clone_command, check=True)
+         click.echo("Ready to install models in {}".format(directory))
+-        # Do we have mlc_chat installed?
+         try:
+-            import mlc_chat
++            import mlc_chat  # noqa: F401
+         except ImportError:
+             raise click.ClickException(MLC_INSTALL)
+ 
+@@ -149,15 +143,13 @@ def register_commands(cli):
+     def download_model(name_or_url, aliases):
+         url = MODEL_URLS.get(name_or_url) or name_or_url
+         if name_or_url in MODEL_URLS:
+-            # Set that up as an alias too
+             aliases = list(aliases) + [name_or_url]
+         if not url.startswith("https://"):
+             raise click.BadParameter("Invalid model name or URL")
+-        directory = llm.user_dir() / "mlc"
++        directory = user_dir() / "mlc"
+         prebuilt_dir = directory / "dist" / "prebuilt"
+         if not prebuilt_dir.exists():
+             raise click.ClickException("You must run 'llm mlc setup' first")
+-        # Run git clone URL dist/prebuilt
+         last_bit = url.split("/")[-1]
+         git_clone_command = [
+             "git",
+@@ -167,7 +159,7 @@ def register_commands(cli):
+         ]
+         subprocess.run(git_clone_command, check=True)
+         if aliases:
+-            aliases_path = llm.user_dir() / "aliases.json"
++            aliases_path = user_dir() / "aliases.json"
+             if not aliases_path.exists():
+                 aliases_path.write_text("{}")
+             aliases_data = json.loads(aliases_path.read_text())
+@@ -178,36 +170,55 @@ def register_commands(cli):
+     @mlc.command()
+     def models():
+         "List installed MLC models"
+-
+-        for model_alias in llm.get_models_with_aliases():
+-            if isinstance(model_alias.model, MlcModel):
+-                aliases = ", ".join(model_alias.aliases)
+-                if aliases:
+-                    aliases = " (aliases: {})".format(aliases)
+-                click.echo(
+-                    "{}{}".format(
+-                        model_alias.model,
+-                        aliases,
+-                    )
+-                )
+-
+-    @mlc.command()
+-    def models_dir():
+-        "Display the path to the directory holding downloaded models"
+-        directory = llm.user_dir() / "mlc" / "dist" / "prebuilt"
+-        click.echo(directory.absolute())
+-
+-    @mlc.command(
+-        context_settings={
+-            "ignore_unknown_options": True,
+-            "allow_extra_args": True,
+-        }
++        directory = user_dir() / "mlc"
++        prebuilt_dir = directory / "dist" / "prebuilt"
++        if not prebuilt_dir.exists():
++            click.echo("You must run 'llm mlc setup' first")
++            return
++        for child in sorted(prebuilt_dir.iterdir()):
++            if child.is_dir() and child.name != "lib":
++                click.echo(child.name)
++
++
++class MlcResponseParams(BaseModel):
++    temperature: Optional[float] = Field(description="Temperature for the model")
++    top_p: Optional[float] = Field(description="Top-p sampling parameter")
++    repeat_penalty: Optional[float] = Field(
++        description="Repeat penalty parameter for the model"
+     )
+-    @click.pass_context
+-    def pip(ctx, **kwargs):
+-        "Run pip in the LLM virtual environment"
+-        cmd = [sys.executable, "-m", "pip"] + ctx.args
+-        subprocess.run(cmd)
++    max_tokens: Optional[int] = Field(description="Maximum tokens to generate")
++
++
++class MlcModel(BaseModel):
++    model_id: str
++    model_path: str
++
++    def register_model(self, models):
++        models[self.model_id] = self
++
++    def __call__(self, prompt: str, params: Optional[MlcResponseParams] = None) -> str:
++        env = os.environ.copy()
++        if params:
++            if params.temperature is not None:
++                env["MLC_TEMPERATURE"] = str(params.temperature)
++            if params.top_p is not None:
++                env["MLC_TOP_P"] = str(params.top_p)
++            if params.repeat_penalty is not None:
++                env["MLC_REPEAT_PENALTY"] = str(params.repeat_penalty)
++            if params.max_tokens is not None:
++                env["MLC_MAX_TOKENS"] = str(params.max_tokens)
++        process = subprocess.Popen(
++            ["mlc_chat_cli", "--model", self.model_path],
++            stdin=subprocess.PIPE,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            text=True,
++            env=env,
++        )
++        stdout, stderr = process.communicate(input=prompt)
++        if process.returncode != 0:
++            raise RuntimeError(f"mlc_chat failed: {stderr}")
++        return stdout.strip()
+ 
+ 
+ class MlcModel(llm.Model):

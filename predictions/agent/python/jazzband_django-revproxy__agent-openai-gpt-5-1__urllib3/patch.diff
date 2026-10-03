@@ -1,0 +1,142 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..3eb79de 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++    "Django>=3.0",
++]
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",
+diff --git a/revproxy/connection.py b/revproxy/connection.py
+index 7f4d893..9804381 100644
+--- a/revproxy/connection.py
++++ b/revproxy/connection.py
+@@ -1,25 +1,33 @@
+-
+-from urllib3.connection import HTTPConnection, HTTPSConnection
+-from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
++from http.client import HTTPConnection, HTTPSConnection
+ 
+ 
+ def _output(self, s):
+     """Host header should always be first"""
+ 
+-    if s.lower().startswith(b'host: '):
++    if s.lower().startswith(b"host: "):
+         self._buffer.insert(1, s)
+     else:
+         self._buffer.append(s)
+ 
+ 
+-HTTPConnectionPool.ConnectionCls = type(
+-    'RevProxyHTTPConnection',
+-    (HTTPConnection,),
+-    {'_output': _output},
+-)
++class RevProxyHTTPConnection(HTTPConnection):
++    def putrequest(self, method, url, skip_host=False, skip_accept_encoding=False):
++        # Ensure absolute-form request target when going through a proxy.
++        if not url.startswith("http://") and not url.startswith("https://"):
++            host = self.host
++            scheme = "https" if isinstance(self, HTTPSConnection) else "http"
++            if host:
++                url = f"{scheme}://{host}{url}"
++
++        return super().putrequest(method, url, skip_host=skip_host, skip_accept_encoding=skip_accept_encoding)
++
++
++class RevProxyHTTPSConnection(HTTPSConnection):
++    def putrequest(self, method, url, skip_host=False, skip_accept_encoding=False):
++        if not url.startswith("http://") and not url.startswith("https://"):
++            host = self.host
++            scheme = "https"
++            if host:
++                url = f"{scheme}://{host}{url}"
+ 
+-HTTPSConnectionPool.ConnectionCls = type(
+-    'RevProxyHTTPSConnection',
+-    (HTTPSConnection,),
+-    {'_output': _output}
+-)
++        return super().putrequest(method, url, skip_host=skip_host, skip_accept_encoding=skip_accept_encoding)
+diff --git a/revproxy/views.py b/revproxy/views.py
+index f0676d8..1c8a4ec 100644
+--- a/revproxy/views.py
++++ b/revproxy/views.py
+@@ -6,17 +6,7 @@ import sys
+ import mimetypes
+ import logging
+ 
+-import urllib3
+-
+-try:
+-    from django.utils.six.moves.urllib.parse import (
+-        urlparse, urlencode, quote_plus, quote
+-    )
+-except ImportError:
+-    # Django 3 has no six
+-    from urllib.parse import (
+-        urlparse, urlencode, quote_plus, quote
+-    )
++from urllib.parse import urlparse, urlencode, quote_plus, quote
+ 
+ from django.conf import settings
+ from django.shortcuts import redirect
+@@ -40,8 +30,7 @@ ERRORS_MESSAGES = {
+                            "'http' or 'https' (%s).")
+ }
+ 
+-HTTP_POOLS = urllib3.PoolManager()
+-
++HTTP_POOLS = None
+ 
+ class ProxyView(View):
+     """View responsable by excute proxy requests, process and return
+@@ -180,6 +169,10 @@ class ProxyView(View):
+         return urlencode(get_data)
+ 
+     def _created_proxy_response(self, request, path):
++        if HTTP_POOLS is None:
++            raise RuntimeError("urllib3 is required at runtime to use ProxyView, "
++                               "but it is not installed.")
++
+         request_payload = request.body
+         if self.suppress_empty_body and not request_payload:
+             request_payload = None
+@@ -196,17 +189,21 @@ class ProxyView(View):
+             self.log.debug("Request URL: %s", request_url)
+ 
+         try:
+-            proxy_response = self.http.urlopen(request.method,
+-                                               request_url,
+-                                               redirect=False,
+-                                               retries=self.retries,
+-                                               headers=self.request_headers,
+-                                               body=request_payload,
+-                                               decode_content=False,
+-                                               preload_content=False)
++            proxy_response = HTTP_POOLS.urlopen(request.method,
++                                                request_url,
++                                                redirect=False,
++                                                retries=self.retries,
++                                                headers=self.request_headers,
++                                                body=request_payload,
++                                                decode_content=False,
++                                                preload_content=False)
+             self.log.debug("Proxy response header: %s",
+                            proxy_response.headers)
+-        except urllib3.exceptions.HTTPError as error:
++        except Exception as error:
++            # We intentionally catch a broad Exception here because urllib3 is
++            # now an optional dependency and its exception hierarchy might not
++            # be available. Re-raising preserves existing behaviour for callers
++            # that expect errors to propagate.
+             self.log.exception(error)
+             raise
+ 

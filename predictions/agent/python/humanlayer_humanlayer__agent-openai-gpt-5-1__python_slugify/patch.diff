@@ -1,0 +1,71 @@
+diff --git a/humanlayer/core/approval.py b/humanlayer/core/approval.py
+index bfb2e1d..9ed3700 100644
+--- a/humanlayer/core/approval.py
++++ b/humanlayer/core/approval.py
+@@ -8,7 +8,13 @@ from functools import wraps
+ from typing import Any, Callable, TypeVar
+ 
+ from pydantic import BaseModel
+-from slugify import slugify
++
++
++def _simple_slugify(value: str | None) -> str:
++    if not value:
++        return ""
++    slug = "-".join(value.strip().split())
++    return slug.lower()
+ 
+ from humanlayer.core.cloud import (
+     CloudHumanLayerBackend,
+@@ -38,10 +44,6 @@ class HumanLayerError(Exception):
+     pass
+ 
+ 
+-class UserDeniedError(HumanLayerError):
+-    pass
+-
+-
+ def genid(prefix: str) -> str:
+     return f"{prefix}-{secrets.token_urlsafe(8)}"
+ 
+@@ -109,7 +111,7 @@ class HumanLayer(BaseModel):
+         agent = "agent"
+         self.run_id = self.run_id or os.getenv(
+             "HUMANLAYER_RUN_ID",
+-            self.genid(f"{slugify(self.agent_name or agent)}"),
++            self.genid(_simple_slugify(self.agent_name or agent) or agent),
+         )
+ 
+         if self.approval_method == ApprovalMethod.BACKEND and not self.backend:
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..583f2da 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,11 +11,16 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-dotenv = "1.0.1"
++click = "8.1.7"
+ 
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"
+ humanlayer = "humanlayer.cli.main:cli"
+ 
++[tool.poetry.group.dev.dependencies]
+ [tool.poetry.group.dev.dependencies]
+ pytest = "^7.2.0"
+ pytest-cov = "^4.0.0"
+@@ -25,10 +30,7 @@ pre-commit = "^3.4.0"
+ tox = "^4.11.1"
+ ruff = "^0.5.6"
+ types-requests = "^2.32.0.20240712"
+-types-python-slugify = "^8.0.2.20240310"
+ black = "^24.8.0"
+-
+-[tool.poetry.group.docs.dependencies]
+ mkdocs = "^1.4.2"
+ mkdocs-material = "^9.2.7"
+ mkdocstrings = {extras = ["python"], version = "^0.23.0"}

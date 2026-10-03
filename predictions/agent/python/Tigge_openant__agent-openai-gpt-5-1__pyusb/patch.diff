@@ -1,0 +1,59 @@
+diff --git a/openant/base/ant.py b/openant/base/ant.py
+index d5b717f..bae60f2 100644
+--- a/openant/base/ant.py
++++ b/openant/base/ant.py
+@@ -31,8 +31,6 @@ import time
+ import queue
+ import logging
+ 
+-import usb.core
+-import usb.util
+ from usb import USBError
+ 
+ from .message import Message
+diff --git a/openant/base/driver.py b/openant/base/driver.py
+index 5d63925..338a4e5 100644
+--- a/openant/base/driver.py
++++ b/openant/base/driver.py
+@@ -28,7 +28,6 @@ import logging
+ from typing import Generator, Optional
+ from enum import Enum
+ 
+-from usb.core import Device
+ 
+ _logger = logging.getLogger("openant.base.driver")
+ 
+@@ -244,9 +243,8 @@ try:
+ except ImportError:
+     pass
+ 
+-try:
+-    import usb.core
+-    import usb.util
++    import usb.core as _usb_core  # type: ignore[import-not-found]
++    import usb.util as _usb_util  # type: ignore[import-not-found]
+     from .commons import is_windows
+     import time
+ 
+@@ -266,10 +264,7 @@ try:
+ 
+         @classmethod
+         def find(cls):
+-            return (
+-                usb.core.find(idVendor=cls.ID_VENDOR, idProduct=cls.ID_PRODUCT)
+-                is not None
+-            )
++            return _usb_core.find(idVendor=cls.ID_VENDOR, idProduct=cls.ID_PRODUCT) is not None
+ 
+         def open(self):
+             # Find USB device
+@@ -281,8 +276,7 @@ try:
+             self.dev = usb.core.find(idVendor=self.ID_VENDOR, idProduct=self.ID_PRODUCT)
+ 
+             # was it found?
+-            if self.dev is None:
+-                raise ValueError("Device not found")
++            self.dev = _usb_core.find(idVendor=self.ID_VENDOR, idProduct=self.ID_PRODUCT)
+ 
+             _logger.debug("USB Config values:")
+             for cfg in self.dev:

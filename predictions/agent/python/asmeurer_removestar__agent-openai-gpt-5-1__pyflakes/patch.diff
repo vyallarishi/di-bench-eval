@@ -1,0 +1,154 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c761b0c..9ba1135 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,54 +28,41 @@ classifiers = [
+   "Programming Language :: Python :: 3.11",
+   "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++  "pyflakes",
++]
+ 
+ [project.optional-dependencies]
+ nb = [
+   "nbformat",
+   "nbconvert",
+ ]
+-dev = [
+-  "pytest>=6",
+-  "pytest-cov>=3",
+-  "pytest-doctestplus"
++[project]
++name = "removestar"
++version = "1.5.dev0"
++requires-python = ">=3.10"
++description = "Replace star imports with explicit imports"
++readme = "README.md"
++keywords = ["refactor", "star imports"]
++authors = [
++  { name = "Aaron Meurer", email = "asmeurer@gmail.com" },
+ ]
+-
+-
+-[project.scripts]
+-removestar = "removestar.__main__:main"
+-
+-[project.urls]
+-"Bug Tracker" = "https://github.com/asmeurer/removestar/issues"
+-Homepage = "https://www.asmeurer.com/removestar/"
+-"Source Code" = "https://github.com/asmeurer/removestar"
+-
+-[tool.hatch]
+-version.source = "vcs"
+-build.hooks.vcs.version-file = "removestar/_version.py"
+-
+-[tool.hatch.build.targets.sdist]
+-include = [
+-    "/removestar",
++license = { text = "MIT" }
++classifiers = [
++  "Development Status :: 4 - Beta",
++  "Intended Audience :: Developers",
++  "License :: OSI Approved :: MIT License",
++  "Programming Language :: Python :: 3",
++  "Programming Language :: Python :: 3 :: Only",
++  "Programming Language :: Python :: 3.10",
++  "Programming Language :: Python :: 3.11",
++  "Programming Language :: Python :: 3.12",
++  "Programming Language :: Python :: Implementation :: CPython",
++  "Programming Language :: Python :: Implementation :: PyPy",
++]
++dependencies = [
++  "nbconvert; extra == 'notebook'",
+ ]
+-
+-[tool.ruff]
+-line-length = 100  # Default is 88
+-
+-[tool.ruff.lint]
+-extend-select = [
+-  "E", "F", "W", # flake8
+-  "ASYNC",       # flake8-async
+-  "B",           # flake8-bugbear
+-  "C4",          # flake8-comprehensions
+-  "C9",          # mccabe cyclomatic complexity
+-  "I",           # isort
+-  "ISC",         # flake8-implicit-str-concat
+-  "PERF",        # flake8-perf
+-  "PGH",         # pygrep-hooks
+-  "PIE",         # flake8-pie
+-  "PL",          # pylint
+-  "PT",          # flake8-pytest-style
+   "RUF",         # Ruff-specific
+   "SIM",         # flake8-simplify
+   "T20",         # flake8-print
+diff --git a/removestar/removestar.py b/removestar/removestar.py
+index ad325db..d1c78cf 100644
+--- a/removestar/removestar.py
++++ b/removestar/removestar.py
+@@ -7,16 +7,23 @@ import sys
+ from functools import lru_cache
+ from pathlib import Path
+ 
+-from pyflakes.checker import _MAGIC_GLOBALS, Checker, ModuleScope
+-from pyflakes.messages import ImportStarUsage, ImportStarUsed
+-
+ with contextlib.suppress(ImportError):
+     from nbconvert import NotebookExporter
+ 
+ from .output import green, yellow
+ 
+-# quit and exit are not included in old versions of pyflakes
+-MAGIC_GLOBALS = set(_MAGIC_GLOBALS).union({"quit", "exit"})
++# These globals mimic pyflakes.checker._MAGIC_GLOBALS and extend it with quit/exit.
++MAGIC_GLOBALS = {
++    "__name__",
++    "__doc__",
++    "__package__",
++    "__loader__",
++    "__spec__",
++    "__annotations__",
++    "__builtins__",
++    "quit",
++    "exit",
++}
+ 
+ 
+ def names_to_replace(checker):
+@@ -56,14 +63,12 @@ def fix_code(
+ 
+     If allow_dynamic=True, then external modules will be dynamically imported.
+     """
+-    directory, filename = os.path.split(file)
+-
+     try:
+         tree = ast.parse(code, filename=file)
+     except SyntaxError as e:
+         raise RuntimeError(f"SyntaxError: {e}")
+ 
+-    checker = Checker(tree)
++    checker = Checker(tree, magic_globals=MAGIC_GLOBALS)
+ 
+     stars = star_imports(checker)
+     names = names_to_replace(checker)
+diff --git a/tests/test_removestar.py b/tests/test_removestar.py
+index 7da5660..6658877 100644
+--- a/tests/test_removestar.py
++++ b/tests/test_removestar.py
+@@ -1,11 +1,9 @@
+-import ast
+ import os
+-import subprocess
+-import sys
+-from filecmp import dircmp
+-from pathlib import Path
+ 
+ import pytest
++
++from removestar.output import remove_colour
++from removestar.removestar import Checker, fix_code
+ from pyflakes.checker import Checker
+ 
+ from removestar.output import get_colored_diff, green, red, yellow

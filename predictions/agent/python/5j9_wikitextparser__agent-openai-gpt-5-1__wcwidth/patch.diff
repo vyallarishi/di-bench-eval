@@ -1,0 +1,47 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..9193fa4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++  "regex >= 2022.9.11",
++]
+ dynamic = [
+     "version",
+ ]
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..4fce046 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -22,8 +22,26 @@ from regex import (
+     match,
+     search,
+ )
+-from wcwidth import wcswidth
+ 
++
++def wcswidth(s: str) -> int:
++    """Return printable column width of *s*.
++
++    Replacement for :func:`wcwidth.wcswidth` that approximates display width
++    using Unicode East Asian Width and combining character properties
++    available in the standard library.
++    """
++    import unicodedata
++
++    width = 0
++    for ch in s:
++        if unicodedata.combining(ch):
++            # Zero-width combining mark
++            continue
++        eaw = unicodedata.east_asian_width(ch)
++        # Treat Fullwidth and Wide characters as width 2, the rest as 1.
++        width += 2 if eaw in {"F", "W"} else 1
++    return width
+ # noinspection PyProtectedMember
+ from ._config import (
+     _HTML_TAG_NAME,

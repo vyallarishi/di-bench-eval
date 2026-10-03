@@ -1,0 +1,108 @@
+diff --git a/omniduct/utils/debug.py b/omniduct/utils/debug.py
+index 322edda..de63269 100644
+--- a/omniduct/utils/debug.py
++++ b/omniduct/utils/debug.py
+@@ -5,7 +5,6 @@ import logging
+ import sys
+ import time
+ 
+-import progressbar
+ from decorator import decorate
+ 
+ from .config import config
+@@ -131,23 +130,38 @@ class StatusLogger:
+         return self.__scopes[-1]
+ 
+     def __get_progress_bar(self, indeterminate=False):
++        """Lazily construct a simple stdout progress indicator.
++
++        This is a minimal, dependency-free replacement for the previous
++        progressbar2-based implementation. It intentionally avoids fancy
++        terminal control to keep behavior predictable in tests and
++        when logging is redirected.
++        """
+         if self._progress_bar is None:
+             if config.logging_level >= logging.INFO:
+-                prefix = ": ".join(self.current_scopes) + ": "
++                prefix = ": ".join(self.current_scopes) + ": " if self.current_scopes else ""
+             else:
+                 prefix = "\t" * len(self.current_scopes)
+-            self._progress_bar = progressbar.ProgressBar(
+-                widgets=[
+-                    prefix,
+-                    progressbar.widgets.RotatingMarker()
+-                    if indeterminate
+-                    else progressbar.widgets.Bar(),
+-                    progressbar.widgets.Timer(format=" %(elapsed)s"),
+-                ],
+-                redirect_stderr=True,
+-                redirect_stdout=True,
+-                max_value=100,
+-            ).start()
++
++            # Internal state stored in a small closure-based object.
++            class _SimpleProgressBar:
++                def __init__(self, prefix):
++                    self.prefix = prefix
++                    self.last_progress = None
++
++                def update(self, progress):
++                    # Clamp to [0, 100] and accept None for indeterminate mode.
++                    if progress is not None:
++                        try:
++                            progress = max(0, min(100, float(progress)))
++                        except (TypeError, ValueError):
++                            progress = None
++                    self.last_progress = progress
++
++                def finish(self, end=None):  # end kept for API compatibility
++                    pass
++
++            self._progress_bar = _SimpleProgressBar(prefix)
+ 
+         return self._progress_bar
+ 
+@@ -196,8 +210,6 @@ class StatusLogger:
+         simplicity of a single "logger" instance.
+         """
+         self.__get_logger_instance(context).setLevel(level)
+-
+-
+ def detect_scopes():
+     scopes = []
+     current_frame = inspect.currentframe()
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..2b02847 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -24,12 +24,24 @@ classifiers = [
+     "Programming Language :: Python :: 3.8",
+     "Programming Language :: Python :: 3.9",
+     "Programming Language :: Python :: 3.10",
+-    "Programming Language :: Python :: 3.11",
+-    "Programming Language :: Python :: 3.12",
+-]
+-requires-python = ">=3.7"
+-dependencies = []
+-
++27     "Programming Language :: Python :: 3.11",
++28     "Programming Language :: Python :: 3.12",
++29 ]
++30 requires-python = ">=3.7"
++31 dependencies = [
++32     "decorator",
++33     "interface_meta>=1.2.0,<2",
++34     "jinja2",
++35     "lazy-object-proxy",
++36     "packaging",
++37     "pandas>=0.20.3",
++38     "python-dateutil",
++39     "pyyaml",
++40     "sqlalchemy",
++41     "sqlparse",
++42     "wrapt",
++43 ]
++44 
+ [project.optional-dependencies]
+ all = [
+     "boto3",

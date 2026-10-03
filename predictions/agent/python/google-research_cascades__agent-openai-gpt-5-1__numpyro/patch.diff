@@ -1,0 +1,67 @@
+diff --git a/cascades/_src/distributions/base.py b/cascades/_src/distributions/base.py
+index b6a21e5..0383757 100644
+--- a/cascades/_src/distributions/base.py
++++ b/cascades/_src/distributions/base.py
+@@ -24,9 +24,7 @@ import cachetools
+ import jax
+ import jax.numpy as jnp
+ import numpy as np
+-from numpyro import distributions as np_dists
+ import shortuuid
+-
+ DEFAULT_TIMEOUT = 60
+ 
+ ## Base Distribution and RandomSample types.
+@@ -122,7 +120,7 @@ def get_rng(seed):
+   return seed
+ 
+ 
+-def score_distribution(fn: Union[Distribution, np_dists.Distribution],
++def score_distribution(fn: Distribution,
+                        value: Any,
+                        await_timeout: Optional[int] = None):
+   """Score value under distribution.
+@@ -154,9 +152,9 @@ def score_distribution(fn: Union[Distribution, np_dists.Distribution],
+ def sample_distribution(fn, *args, await_timeout=None, **kwargs):
+   """Sample value from function or distribution.
+ 
+-  If `fn` comes from third party distribution library (e.g tf distributions or
+-  NumPyro), then sample using library specific method. Otherwise, if fn is
+-  callable, draw a sample by calling fn.
++  If `fn` comes from a third party distribution library (e.g tf distributions),
++  then sample using library specific method. Otherwise, if fn is callable, draw
++  a sample by calling fn.
+ 
+   Args:
+     fn: Callable or object which defines a `score` or `log_prob` method.
+@@ -167,15 +165,7 @@ def sample_distribution(fn, *args, await_timeout=None, **kwargs):
+   Returns:
+     Sampled value, with (potentially unnormalized) likelihood.
+   """
+-  if isinstance(fn, np_dists.Distribution):
+-    # Numpyro distributions.
+-    key = kwargs['rng']
+-    kwargs['key'] = key
+-    del kwargs['rng']
+-    value = fn.sample(*args, **kwargs)
+-    log_p = fn.log_prob(value)
+-    return RandomSample(value=value, log_p=log_p)
+-  elif hasattr(fn, 'sample') and callable(fn.sample):
++  if hasattr(fn, 'sample') and callable(fn.sample):
+     fn = fn.sample
+   random_sample = fn(*args, **kwargs)
+   if isinstance(random_sample, futures.Future):
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..382ab80 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,8 +14,7 @@ classifiers = [
+ keywords = []
+ 
+ # pip dependencies of the project
+-dependencies = []
+-
++dependencies = ["cachetools", "shortuuid", "jax[cpu]", "immutabledict", "openai"]
+ # This is set automatically by flit using `cascades.__version__`
+ dynamic = ["version"]
+ 

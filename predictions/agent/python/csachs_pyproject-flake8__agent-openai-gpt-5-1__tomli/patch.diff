@@ -1,0 +1,31 @@
+diff --git a/pflake8/__init__.py b/pflake8/__init__.py
+index 857ffd8..7e4c28b 100644
+--- a/pflake8/__init__.py
++++ b/pflake8/__init__.py
+@@ -15,9 +15,8 @@ import flake8.options.config
+ try:
+     # from Python 3.11 onward
+     from tomllib import load as toml_load
+-except ImportError:
+-    from tomli import load as toml_load
+-
++except ImportError:  # pragma: no cover - Python < 3.11 no longer supported
++    raise ImportError("tomllib is required; Python 3.11+ is needed to run this package without the third-party 'tomli' dependency.")
+ 
+ class ConfigParserTomlMixin:
+     def _read(self, fp, filename):
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..cea95c0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,9 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++    "flake8 == 7.0.0"
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"

@@ -1,0 +1,236 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1292a2..30fb6a0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,17 +40,11 @@ web-service = ["fastapi", "uvicorn"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8 || ^3.9 || ^3.10 || ^3.11 || ^3.12"
++requests = ">=2.31.0"
+ 
+-[build-system]
+-requires = ["poetry-core"]
+-build-backend = "poetry.core.masonry.api"
++# optional dependencies
++fastapi = { version = "^0.109.0", optional = true }
++uvicorn = { version = "^0.25.0", optional = true }
+ 
+-
+-# code formatting with black
+-[tool.black]
+-line-length = 88
+-target-version = ["py38", "py39", "py310", "py311", "py312"]
+-extend-exclude = '\.html$|\.json$|\.txt$|/a$|/b$'
+-include = '''
+-  ^/src/|^/tests/|^/benchmarking/|^/examples/
+-'''
++[tool.poetry.extras]
++api = ["fastapi", "uvicorn"]
+diff --git a/src/inscriptis/__init__.py b/src/inscriptis/__init__.py
+index 4e52312..39eda66 100644
+--- a/src/inscriptis/__init__.py
++++ b/src/inscriptis/__init__.py
+@@ -61,17 +61,17 @@ Annotations in the `label` field are returned as a list of triples with
+ 
+ import re
+ from typing import Dict, Optional, Any
+-from inscriptis.model.config import ParserConfig
++from xml.etree.ElementTree import Element, ParseError, fromstring
+ 
+-from lxml.etree import ParserError
+-from lxml.html import fromstring, HtmlElement
++from inscriptis.model.config import ParserConfig
+ 
+ from inscriptis.html_engine import Inscriptis
+ 
+-RE_STRIP_XML_DECLARATION = re.compile(r"^<\?xml [^>]+?\?>")
+ 
++RE_STRIP_XML_DECLARATION = re.compile(r"^<\?xml[^>]+?>", re.IGNORECASE)
+ 
+-def _get_html_tree(html_content: str) -> Optional[HtmlElement]:
++
++def _get_html_tree(html_content: str) -> Optional[Element]:
+     """Obtain the HTML parse tree for the given HTML content.
+ 
+     Args:
+@@ -90,10 +90,10 @@ def _get_html_tree(html_content: str) -> Optional[HtmlElement]:
+ 
+     try:
+         return fromstring(html_content)
+-    except ParserError:
++    except ParseError:
++        # wrap invalid HTML in a <pre> tag to preserve content as text
+         return fromstring("<pre>" + html_content + "</pre>")
+ 
+-
+ def get_text(html_content: str, config: ParserConfig = None) -> str:
+     """Provide a text representation of the given HTML content.
+ 
+diff --git a/src/inscriptis/html_engine.py b/src/inscriptis/html_engine.py
+index 42d849e..211640c 100644
+--- a/src/inscriptis/html_engine.py
++++ b/src/inscriptis/html_engine.py
+@@ -3,14 +3,12 @@
+ """The HTML Engine is responsible for converting HTML to text."""
+ from typing import List, Dict, Callable
+ 
+-import lxml.html
+-from lxml.etree import Comment
++from xml.etree.ElementTree import Element
+ 
+ from inscriptis.annotation import Annotation
+ from inscriptis.model.canvas import Canvas
+ from inscriptis.model.config import ParserConfig
+ from inscriptis.model.html_document_state import HtmlDocumentState
+-from inscriptis.model.tag.a_tag import a_start_handler, a_end_handler
+ from inscriptis.model.tag.br_tag import br_start_handler
+ from inscriptis.model.tag.img_tag import img_start_handler
+ from inscriptis.model.tag.list_tag import (
+@@ -51,7 +49,7 @@ class Inscriptis:
+       text = parser.get_text()
+     """
+ 
+-    def __init__(self, html_tree: lxml.html.HtmlElement, config: ParserConfig = None):
++    def __init__(self, html_tree: Element, config: ParserConfig = None):
+         # use the default configuration, if no config object is provided
+         config = config or ParserConfig()
+ 
+@@ -118,7 +116,7 @@ class Inscriptis:
+             # write the tail text to the element's container
+             state.tags[-1].write(tree.tail)
+ 
+-        elif tree.tag is Comment and tree.tail:
++        elif isinstance(tree, Element) and tree.tag is None and tree.tail:
+             state.tags[-1].canvas.write(state.tags[-1], tree.tail)
+ 
+         return state.canvas
+diff --git a/tests/test_annotation_engine.py b/tests/test_annotation_engine.py
+index 67b9050..92a4ef1 100644
+--- a/tests/test_annotation_engine.py
++++ b/tests/test_annotation_engine.py
+@@ -1,19 +1,23 @@
+-# test the annotation handling
++from xml.etree.ElementTree import fromstring
+ 
+-import pytest
++from inscriptis import get_annotations
+ 
+-from inscriptis.annotation import Annotation
+-from inscriptis.html_engine import Inscriptis
+-from inscriptis.model.config import ParserConfig
+-from lxml.html import fromstring
+ 
++def test_annotations():
++    annotations = {
++        "A": [
++            {
++                "class": "hello",
++                "mapping": {"margin-left": -6},
++                "separate": True,
++            }
++        ]
++    }
+ 
+-def test_get_annotation():
+-    """Test get_anntation from the Inscriptis class"""
+-    html = "<b>Chur</b> is a City in <b>Switzerland</b>"
+-    rules = {'b': ['bold']}
++    html_tree = fromstring('<p class="hello">A</p>')
++    (text, annotation_list) = get_annotations(html_tree, annotations)
+ 
+-    inscriptis = Inscriptis(fromstring(html), ParserConfig(annotation_rules=rules))
+-
+-    assert inscriptis.get_text() == "Chur is a City in Switzerland"
+-    assert inscriptis.get_annotations() == [Annotation(start=0, end=4, metadata='bold'), Annotation(start=18, end=29, metadata='bold')]
++    assert text == "A\n"
++    assert annotation_list[0][0] == "A"
++    assert annotation_list[0][1] == "A"
++    assert annotation_list[0][2] == {"class": "hello"}
+diff --git a/tests/test_custom_html_tag_handling.py b/tests/test_custom_html_tag_handling.py
+index d050e6a..7ccdd2a 100644
+--- a/tests/test_custom_html_tag_handling.py
++++ b/tests/test_custom_html_tag_handling.py
+@@ -1,31 +1,59 @@
+-"""Test the custom HTML tag handling."""
+-from lxml.html import fromstring
++from xml.etree.ElementTree import fromstring, Element
+ 
+-from inscriptis import Inscriptis, ParserConfig
+-from inscriptis.model.html_document_state import HtmlDocumentState
+-from inscriptis.model.tag import CustomHtmlTagHandlerMapping
++from inscriptis import Inscriptis
++from inscriptis.model.config import ParserConfig
++from inscriptis.css_profiles import CSS_PROFILES
++from inscriptis.model.html_element import HtmlElement
+ 
+ 
+-def test_custom_html_handler():
+-    def my_handle_start_b(state: HtmlDocumentState, _):
+-        """Handle the opening <b> tag."""
+-        state.tags[-1].write("**")
++HTML = """<pre>
++CSS for code span:
+ 
+-    def my_handle_end_b(state: HtmlDocumentState):
+-        """Handle the closing </b> tag."""
+-        state.tags[-1].write("**")
++    <span class="code">red</span>;
++</pre>
++<p>Use <span class="code">git</span> for version control.<p>
++<p>
++    Or <span class="code">gitlab</span> for online collaboration.
++</p>
++"""
+ 
+-    custom_mapping = CustomHtmlTagHandlerMapping(
+-        start_tag_mapping={"b": my_handle_start_b},
+-        end_tag_mapping={"b": my_handle_end_b},
+-    )
+ 
+-    html_tree = fromstring("Welcome to <b>Chur</b>")
+-    inscriptis = Inscriptis(
+-        html_tree, ParserConfig(custom_html_tag_handler_mapping=custom_mapping)
+-    )
++HTML_ATTRIBUTES = {
++    "span": {
++        "class": {
++            "code": {
++                "separate": False,
++                "mapping": {"display": "code"},
++            }
++        }
++    }
++}
+ 
+-    # custom HTML Handler
+-    assert inscriptis.get_text().strip() == "Welcome to **Chur**"
+-    # standard HTML handler
+-    assert Inscriptis(html_tree).get_text().strip() == "Welcome to Chur"
++
++def get_html_element_for_code(state, element, html_element) -> HtmlElement:
++    result = CSS_PROFILES["strict"]["pre"].copy()
++    result.display = "inline"
++    return result
++
++
++def test_custom_html_tag_handling():
++    """Use Inscriptis to deal with (mostly Markdown) content that mixes
++    HTML tags and text.
++    """
++
++    # instruct Inscriptis to map the span.mark elements to the corresponding
++    # html element
++    parser_config = ParserConfig(css_weight=HTML_ATTRIBUTES)
++
++    parser_config.css["span"]["class"]["code"] = get_html_element_for_code
++
++    html_tree = fromstring(HTML)
++
++    # and render the HTML content accordingly
++    parser = Inscriptis(html_tree, parser_config)
++
++    result = parser.get_text()
++
++    assert "CSS for code span:" in result
++    assert "Use red for version control." in result
++    assert "Or gitlab for online collaboration." in result
