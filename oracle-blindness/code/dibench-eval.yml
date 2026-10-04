@@ -1,0 +1,161 @@
+name: DI-Bench eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      set:
+        description: "Which predictions to evaluate"
+        type: choice
+        default: gold
+        options: [gold, recovered, mutation, cheats, agent]
+      shards:
+        description: "Parallel shards"
+        default: "10"
+      limit:
+        description: "Only the first N Python instances (0 = all 98)"
+        default: "0"
+      timeout:
+        description: "Per-instance CI timeout in seconds"
+        default: "1200"
+      range:
+        description: "Explicit dataset index range start,end (overrides shards and limit)"
+        default: ""
+      act_images:
+        description: "Runner images pre-loaded into the inner Docker daemon"
+        default: "catthehacker/ubuntu:act-22.04-20240822 catthehacker/ubuntu:act-latest-20240822"
+
+env:
+  RELEASE: https://github.com/microsoft/DI-Bench/releases/download/v1.0
+
+jobs:
+  plan:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      total: ${{ steps.plan.outputs.total }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download dataset
+        run: |
+          mkdir -p .cache/repo-data
+          curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-regular.jsonl"
+          if [ "${{ inputs.set }}" = "mutation" ] || [ "${{ inputs.set }}" = "cheats" ] || [ "${{ inputs.set }}" = "agent" ]; then
+            curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-regular-python.tar.gz"
+            tar -xzf .cache/py.tar.gz -C .cache/repo-data && rm .cache/py.tar.gz
+          fi
+      - id: plan
+        run: |
+          pip install -q tomli
+          N=$(python scripts/gh/prepare.py --set "${{ inputs.set }}" --dataset .cache/dataset.jsonl --repo-data .cache/repo-data --out-results /tmp/x --out-dataset /tmp/x.jsonl --limit "${{ inputs.limit }}" --count-only)
+          python - "$N" "${{ inputs.shards }}" "${{ inputs.range }}" <<'PY'
+          import json, math, os, sys
+          n, shards, rng = int(sys.argv[1]), max(1, int(sys.argv[2])), sys.argv[3].strip()
+          if rng:
+              a, b = [int(x) for x in rng.split(",")]
+              m = [dict(shard=0, start=a, end=b)]
+          else:
+              shards = min(shards, max(n, 1))
+              size = math.ceil(n / shards)
+              m = [dict(shard=i, start=i * size, end=min((i + 1) * size, n)) for i in range(shards) if i * size < n]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps(dict(include=m)) + "\n")
+              f.write(f"total={n}\n")
+          print(n, m)
+          PY
+
+  eval:
+    needs: plan
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      DIBENCH_CONTAINER_MODE: sysbox
+      DIBENCH_IMAGE_CACHE_DIR: ${{ github.workspace }}/.image-cache
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          df -h /
+      - name: Install sysbox runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R nestybox/sysbox --pattern 'sysbox-ce_*linux_amd64.deb' -D /tmp/sysbox
+          docker rm -f $(docker ps -aq) >/dev/null 2>&1 || true
+          sudo apt-get install -y -q /tmp/sysbox/*.deb 2>&1 | tail -2
+          sleep 3
+          docker info 2>/dev/null | grep -i "Runtimes"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install harness
+        run: pip install -q -e . docker tomli
+      - name: Download dataset and repositories
+        run: |
+          mkdir -p .cache/repo-data
+          curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-regular.jsonl"
+          curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-regular-python.tar.gz"
+          tar -xzf .cache/py.tar.gz -C .cache/repo-data && rm .cache/py.tar.gz
+          ls .cache/repo-data/python | wc -l
+      - name: Pull runner image and cache act images
+        run: |
+          docker pull -q justachillguy/dibench-runner:latest
+          echo "--- .actrc inside the runner image ---"
+          docker run --rm --entrypoint cat justachillguy/dibench-runner:latest /root/.actrc || true
+          mkdir -p .image-cache
+          for img in ${{ inputs.act_images }}; do docker pull -q "$img"; done
+          docker save ${{ inputs.act_images }} -o .image-cache/act-images.tar
+          ls -la .image-cache; df -h /
+      - name: Prepare predictions
+        run: |
+          python scripts/gh/prepare.py --set "${{ inputs.set }}" --dataset .cache/dataset.jsonl --repo-data .cache/repo-data \
+            --out-results "results/${{ inputs.set }}" --out-dataset work/dataset.jsonl --limit "${{ inputs.limit }}"
+          wc -l work/dataset.jsonl
+      - name: Evaluate shard ${{ matrix.shard }} (${{ matrix.start }}-${{ matrix.end }})
+        run: |
+          python -m dibench.eval --result_dir "results/${{ inputs.set }}" --dataset_name_or_path work/dataset.jsonl \
+            --repo_instances_dir .cache/repo-data --id_range "${{ matrix.start }},${{ matrix.end }}" \
+            --cache_level log --timeout "${{ inputs.timeout }}" --resume True
+      - name: Shard summary
+        if: always()
+        run: python scripts/gh/summarize.py "results/${{ inputs.set }}" | head -40
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ inputs.set }}-shard-${{ matrix.shard }}-${{ matrix.start }}-${{ matrix.end }}
+          path: |
+            results/${{ inputs.set }}/**/eval-result.json
+            results/${{ inputs.set }}/**/*.log
+          if-no-files-found: warn
+
+  summarize:
+    needs: eval
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-${{ inputs.set }}-shard-*
+          merge-multiple: true
+          path: results-all
+      - name: Summarize
+        run: |
+          python scripts/gh/summarize.py results-all summary.md > /dev/null
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          head -30 summary.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ inputs.set }}
+          path: |
+            summary.md
+            summary.json
