@@ -1,0 +1,128 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..1d028c5
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'markupsafe' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['markupsafe']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'markupsafe')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
+diff --git a/pyproject.toml b/pyproject.toml
+index 99a9df3..41341a6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,6 +13,27 @@ include = ["CHANGELOG.md"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++click = "8.0.3"
++typer = "^0.7.0"
++bloodhound = "^1.6.0"
++cffi = "1.15.0"
++chardet = "4.0.0"
++cryptography = "36.0.1"
++dnspython = "2.2.0"
++Flask = "2.0.2"
++future = "0.18.2"
++impacket = "0.9.24"
++itsdangerous = "2.0.1"
++Jinja2 = "3.0.3"
++ldap3 = "2.9.1"
++ldapdomaindump = "0.9.3"
++pyasn1 = "0.4.8"
++pycparser = "2.21"
++pycryptodomex = "3.14.0"
++pyOpenSSL = "22.0.0"
++six = "1.16.0"
++Werkzeug = "2.0.2"
++rich = "12.2.0"
+ 
+ [tool.poetry.dev-dependencies]
+ pylint = "^2.13"
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..1d028c5
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'markupsafe' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['markupsafe']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'markupsafe')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()

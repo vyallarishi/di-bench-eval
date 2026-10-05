@@ -1,0 +1,112 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..d959621
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'pydantic' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['dantic', 'pydantic']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'pydantic')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
+diff --git a/pyproject.toml b/pyproject.toml
+index 0cfbeaf..3ab1d9b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -25,6 +25,11 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++numpy = "^1.21.1"
++tabulate = "^0.8.9"
++tqdm = "^4.64.1"
++joblib = "^1.2.0"
++typer = "^0.9.0"
+ 
+ [tool.poetry.group.dev.dependencies]
+ pre-commit = "^3.6.2"
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..d959621
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'pydantic' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['dantic', 'pydantic']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'pydantic')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
