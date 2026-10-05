@@ -1,0 +1,294 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..4a55ed5
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,127 @@
++"""Injected by UnpinBench: make 'flask' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['flask']
++_DEP = 'flask'
++_OWN = ['nvflare', 'nvflight', 'tests', 'versioneer']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    elif os.path.abspath(fn).startswith(_ROOT + "/"):
++        r = None if os.path.abspath(fn) in _SELF else True
++    else:
++        r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++
++
++_install()
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..a378b0d 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,6 +16,23 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    cryptography>=36.0.0
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..4a55ed5
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,127 @@
++"""Injected by UnpinBench: make 'flask' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['flask']
++_DEP = 'flask'
++_OWN = ['nvflare', 'nvflight', 'tests', 'versioneer']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    elif os.path.abspath(fn).startswith(_ROOT + "/"):
++        r = None if os.path.abspath(fn) in _SELF else True
++    else:
++        r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++
++
++_install()

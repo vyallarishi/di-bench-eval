@@ -8,9 +8,11 @@ was merely still present. Those pairs cannot score an agent: deleting the
 declaration and changing nothing passes.
 
 This builds the honest version: the declaration is removed AND the package is
-made genuinely unimportable at runtime, via a meta-path finder installed from
-`sitecustomize.py` (covers every Python process, including subprocesses and
-tox envs) and `conftest.py` (covers pytest when sitecustomize is shadowed).
+made unimportable *from the repository's own code* at runtime, via a
+meta-path finder installed from `sitecustomize.py` (covers every Python
+process, including subprocesses and tox envs) and `conftest.py` (covers pytest
+when sitecustomize is shadowed). Third-party packages that need the library
+keep importing it; see BLOCKER for why the block must be scoped by origin.
 
 A pair is *scoreable under blocking* iff CI fails with the block in place.
 
@@ -86,43 +88,171 @@ def import_names(dep: str) -> list[str]:
 
 
 # --- the blocker ----------------------------------------------------------
+# Scoped by *origin*: an import of a blocked root is refused only when the
+# frame performing it belongs to the repository's own code or tests. A
+# third-party package that legitimately depends on the removed library (pandas
+# importing numpy, requests importing certifi) must keep working, otherwise the
+# pair is unwinnable: no edit to the repository could ever make CI pass.
+#
+# Because a foreign package may load the module first, later repository imports
+# would be served from sys.modules without consulting any finder. So when a
+# foreign origin loads a blocked module we let the real loader run and then
+# replace the entry in sys.modules with a guard: a ModuleType that forwards
+# attribute access for foreign callers and raises for repository callers.
+# (CPython explicitly supports a module replacing itself in sys.modules during
+# load; _load_unlocked re-reads the entry after exec_module.)
 BLOCKER = '''\
-"""Injected by UnpinBench: make {dep!r} genuinely unimportable.
+"""Injected by UnpinBench: make {dep!r} unimportable *from this repository*.
 
 Removing a declaration does not uninstall a package another dependency pulls
 in. Without this, a deletion mutant cannot distinguish "the tests do not
-exercise this package" from "the package is still installed".
+exercise this package" from "the package is still installed". The block is
+scoped to the repository's own frames so dependencies that need the package
+keep working.
 """
+import os
+import sys
+import types
+
+_BLOCKED = {names!r}
+_DEP = {dep!r}
+_OWN = {own!r}          # the repository's own top-level packages (non-editable installs)
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+_SELF = {{os.path.abspath(__file__),
+         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}}
+_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
+_STDLIB = os.path.dirname(os.__file__)
+_MARK = "(blocked: dependency %s was removed)" % _DEP
+_cache = {{}}
+
+
+def _is_repo_file(fn):
+    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
+    if fn in _cache:
+        return _cache[fn]
+    if not fn or fn.startswith("<"):
+        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
+    elif "site-packages" in fn or "dist-packages" in fn:
+        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
+        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
+    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
+        r = None
+    elif any(v in fn for v in _VENV):
+        r = False
+    elif not os.path.isabs(fn):
+        r = True                                            # relative paths are project files
+    elif os.path.abspath(fn).startswith(_ROOT + "/"):
+        r = None if os.path.abspath(fn) in _SELF else True
+    else:
+        r = False
+    _cache[fn] = r
+    return r
+
+
+def _repo_origin(depth=2):
+    f = sys._getframe(depth)
+    while f is not None:
+        r = _is_repo_file(f.f_code.co_filename)
+        if r is not None:
+            return r
+        f = f.f_back
+    return False
+
+
+def _blocked(fullname):
+    return fullname.split(".")[0] in _BLOCKED
+
+
+class _Guard(types.ModuleType):
+    """Stands in for a blocked module that a foreign package loaded."""
+
+    def __init__(self, real):
+        super().__init__(real.__name__)
+        object.__setattr__(self, "_real", real)
+
+    def __getattr__(self, name):
+        real = object.__getattribute__(self, "_real")
+        if name.startswith("__") and name.endswith("__"):
+            return getattr(real, name)
+        if _repo_origin():
+            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
+        return getattr(real, name)
+
+    def __setattr__(self, name, value):
+        setattr(object.__getattribute__(self, "_real"), name, value)
+
+    def __dir__(self):
+        return dir(object.__getattribute__(self, "_real"))
+
+    def __repr__(self):
+        return repr(object.__getattribute__(self, "_real"))
+
+
+class _GuardLoader:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def create_module(self, spec):
+        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
+
+    def exec_module(self, module):
+        self._inner.exec_module(module)
+        sys.modules[module.__name__] = _Guard(module)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+class _BlockedFinder:
+    def find_spec(self, fullname, path=None, target=None):
+        if not _blocked(fullname):
+            return None
+        if _repo_origin():
+            raise ImportError("No module named %r %s" % (fullname, _MARK))
+        for finder in sys.meta_path:
+            if finder is self or not hasattr(finder, "find_spec"):
+                continue
+            spec = finder.find_spec(fullname, path, target)
+            if spec is not None:
+                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
+                    spec.loader = _GuardLoader(spec.loader)
+                return spec
+        return None
+
+
+def _install():
+    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
+        sys.meta_path.insert(0, _BlockedFinder())
+    for name in list(sys.modules):      # force every first import through the finder
+        if _blocked(name):
+            del sys.modules[name]
+
+
+_install()
+'''
+
+# The original, unscoped blocker (refuses the import from any origin). Kept to
+# reproduce the first screening run; its over-counting motivated the scoped one.
+BLOCKER_BROAD = '''\
+"""Injected by UnpinBench: make {dep!r} genuinely unimportable."""
 import sys
 
 _BLOCKED = {names!r}
 
 
 class _BlockedFinder:
-    def find_module(self, fullname, path=None):  # legacy API
-        return self if self._blocked(fullname) else None
-
     def find_spec(self, fullname, path=None, target=None):
-        if self._blocked(fullname):
+        if fullname.split(".")[0] in _BLOCKED:
             raise ImportError(
                 "No module named %r (blocked: dependency %s was removed)"
                 % (fullname, {dep!r})
             )
         return None
 
-    @staticmethod
-    def _blocked(fullname):
-        root = fullname.split(".")[0]
-        return root in _BLOCKED
-
-    def load_module(self, fullname):
-        raise ImportError("No module named %r (blocked)" % fullname)
-
 
 def _install():
     if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
         sys.meta_path.insert(0, _BlockedFinder())
-    # drop anything already imported so later imports hit the finder
     for name in list(sys.modules):
         if name.split(".")[0] in _BLOCKED:
             del sys.modules[name]
@@ -132,9 +262,25 @@ _install()
 '''
 
 
-def write_blocker(root: pathlib.Path, dep: str, names: list[str]) -> list[str]:
+def own_packages(repo: pathlib.Path) -> list[str]:
+    """Top-level importable names the repository itself provides."""
+    own = set()
+    for base in (repo, repo / "src"):
+        if not base.is_dir():
+            continue
+        for p in base.iterdir():
+            if p.is_dir() and (p / "__init__.py").exists():
+                own.add(p.name)
+            elif p.suffix == ".py" and p.name not in ("setup.py", "conftest.py", "sitecustomize.py"):
+                own.add(p.stem)
+    return sorted(own)
+
+
+def write_blocker(root: pathlib.Path, dep: str, names: list[str], own=None,
+                  mode: str = "scoped") -> list[str]:
     """Install the blocker so it runs for pytest and for any Python process."""
-    body = BLOCKER.format(dep=dep, names=names)
+    tpl = BLOCKER if mode == "scoped" else BLOCKER_BROAD
+    body = tpl.format(dep=dep, names=names, own=list(own or []))
     written = []
 
     # sitecustomize.py: imported automatically by every interpreter start.
@@ -210,6 +356,8 @@ def main():
     ap.add_argument("--pairs", default=None)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--count-only", action="store_true")
+    ap.add_argument("--mode", choices=["scoped", "broad"], default="scoped",
+                    help="scoped: block only repository-origin imports (default)")
     a = ap.parse_args()
 
     rows = {json.loads(l)["instance_id"]: json.loads(l)
@@ -269,7 +417,7 @@ def main():
         if not a.count_only:
             with tempfile.TemporaryDirectory() as td:
                 td = pathlib.Path(td)
-                blocker_files = write_blocker(td, dep, names)
+                blocker_files = write_blocker(td, dep, names, own_packages(repo), a.mode)
                 files = {bf: (masked, mutant)}
                 for bfile in blocker_files:
                     old = (repo / bfile).read_text() if (repo / bfile).exists() else None

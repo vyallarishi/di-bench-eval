@@ -1,0 +1,330 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..abf51fd
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,127 @@
++"""Injected by UnpinBench: make 'semver' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['semver']
++_DEP = 'semver'
++_OWN = ['make', 'mu', 'package', 'run', 'tests']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    elif os.path.abspath(fn).startswith(_ROOT + "/"):
++        r = None if os.path.abspath(fn) in _SELF else True
++    else:
++        r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++
++
++_install()
+diff --git a/setup.py b/setup.py
+index 2d3f12d..6c6fd5f 100644
+--- a/setup.py
++++ b/setup.py
+@@ -21,6 +21,59 @@ with open(os.path.join(base_dir, "CHANGES.rst"), encoding="utf8") as f:
+ 
+ 
+ install_requires = [
++    #
++    # The core 'install_requires' should only be things
++    # which are needed for the main editor to function.
++    #
++    "PyQt5==5.13.2"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    "QScintilla==2.11.3"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    "PyQtChart==5.13.1"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    # FIXME: jupyter-client added for Py3.5 compatibility, to be dropped after
++    # Mu v1.1 release. So, qtconsole < 5 and jupyter-client < 6.2 (issue #1444)
++    "jupyter-client>=4.1,<6.2",
++    # FIXME: ipykernel max added for macOS 10.13 compatibility, min taken from
++    # qtconsole 4.7.7. Full line can be removed after Mu v1.1 release.
++    # Dependency mirrored for user venv in mu/wheels/__init__.py
++    "ipykernel>=4.1,<6",
++    # FIXME: ipykernel<6 depends on ipython_genutils, but it isn't explicitly
++    # declared as a dependency. It also depends on traitlets, which
++    # incidentally brought ipython_genutils, but in v5.1 it was dropped, so as
++    # a workaround we need to manually specify it here.
++    "ipython_genutils>=0.2.0",
++    "qtconsole==4.7.7",
++    #
++    # adafruit-board-toolkit is used to find serial ports and help identify
++    # CircuitPython boards in the CircuitPython mode.
++    "adafruit-board-toolkit~=1.1",
++    "pyserial~=3.5",
++    "nudatus>=0.0.3",
++    # `flake8` is actually a testing/packaging dependency that, among other
++    # packages, brings in `pycodestyle` and `pyflakes` which are runtime
++    # dependencies. For the sake of "locality", it is being declared here,
++    # though. Regarding these packages' versions, please refer to:
++    # http://flake8.pycqa.org/en/latest/faq.html#why-does-flake8-use-ranges-for-its-dependencies
++    "flake8 >= 3.8.3",
++    # Clamp click max version to workaround incompatibility with black<22.1.0
++    "click<=8.0.4",
++    "black>=19.10b0,<22.1.0;python_version>'3.5'",
++    "platformdirs>=2.0.0,<3.0.0",
++    # virtualenv vendors pip, we need at least pip v19.3 to install some
++    # rust based dependencies. virtualenv >=v20 is required for the --symlinks
++    # flag needed by AppImage, and it packs pip v20.0.2.
++    "virtualenv>=20.0.0",
++    #
++    # Needed for packaging
++    #
++    "wheel",
++    # Needed to deploy from web mode
++    "requests>=2.0.0",
++    #
++    # Needed to resolve an issue with paths in the user virtual environment
++    #
++    "pywin32; sys_platform=='win32'",
+ ]
+ 
+ 
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..abf51fd
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,127 @@
++"""Injected by UnpinBench: make 'semver' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['semver']
++_DEP = 'semver'
++_OWN = ['make', 'mu', 'package', 'run', 'tests']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    elif os.path.abspath(fn).startswith(_ROOT + "/"):
++        r = None if os.path.abspath(fn) in _SELF else True
++    else:
++        r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++
++
++_install()

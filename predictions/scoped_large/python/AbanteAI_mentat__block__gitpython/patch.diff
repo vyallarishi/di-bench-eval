@@ -1,0 +1,294 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..005cde7
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,127 @@
++"""Injected by UnpinBench: make 'gitpython' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['git', 'gitpython']
++_DEP = 'gitpython'
++_OWN = ['benchmarks', 'mentat', 'testbed', 'tests']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    elif os.path.abspath(fn).startswith(_ROOT + "/"):
++        r = None if os.path.abspath(fn) in _SELF else True
++    else:
++        r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++
++
++_install()
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..13fe9c4 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,23 @@
++attrs>=23.1.0
++backoff==2.2.1
++httpx==0.25.1
++jinja2==3.1.3
++jsonschema>=4.17.0
++numpy>=1.22.0
++openai==1.13.3
++pillow==10.1.0
++prompt-toolkit==3.0.39
++Pygments==2.15.1
++ragdaemon==0.2.12
++selenium==4.15.2
++sentry-sdk==1.34.0
++sounddevice==0.4.6
++soundfile==0.12.1
++spiceai~=0.2.0
++termcolor==2.3.0
++textual==0.47.1
++textual-autocomplete==2.1.0b0
++typing_extensions==4.8.0
++tqdm>=4.66.1
++webdriver_manager==4.0.1
++watchfiles==0.21.0
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..005cde7
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,127 @@
++"""Injected by UnpinBench: make 'gitpython' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['git', 'gitpython']
++_DEP = 'gitpython'
++_OWN = ['benchmarks', 'mentat', 'testbed', 'tests']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    elif os.path.abspath(fn).startswith(_ROOT + "/"):
++        r = None if os.path.abspath(fn) in _SELF else True
++    else:
++        r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++
++
++_install()

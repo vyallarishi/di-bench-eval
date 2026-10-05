@@ -7,7 +7,7 @@ on:
         description: "Which predictions to evaluate"
         type: choice
         default: gold
-        options: [gold, recovered, mutation, cheats, agent, blocked, blocked_large]
+        options: [gold, recovered, mutation, cheats, agent, blocked, blocked_large, scoped, scoped_large]
       subset:
         description: "Which DI-Bench release subset the instances come from"
         type: choice
@@ -46,7 +46,7 @@ jobs:
       - name: Download dataset
         run: |
           mkdir -p .cache/repo-data
-          SUB="${{ inputs.subset }}"; [ "${{ inputs.set }}" = "blocked_large" ] && SUB=large
+          SUB="${{ inputs.subset }}"; case "${{ inputs.set }}" in *_large) SUB=large;; esac
           curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-$SUB.jsonl"
           curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-$SUB-python.tar.gz"
           tar -xzf .cache/py.tar.gz -C .cache/repo-data && rm .cache/py.tar.gz
@@ -106,7 +106,7 @@ jobs:
       - name: Download dataset and repositories
         run: |
           mkdir -p .cache/repo-data
-          SUB="${{ inputs.subset }}"; [ "${{ inputs.set }}" = "blocked_large" ] && SUB=large
+          SUB="${{ inputs.subset }}"; case "${{ inputs.set }}" in *_large) SUB=large;; esac
           curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-$SUB.jsonl"
           curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-$SUB-python.tar.gz"
           tar -xzf .cache/py.tar.gz -C .cache/repo-data && rm .cache/py.tar.gz
