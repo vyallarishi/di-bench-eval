@@ -199,11 +199,17 @@ def classify(r: dict, kind: str, dep: str):
         # actually loaded. When CI runs in a subdirectory, the blocker written
         # to the repository root is never imported and the run passes for a
         # reason that has nothing to do with the dependency (tournesol).
-        if kind != "deletion" and r["log"] is not None:
-            lines = read_log(r["log"])
-            if not any(ACTIVE.search(l) for l in lines):
-                return None, "inconclusive: no evidence the blocker loaded (CI may run in a subdirectory)"
-        return None, "blind spot: CI passes"
+        #
+        # Absence of the announcement is only evidence when the screened patch
+        # could have produced it: runs predating the announcement, and logs
+        # that capture stdout only, say nothing either way. `activation` is
+        # None for those, and such a pass is reported as unconfirmed rather
+        # than silently counted as blindness.
+        if kind != "deletion" and r["log"] is not None and r.get("can_announce"):
+            if not any(ACTIVE.search(l) for l in read_log(r["log"])):
+                return None, "inconclusive: blocker not observed loading (CI may run in a subdirectory)"
+        return None, ("blind spot: CI passes" if r.get("can_announce")
+                      else "blind spot: CI passes (activation unconfirmed)")
     if r["log"] is None:
         return ("ci_fail_unlogged", "unknown") if kind == "deletion" else (None, "no log")
     lines = read_log(r["log"])
@@ -309,6 +315,16 @@ def main():
                 phantom_pred[(e["instance_id"], norm(e["dependency"]))] = bool(
                     e.get("predicted", e.get("phantom_predicted")))
 
+    def mark_announce(results: dict, patch_root: pathlib.Path) -> dict:
+        """Flag results whose screening patch carries the activation notice."""
+        for mid, r in results.items():
+            pf = patch_root / "python" / mid / "patch.diff"
+            try:
+                r["can_announce"] = "UnpinBench blocker active" in pf.read_text()
+            except OSError:
+                r["can_announce"] = False
+        return results
+
     def blocked_results(broad_dir, scoped_dir):
         """Broad screening results, overridden per mutant by the scoped re-screen."""
         res = {k: dict(v, kind="blocked") for k, v in load_results(pathlib.Path(broad_dir)).items()}
@@ -323,9 +339,11 @@ def main():
     if a.canonical:
         sources = [
             ("regular", "blocked", gold_reg,
-             {k: dict(v, kind="scoped") for k, v in load_many(a.all_regular).items()}),
+             mark_announce({k: dict(v, kind="scoped") for k, v in load_many(a.all_regular).items()},
+                           pathlib.Path("predictions/all"))),
             ("large", "blocked", gold_lg,
-             {k: dict(v, kind="scoped") for k, v in load_many(a.all_large).items()}),
+             mark_announce({k: dict(v, kind="scoped") for k, v in load_many(a.all_large).items()},
+                           pathlib.Path("predictions/all_large"))),
         ]
         for subset, path in zip(("regular", "large"), a.candidates):
             cp = pathlib.Path(path)
