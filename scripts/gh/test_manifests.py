@@ -84,6 +84,25 @@ eq("remove same-line entry", M.declared("setup.py", out2),
 check("still parses as python", compile(out, "<t>", "exec") is not None)
 check("absent -> None", M.remove("setup.py", SETUP, "nope") is None)
 
+COMMENTY = '''\
+install_requires = [
+    #
+    # The core 'install_requires' should only be things
+    # which are needed for the main editor to function.  # don't parse 't'
+    #
+    "PyQt5==5.13.2"
+    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
+    "jupyter-client>=4.1,<6.2",  # comment with 'quotes' after an entry
+]
+setup(install_requires=install_requires)
+'''
+eq("comments and concatenated markers ignored", M.declared("setup.py", COMMENTY),
+   {"pyqt5", "jupyter_client"})
+out = M.remove("setup.py", COMMENTY, "jupyter-client")
+eq("remove after commented block", M.declared("setup.py", out), {"pyqt5"})
+check("comment with quotes untouched", "'install_requires' should" in out)
+check("marker continuation intact", '+ \';"arm" not in platform_machine' in out)
+
 NOLIST = 'setup(install_requires=reqs)\n'
 eq("non-literal list -> empty", M.declared("setup.py", NOLIST), set())
 check("non-literal remove -> None", M.remove("setup.py", NOLIST, "x") is None)

@@ -1,9 +1,18 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..b983c69
+index 0000000..0948db2
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
 +"""Injected by UnpinBench: make 'h5py' unimportable *from this repository*.
 +
 +Removing a declaration does not uninstall a package another dependency pulls
@@ -142,10 +151,19 @@ index e69de29..26e60d0 100644
 +dm-tree
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..b983c69
+index 0000000..0948db2
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
 +"""Injected by UnpinBench: make 'h5py' unimportable *from this repository*.
 +
 +Removing a declaration does not uninstall a package another dependency pulls

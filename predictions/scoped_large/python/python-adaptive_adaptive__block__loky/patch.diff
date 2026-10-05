@@ -1,9 +1,18 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..2ab5411
+index 0000000..261b159
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
 +"""Injected by UnpinBench: make 'loky' unimportable *from this repository*.
 +
 +Removing a declaration does not uninstall a package another dependency pulls
@@ -150,10 +159,19 @@ index 3fa7ea9..862e43c 100644
  [project.optional-dependencies]
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..2ab5411
+index 0000000..261b159
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
 +"""Injected by UnpinBench: make 'loky' unimportable *from this repository*.
 +
 +Removing a declaration does not uninstall a package another dependency pulls

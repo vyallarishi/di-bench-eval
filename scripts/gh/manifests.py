@@ -189,23 +189,58 @@ def _requirements_remove(text: str, dep: str):
 # --------------------------------------------------------------------------
 # setup.py
 # --------------------------------------------------------------------------
+def _blank_comments(src: str) -> str:
+    """Replace `# ...` comments with spaces, preserving offsets and strings."""
+    out, in_str, i = list(src), None, 0
+    while i < len(src):
+        c = src[i]
+        if in_str:
+            if c == "\\":
+                i += 2
+                continue
+            if c == in_str:
+                in_str = None
+        elif c in ("'", '"'):
+            in_str = c
+        elif c == "#":
+            j = src.find("\n", i)
+            j = len(src) if j < 0 else j
+            out[i:j] = " " * (j - i)
+            i = j
+            continue
+        i += 1
+    return "".join(out)
+
+
 def _setup_py_list_span(text: str):
-    """Span of the install_requires list literal, or None."""
-    m = re.search(r"install_requires\s*=\s*\[", text)
+    """Span of the install_requires list literal, or None.
+
+    Works on a copy with comments blanked (offsets preserved): an apostrophe in
+    a comment such as `# don't` would otherwise open a string for the bracket
+    scanner and run it off the end of the file.
+    """
+    clean = _blank_comments(text)
+    m = re.search(r"^[^#\n]*\binstall_requires\s*=\s*\[", clean, re.M)
     if not m:
         return None
     a = m.end() - 1
-    b = _balanced_end(text, a)
+    b = _balanced_end(clean, a)
     return (a, b) if b > 0 else None
 
 
 def _setup_py_entries(text: str):
-    """(start, end, requirement string) for each literal entry in the list."""
+    """(start, end, requirement string) for each literal entry in the list.
+
+    Comments are blanked first so a quoted word inside `# ...` is not taken for
+    a requirement. A string that continues an expression (`"a" + ';marker'`) is
+    returned too, but `_req_name` rejects it because it does not start with a
+    package name.
+    """
     span = _setup_py_list_span(text)
     if not span:
         return []
     a, b = span
-    inner = text[a + 1:b - 1]
+    inner = _blank_comments(text)[a + 1:b - 1]
     out = []
     for m in re.finditer(r"""(['"])(.*?)\1""", inner, re.S):
         out.append((a + 1 + m.start(), a + 1 + m.end(), m.group(2)))

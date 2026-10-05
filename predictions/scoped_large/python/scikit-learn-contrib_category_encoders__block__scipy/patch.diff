@@ -1,9 +1,18 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..df691c6
+index 0000000..32e3658
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
 +"""Injected by UnpinBench: make 'scipy' unimportable *from this repository*.
 +
 +Removing a declaration does not uninstall a package another dependency pulls
@@ -145,10 +154,19 @@ index e69de29..02fc886 100644
 +importlib_resources ; python_version<"3.9"
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..df691c6
+index 0000000..32e3658
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
 +"""Injected by UnpinBench: make 'scipy' unimportable *from this repository*.
 +
 +Removing a declaration does not uninstall a package another dependency pulls

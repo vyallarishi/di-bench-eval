@@ -93,6 +93,10 @@ The three layers compose. G4a is cheap and catches definite divergence on known 
 
 Diff declared layer against resolved layer. If a package the code imports is present only transitively, fail. Catches *phantom*.
 
+G2 and G5 are enforced together at run time by an **origin-scoped import block**: a meta-path finder, injected through `sitecustomize.py` and the root `conftest.py`, that refuses to import the removed library *when the importing frame belongs to the repository's own code or tests*, and lets every other package import it freely. The scoping is not a refinement, it is a correctness requirement. Our first blocker refused the import from any frame, and 95 of 230 pairs it "verified" failed only because a third-party package imported the removed library (`requests` importing `certifi`, `fast_depends` importing `pydantic`). No edit to the repository can make such a pair pass; a grader built on it would fail every honest agent. The same analysis of plain-deletion failures found 17 of 118 raised inside another package, which had under-declared the dependency the repository was unknowingly supplying. A pair is admitted to the benchmark only when the failure is raised from a repository frame, and the grader's run-time block fires only for repository frames.
+
+Because a foreign package may load the library first, a later repository import would otherwise be served from `sys.modules` without consulting any finder. When a foreign frame loads a blocked module, the finder lets the real loader run and then replaces the `sys.modules` entry with a guard, a `ModuleType` that forwards attribute access for foreign callers and raises for repository callers. CPython documents that a module may replace itself in `sys.modules` during load; the importer re-reads the entry after `exec_module`, so this is supported behaviour, not a trick.
+
 ### G6 Quality not degraded
 
 Deterministic only. Cyclomatic complexity, nesting depth and function length of changed functions, before and after, via `radon`. LLM-as-judge is excluded by design: SWE Atlas and RefactorPlatform use it, and the hacker-fixer paper shows rubric judges are gamed by length and verbosity. A deterministic metric is a weak signal but an honest one.
@@ -149,6 +153,8 @@ We should still run the hacker-fixer loop against the full stack before claiming
 **The sidecar.** G4b needs the library present to compute reference outputs. That is a second environment per instance, roughly doubling grading cost for that layer. Affordable at our scale; the paper should quote the number.
 
 **Normalised equality is a judgement.** Deciding that two floats are equal within 1e-9, or that dict ordering does not matter, encodes an opinion about what behaviour means. The rules must be published with the benchmark.
+
+**Frame-origin attribution under-counts framework-driven use.** When Django imports an app listed in `INSTALLED_APPS`, or pytest loads a plugin named in configuration, the importing frame is the framework's, so the pair is classified as foreign-origin and excluded even though the repository's configuration caused the import and the removal is winnable. We exclude conservatively and report the count; a configuration-aware attribution would recover these pairs.
 
 **Not every removal is replayable.** If the library did I/O, held network connections, or managed external state, carved replay does not apply. Those instances should be tiered separately and graded on G1 to G3 and G5 to G8 with an explicit "behaviour unverified" flag.
 

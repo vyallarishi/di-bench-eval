@@ -1,9 +1,18 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..de3c9d8
+index 0000000..9484d30
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
 +"""Injected by UnpinBench: make 'wasabi' unimportable *from this repository*.
 +
 +Removing a declaration does not uninstall a package another dependency pulls
@@ -158,10 +167,19 @@ index 693b8da..d1c1b6e 100644
  en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..de3c9d8
+index 0000000..9484d30
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
 +"""Injected by UnpinBench: make 'wasabi' unimportable *from this repository*.
 +
 +Removing a declaration does not uninstall a package another dependency pulls

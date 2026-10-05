@@ -102,6 +102,15 @@ def import_names(dep: str) -> list[str]:
 # (CPython explicitly supports a module replacing itself in sys.modules during
 # load; _load_unlocked re-reads the entry after exec_module.)
 BLOCKER = '''\
+# fmt: off
+# flake8: noqa
+# ruff: noqa
+# pylint: skip-file
+# mypy: ignore-errors
+# isort: skip_file
+# Formatters and linters that CI runs over the whole tree must not fail on this
+# injected file: that would be a failure caused by the benchmark, not by the
+# removal (black did exactly that on google/mobly in the first screening).
 """Injected by UnpinBench: make {dep!r} unimportable *from this repository*.
 
 Removing a declaration does not uninstall a package another dependency pulls
@@ -234,6 +243,11 @@ _install()
 # The original, unscoped blocker (refuses the import from any origin). Kept to
 # reproduce the first screening run; its over-counting motivated the scoped one.
 BLOCKER_BROAD = '''\
+# fmt: off
+# flake8: noqa
+# ruff: noqa
+# pylint: skip-file
+# mypy: ignore-errors
 """Injected by UnpinBench: make {dep!r} genuinely unimportable."""
 import sys
 
