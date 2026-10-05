@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
 """Assemble the verified removal benchmark from execution results.
 
-A pair (repository, dependency) enters the pool only if CI *fails* when the
-dependency is removed, on a repository whose gold manifest *passes* in the same
-harness. Three result sets feed it:
+Canonical mode (--canonical) is the one the paper reports. Every candidate pair
+is screened once, by the same mechanism, and every candidate is accounted for:
 
-  regular / deletion   plain-deletion mutants   <iid>__del__<dep>    (DI-Bench regular)
-  regular / blocked    import-blocked mutants   <iid>__block__<dep>  (the 91 log-phantoms re-screened)
-  large   / blocked    import-blocked mutants   <iid>__block__<dep>  (DI-Bench large)
+  candidates   every dependency the gold manifest declares, on every repository
+               whose gold patch passes CI in our harness (pilot/all.jsonl and
+               pilot/all_large.jsonl, built by make_blocked.py --mode scoped)
+  screening    declaration removed AND the package made unimportable from the
+               repository's own frames by the origin-scoped blocker
+  outcome      CI fails, attributably  -> the pair enters the benchmark
+               CI passes               -> *oracle blind spot*, a result in its
+                                          own right, written to <out>.blind.jsonl
+               CI fails, not attributable -> excluded with a reason
 
-A failure only counts if an agent could, in principle, make it pass again by
-editing the repository (the pair must be *winnable*). The CI log decides:
+Attribution requires the failure to be caused by the repository's own use of the
+package, so that an agent editing the repository could in principle fix it. The
+blocker's message appearing in the log is conclusive, because the scoped blocker
+raises only for repository frames. A failure with no import error (a test
+assertion, a linter naming the package) is CI detecting the removal by another
+route and is kept. Anything else -- an install step that broke, a formatter that
+rejected the injected file, a sibling dependency exposed by the removal -- is
+excluded and listed.
 
-  deletion   the missing-module error must be raised from the repository's own
-             frame. Raised from a third-party package, the dependency was only
-             patching that package's under-declaration -> excluded. A failure
-             with no import error at all (a test assertion, a linter) is CI
-             detecting the removal through another route -> kept.
-  blocked    the blocker's own message must appear and, in the first (unscoped)
-             screening, come from a repository frame. When a result from the
-             origin-scoped re-screen exists it is authoritative: its message is
-             only ever raised for repository frames.
-
-Excluded pairs are written next to the pool (<out>.excluded.jsonl) with the
-reason, so the paper can account for every candidate.
+Legacy mode (the --mutation/--blocked-* flags) reproduces the earlier mixed
+screening for comparison; do not report its numbers.
 
 Each row carries the static footprint of the removed package (which files import
 it, whether a test reaches them, attribute-level uses) and a tier derived from
@@ -34,9 +35,11 @@ the non-test footprint:
   medium    3-4 files    the original pilot's "medium" tier
   hard      5+ files
 
-usage: build_pool.py --out pilot/instances.jsonl
-         --gold-regular DIR --mutation DIR --blocked-regular DIR
-         --gold-large DIR --blocked-large DIR [--repo-data .cache/repo-data]
+usage:
+  build_pool.py --out POOL --canonical --gold-regular DIR --gold-large DIR \
+                --all-regular DIR [DIR ...] --all-large DIR [DIR ...]
+  build_pool.py --out POOL --gold-regular DIR --mutation DIR \
+                --blocked-regular DIR --gold-large DIR --blocked-large DIR
 """
 from __future__ import annotations
 
@@ -71,8 +74,18 @@ def load_results(d: pathlib.Path) -> dict[str, dict]:
     return out
 
 
-def gold_pass(d: pathlib.Path) -> set[str]:
-    return {i for i, r in load_results(d).items() if r["exec"] == "pass"}
+def load_many(dirs) -> dict[str, dict]:
+    out = {}
+    for d in dirs:
+        p = pathlib.Path(d)
+        if p.exists():
+            out.update(load_results(p))
+    return out
+
+
+def gold_pass(dirs) -> set[str]:
+    dirs = [dirs] if isinstance(dirs, (str, pathlib.Path)) else dirs
+    return {i for i, r in load_many(dirs).items() if r["exec"] == "pass"}
 
 
 def split_id(mid: str):
@@ -198,11 +211,17 @@ def tier_of(n_src: int) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
-    ap.add_argument("--gold-regular", required=True)
-    ap.add_argument("--mutation", required=True)
-    ap.add_argument("--blocked-regular", required=True)
-    ap.add_argument("--gold-large", required=True)
-    ap.add_argument("--blocked-large", required=True)
+    ap.add_argument("--canonical", action="store_true",
+                    help="single scoped screening of the full candidate universe (the paper's mode)")
+    ap.add_argument("--gold-regular", nargs="+", required=True)
+    ap.add_argument("--gold-large", nargs="+", required=True)
+    ap.add_argument("--all-regular", nargs="*", default=[], help="canonical: results of set 'all'")
+    ap.add_argument("--all-large", nargs="*", default=[], help="canonical: results of set 'all_large'")
+    ap.add_argument("--candidates", nargs=2, default=["pilot/all.jsonl", "pilot/all_large.jsonl"],
+                    metavar=("REGULAR", "LARGE"))
+    ap.add_argument("--mutation", default=None)
+    ap.add_argument("--blocked-regular", default=None)
+    ap.add_argument("--blocked-large", default=None)
     ap.add_argument("--scoped-regular", default=None, help="origin-scoped re-screen results")
     ap.add_argument("--scoped-large", default=None)
     ap.add_argument("--repo-data", default=".cache/repo-data")
@@ -252,16 +271,29 @@ def main():
                 res[k] = dict(v, kind="scoped")
         return res
 
-    gold_reg, gold_lg = gold_pass(pathlib.Path(a.gold_regular)), gold_pass(pathlib.Path(a.gold_large))
-    sources = [
-        ("regular", "deletion", gold_reg,
-         {k: dict(v, kind="deletion") for k, v in load_results(pathlib.Path(a.mutation)).items()}),
-        ("regular", "blocked", gold_reg, blocked_results(a.blocked_regular, a.scoped_regular)),
-        ("large", "blocked", gold_lg, blocked_results(a.blocked_large, a.scoped_large)),
-    ]
+    gold_reg, gold_lg = gold_pass(a.gold_regular), gold_pass(a.gold_large)
     gold_counts = {"regular": len(gold_reg), "large": len(gold_lg)}
+    candidates = {}
+    if a.canonical:
+        sources = [
+            ("regular", "blocked", gold_reg,
+             {k: dict(v, kind="scoped") for k, v in load_many(a.all_regular).items()}),
+            ("large", "blocked", gold_lg,
+             {k: dict(v, kind="scoped") for k, v in load_many(a.all_large).items()}),
+        ]
+        for subset, path in zip(("regular", "large"), a.candidates):
+            cp = pathlib.Path(path)
+            if cp.exists():
+                candidates[subset] = [json.loads(l)["instance_id"] for l in open(cp) if l.strip()]
+    else:
+        sources = [
+            ("regular", "deletion", gold_reg,
+             {k: dict(v, kind="deletion") for k, v in load_results(pathlib.Path(a.mutation)).items()}),
+            ("regular", "blocked", gold_reg, blocked_results(a.blocked_regular, a.scoped_regular)),
+            ("large", "blocked", gold_lg, blocked_results(a.blocked_large, a.scoped_large)),
+        ]
 
-    rows, excluded, seen = [], [], set()
+    rows, excluded, blind, seen = [], [], [], set()
     stats = collections.Counter()
     for subset, family, gold, results in sources:
         for mid, r in results.items():
@@ -281,8 +313,9 @@ def main():
             key = (base, norm(dep))
             if ev is None:
                 stats[f"{subset}/{family}: {why}"] += 1
-                excluded.append(dict(instance_id=base, dependency=dep, subset=subset, mutant_id=mid,
-                                     screened_by=kind, exec=r["exec"], reason=why))
+                rec = dict(instance_id=base, dependency=dep, subset=subset, mutant_id=mid,
+                           screened_by=kind, exec=r["exec"], reason=why)
+                (blind if r["exec"] == "pass" else excluded).append(rec)
                 continue
             if key in seen:  # a deletion-verified pair also re-screened under blocking
                 stats[f"{subset}/{family}: duplicate of deletion-verified pair"] += 1
@@ -315,10 +348,14 @@ def main():
     with open(out, "w") as f:
         for row in rows:
             f.write(json.dumps(row) + "\n")
-    exc_path = out.with_suffix(".excluded.jsonl")
-    with open(exc_path, "w") as f:
-        for e in sorted(excluded, key=lambda e: (e["subset"], e["instance_id"], e["dependency"])):
-            f.write(json.dumps(e) + "\n")
+    def dump(path, recs):
+        with open(path, "w") as f:
+            for e in sorted(recs, key=lambda e: (e["subset"], e["instance_id"], e["dependency"])):
+                f.write(json.dumps(e) + "\n")
+        return path
+
+    exc_path = dump(out.with_suffix(".excluded.jsonl"), excluded)
+    blind_path = dump(out.with_suffix(".blind.jsonl"), blind)
 
     print(f"gold-passing repositories: {gold_counts}")
     for k, v in sorted(stats.items()):
@@ -332,7 +369,17 @@ def main():
     by = collections.Counter((r["subset"], r["verified_by"], r["evidence"]) for r in rows)
     for k, v in sorted(by.items()):
         print(f"  {v:4d}  {k}")
+    print(f"oracle blind spots (CI passes without the package): {len(blind)} -> {blind_path}")
     print(f"excluded candidates: {len(excluded)} -> {exc_path}")
+    if candidates:
+        seen_ids = {r["mutant_id"] for r in rows} | {e["mutant_id"] for e in excluded + blind}
+        print("\ncoverage of the candidate universe:")
+        for subset, ids in candidates.items():
+            miss = [i for i in ids if i not in seen_ids]
+            print(f"  {subset:8s} {len(ids) - len(miss):4d}/{len(ids):4d} screened"
+                  + (f", {len(miss)} MISSING (re-run with missing.py)" if miss else ""))
+            for m in miss[:5]:
+                print(f"      missing: {m}")
 
 
 if __name__ == "__main__":
