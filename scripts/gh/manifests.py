@@ -21,7 +21,10 @@ than a missing instance.
 """
 from __future__ import annotations
 
+import ast
+import io
 import re
+import tokenize
 
 try:
     import tomllib
@@ -189,61 +192,82 @@ def _requirements_remove(text: str, dep: str):
 # --------------------------------------------------------------------------
 # setup.py
 # --------------------------------------------------------------------------
-def _blank_comments(src: str) -> str:
-    """Replace `# ...` comments with spaces, preserving offsets and strings."""
-    out, in_str, i = list(src), None, 0
-    while i < len(src):
-        c = src[i]
-        if in_str:
-            if c == "\\":
-                i += 2
-                continue
-            if c == in_str:
-                in_str = None
-        elif c in ("'", '"'):
-            in_str = c
-        elif c == "#":
-            j = src.find("\n", i)
-            j = len(src) if j < 0 else j
-            out[i:j] = " " * (j - i)
-            i = j
-            continue
-        i += 1
-    return "".join(out)
+# Scanned with the tokenize module rather than by hand: a comment such as
+# `# don't` or a regex literal like r"""['"]""" defeats any ad-hoc quote
+# tracking, and both occur in real DI-Bench manifests (mu-editor/mu).
+def _py_tokens(text: str):
+    """[(type, string, start_offset, end_offset)] or None if not tokenizable."""
+    starts = [0]
+    for line in text.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+    out = []
+    try:
+        for t in tokenize.generate_tokens(io.StringIO(text).readline):
+            s = starts[t.start[0] - 1] + t.start[1]
+            e = starts[t.end[0] - 1] + t.end[1]
+            out.append((t.type, t.string, s, e))
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return None
+    return out
+
+
+_SKIP = {tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT}
 
 
 def _setup_py_list_span(text: str):
     """Span of the install_requires list literal, or None.
 
-    Works on a copy with comments blanked (offsets preserved): an apostrophe in
-    a comment such as `# don't` would otherwise open a string for the bracket
-    scanner and run it off the end of the file.
+    Matches `install_requires = [` as an assignment or a `setup(...)` keyword,
+    and finds the closing bracket by depth over OP tokens.
     """
-    clean = _blank_comments(text)
-    m = re.search(r"^[^#\n]*\binstall_requires\s*=\s*\[", clean, re.M)
-    if not m:
+    toks = _py_tokens(text)
+    if toks is None:
         return None
-    a = m.end() - 1
-    b = _balanced_end(clean, a)
-    return (a, b) if b > 0 else None
+    sig = [t for t in toks if t[0] not in _SKIP]
+    for i, (typ, st, _s, _e) in enumerate(sig):
+        if typ != tokenize.NAME or st != "install_requires" or i + 2 >= len(sig):
+            continue
+        if sig[i + 1][1] != "=" or sig[i + 2][1] != "[":
+            continue
+        depth = 0
+        for typ2, st2, s2, e2 in sig[i + 2:]:
+            if typ2 == tokenize.OP and st2 in "([{":
+                depth += 1
+            elif typ2 == tokenize.OP and st2 in ")]}":
+                depth -= 1
+                if depth == 0:
+                    return sig[i + 2][2], e2
+        return None
+    return None
 
 
 def _setup_py_entries(text: str):
-    """(start, end, requirement string) for each literal entry in the list.
+    """(start, end, requirement string) for each string literal directly in the list.
 
-    Comments are blanked first so a quoted word inside `# ...` is not taken for
-    a requirement. A string that continues an expression (`"a" + ';marker'`) is
-    returned too, but `_req_name` rejects it because it does not start with a
-    package name.
+    Only depth-1 strings count; a nested call or comprehension is left alone.
+    A continuation string (`"a" + ';marker'`) is returned too, but `_req_name`
+    rejects it because it does not start with a package name.
     """
     span = _setup_py_list_span(text)
     if not span:
         return []
     a, b = span
-    inner = _blank_comments(text)[a + 1:b - 1]
-    out = []
-    for m in re.finditer(r"""(['"])(.*?)\1""", inner, re.S):
-        out.append((a + 1 + m.start(), a + 1 + m.end(), m.group(2)))
+    toks = _py_tokens(text) or []
+    out, depth = [], 0
+    for typ, st, s, e in toks:
+        if s < a or e > b:
+            continue
+        if typ == tokenize.OP and st in "([{":
+            depth += 1
+        elif typ == tokenize.OP and st in ")]}":
+            depth -= 1
+        elif typ == tokenize.STRING and depth == 1:
+            try:
+                val = ast.literal_eval(st)
+            except Exception:
+                continue
+            if isinstance(val, str):
+                out.append((s, e, val))
     return out
 
 
@@ -267,6 +291,12 @@ def _setup_py_remove(text: str, dep: str):
     if len(hits) != 1:
         return None
     s, e, _req = hits[0]
+    # a continuation (`"pkg" + ';marker'`) belongs to the entry: swallow it
+    toks = _py_tokens(text) or []
+    sig = [t for t in toks if t[0] not in _SKIP and t[2] >= e]
+    while len(sig) >= 2 and sig[0][1] == "+" and sig[1][0] == tokenize.STRING:
+        e = sig[1][3]
+        sig = sig[2:]
     # swallow a following comma and any same-line trailing comment
     j = e
     while j < len(text) and text[j] in " \t":

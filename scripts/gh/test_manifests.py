@@ -102,6 +102,17 @@ out = M.remove("setup.py", COMMENTY, "jupyter-client")
 eq("remove after commented block", M.declared("setup.py", out), {"pyqt5"})
 check("comment with quotes untouched", "'install_requires' should" in out)
 check("marker continuation intact", '+ \';"arm" not in platform_machine' in out)
+out2 = M.remove("setup.py", COMMENTY, "PyQt5")
+eq("remove entry with continuation", M.declared("setup.py", out2), {"jupyter_client"})
+check("continuation removed with its entry", "platform_machine" not in out2)
+check("still parses", compile(out2, "<t>", "exec") is not None)
+TRIPLE = '''\
+import re
+RE = re.compile(r"""^__\\w+__\\s*=\\s*[\'"].+[\'"]$""")  # lone quotes inside a triple string
+setup(install_requires=["requests", "click"])
+'''
+eq("triple-quoted regex before the list", M.declared("setup.py", TRIPLE), {"requests", "click"})
+eq("remove after triple-quoted regex", M.declared("setup.py", M.remove("setup.py", TRIPLE, "click")), {"requests"})
 
 NOLIST = 'setup(install_requires=reqs)\n'
 eq("non-literal list -> empty", M.declared("setup.py", NOLIST), set())
