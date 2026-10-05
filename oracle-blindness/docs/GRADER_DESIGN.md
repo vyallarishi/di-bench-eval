@@ -170,7 +170,9 @@ What does not exist is their composition for this task, and the observation that
 
 ## Build order
 
-1. **G7, G8**: already written by Sushane, integration only.
+Status as of 2026-10-06: step 3's recorder is built and tested (`scripts/gh/record_usage.py`), with injection shared with the blocker (`scripts/gh/inject.py`). Steps 1, 2 and 4-7 are open. The dynamic dependency-resolution mechanism once planned as a fourth contribution is **future work**, not part of this paper.
+
+1. **G7, G8**: written by Sushane, integration only (see `BRIEF_SUSHANE.md`).
 2. **G3 upgrade**: swap token-Jaccard for winnowing; extend to modified files.
 3. **Phase 0 recorder + G4a**: the usage-site recorder and replay. This alone converts G4 from heuristic to behavioural and catches the `wcwidth` case.
 4. **G4c**: extreme mutation of added functions; cheap once G4a exists, reuses the same replay.
