@@ -1,0 +1,460 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..845e286
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'sortedcontainers' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['sortedcontainers']
++_DEP = 'sortedcontainers'
++_OWN = ['manage', 'swirl', 'swirl_load', 'swirl_server']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    elif os.path.abspath(fn).startswith(_ROOT + "/"):
++        r = None if os.path.abspath(fn) in _SELF else True
++    else:
++        r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++
++
++_install()
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..0481a1e 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,171 @@
++amqp==5.2.0
++annotated-types==0.7.0
++anyio==4.4.0
++asgiref==3.8.1
++asn1crypto==1.5.1
++attrs==23.2.0
++autobahn==23.6.2
++Automat==22.10.0
++beautifulsoup4==4.12.3
++billiard==4.2.0
++blis==0.7.11
++bs4==0.0.2
++cachetools==5.3.3
++catalogue==2.0.10
++celery==5.4.0
++certifi==2024.7.4
++cffi==1.16.0
++channels==4.1.0
++channels-redis==4.2.0
++chardet==5.2.0
++charset-normalizer==3.3.2
++click==8.1.7
++click-didyoumean==0.3.1
++click-plugins==1.1.1
++click-repl==0.3.0
++cloudpathlib==0.18.1
++confection==0.1.5
++constantly==23.10.4
++cron-descriptor==1.4.3
++cryptography==42.0.8
++cssselect==1.2.0
++cymem==2.0.8
++daphne==4.1.2
++distro==1.9.0
++Django==5.0.7
++django-celery-beat==2.6.0
++django-environ==0.11.2
++django-restframework==0.0.1
++django-timezone-field==7.0
++djangorestframework==3.15.2
++dnspython==2.6.1
++docutils==0.21.2
++drf-spectacular==0.27.2
++elastic-transport==8.13.1
++elasticsearch==8.14.0
++en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.7.1/en_core_web_lg-3.7.1-py3-none-any.whl#sha256=ab70aeb6172cde82508f7739f35ebc9918a3d07debeed637403c8f794ba3d3dc
++Events==0.5
++filelock==3.15.4
++fsspec==2024.6.1
++google-api-core==2.19.1
++google-auth==2.32.0
++google-cloud-bigquery==3.25.0
++google-cloud-core==2.4.1
++google-crc32c==1.5.0
++google-resumable-media==2.7.1
++googleapis-common-protos==1.63.2
++grpcio==1.64.1
++grpcio-status==1.64.1
++grpcio-tools==1.64.1
++h11==0.14.0
++h2==4.1.0
++hpack==4.0.0
++httpcore==1.0.5
++httpx==0.27.0
++huggingface-hub==0.23.4
++hyperframe==6.0.1
++hyperlink==21.0.0
++idna==3.7
++incremental==22.10.0
++inflection==0.5.1
++Jinja2==3.1.4
++joblib==1.4.2
++jsonpath-ng==1.6.1
++jsonschema==4.23.0
++jsonschema-specifications==2023.12.1
++kombu==5.3.7
++langcodes==3.4.0
++language_data==1.2.0
++lxml==5.2.2
++lxml_html_clean==0.1.1
++marisa-trie==1.2.0
++markdown-it-py==3.0.0
++MarkupSafe==2.1.5
++mdurl==0.1.2
++mpmath==1.3.0
++msal==1.29.0
++msgpack==1.0.8
++murmurhash==1.0.10
++natsort==8.4.0
++networkx==3.3
++nltk==3.8.1
++numpy==1.26.4
++openai==1.35.13
++opensearch-py==2.6.0
++oracledb==2.2.1
++packaging==24.1
++pandas==2.2.2
++pika==1.3.2
++pinecone-client==4.1.2
++pinecone-plugin-interface==0.0.7
++platformdirs==4.2.2
++ply==3.11
++portalocker==2.10.0
++preshed==3.0.9
++prompt_toolkit==3.0.47
++proto-plus==1.24.0
++protobuf==5.27.2
++psycopg2-binary==2.9.9
++pyahocorasick==2.1.0
++pyasn1==0.6.0
++pyasn1_modules==0.4.0
++pycparser==2.22
++pydantic==2.8.2
++pydantic_core==2.20.1
++Pygments==2.18.0
++PyJWT==2.8.0
++pymongo==4.8.0
++pyOpenSSL==24.1.0
++python-crontab==3.2.0
++python-dateutil==2.9.0.post0
++pytz==2024.1
++PyYAML==6.0.1
++qdrant-client==1.10.0
++readability-lxml==0.8.1
++redis==5.0.7
++referencing==0.35.1
++regex==2024.5.15
++requests==2.32.3
++rich==13.7.1
++rpds-py==0.19.0
++rsa==4.9
++safetensors==0.4.3
++service-identity==24.1.0
++setuptools==70.3.0
++shellingham==1.5.4
++six==1.16.0
++smart-open==7.0.4
++sniffio==1.3.1
++snowflake-connector-python==3.11.0
++soupsieve==2.5
++spacy==3.7.5
++spacy-legacy==3.0.12
++spacy-loggers==1.0.5
++sqlparse==0.5.0
++srsly==2.4.8
++statistics==1.0.3.5
++sympy==1.13.0
++textblob==0.18.0.post0
++thinc==8.2.5
++tika==2.6.0
++tiktoken==0.7.0
++tokenizers==0.19.1
++tomlkit==0.13.0
++torch==2.3.1
++tqdm==4.66.4
++transformers==4.42.3
++Twisted==24.3.0
++txaio==23.1.1
++typer==0.12.3
++typing_extensions==4.12.2
++tzdata==2024.1
++uritemplate==4.1.1
++urllib3==2.2.2
++vine==5.1.0
++wasabi==1.1.3
++wcwidth==0.2.13
++weasel==0.4.1
++whitenoise==6.7.0
++wrapt==1.16.0
++xmltodict==0.13.0
++zope.interface==6.4.post2
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..845e286
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,136 @@
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'sortedcontainers' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['sortedcontainers']
++_DEP = 'sortedcontainers'
++_OWN = ['manage', 'swirl', 'swirl_load', 'swirl_server']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    elif os.path.abspath(fn).startswith(_ROOT + "/"):
++        r = None if os.path.abspath(fn) in _SELF else True
++    else:
++        r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++
++
++_install()
