@@ -45,7 +45,16 @@ def splice(path: pathlib.Path, body: str) -> None:
 
 
 def install(root: pathlib.Path, body: str) -> list[str]:
-    """Install `body` as sitecustomize.py and conftest.py under `root`."""
+    """Install `body` as sitecustomize.py and conftest.py under `root`.
+
+    The body is compiled first. CPython reports a broken sitecustomize.py on
+    stderr and then carries on, so a syntax error in generated code does not
+    crash the run -- it silently disables the block, and the suite then passes
+    for a reason that has nothing to do with the dependency. That failure is
+    indistinguishable in a CI log from a genuine oracle blind spot, so it must
+    be impossible to ship.
+    """
+    compile(body, "<injected>", "exec")
     for name in ("sitecustomize.py", "conftest.py"):
         splice(root / name, body)
     cache = root / "__pycache__"

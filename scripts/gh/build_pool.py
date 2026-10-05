@@ -101,11 +101,22 @@ PFX = re.compile(r"^\[[^\]]*\]\s*\|\s?")          # act's "[job/step] | " prefix
 PYTEST_FRAME = re.compile(r"^(\S+?):\d+: in ")
 PLAIN_FRAME = re.compile(r'^\s*File "([^"]+)", line \d+')
 MISSING = re.compile(r"No module named '([\w.]+)'")
+# printed by the injected blocker at import time; proof it was loaded
+ACTIVE = re.compile(r"UnpinBench blocker active|blocked: dependency")
 FAILED_STEP = re.compile(r"❌\s+Failure - (?:Main )?(.+?)\s*$")
+
+
+# A Cython traceback prints the *build-relative* source path, e.g.
+# "thinc/backends/numpy_ops.pyx", with no site-packages prefix, so a substring
+# test reads it as repository code. Extension-module and synthetic frames are
+# never the repository's own Python, so they are foreign by extension.
+EXT_FRAME = re.compile(r"\.(pyx|pxd|pxi|c|cc|cpp|h|so|pyd)$")
 
 
 def frame_origin(path: str) -> str:
     if re.search(r"(site|dist)-packages/", path):
+        return "foreign"
+    if EXT_FRAME.search(path) or path.startswith("<"):
         return "foreign"
     if re.search(r"/lib/python3[.\d]*/|<frozen", path):
         return "stdlib"
@@ -143,20 +154,55 @@ def import_error_origins(lines: list[str], marker: re.Pattern) -> collections.Co
 
 
 INSTALL_STEP = re.compile(r"install|lock|setup|depend|poetry|pip|environment|build", re.I)
-LINT_STEP = re.compile(r"lint|mypy|flake8|pyright|ruff|type|format|check", re.I)
+# "check" alone matches "Run PRCheck" and "Check links", which are not linters.
+LINT_STEP = re.compile(r"lint|mypy|flake8|pyright|ruff|black|isort|type.?check|"
+                       r"format|static.?(analysis|check)|style", re.I)
 
 
 def names_of(dep: str) -> set[str]:
-    """Import roots the removed package could plausibly provide."""
+    """Import roots the removed package could plausibly provide.
+
+    Deliberately does NOT split on underscores. `flask_sqlalchemy` does not
+    provide `flask`, and a log line "No module named 'flask'" must not verify
+    the removal of `flask_sqlalchemy`. Only the package's own name, its
+    de-underscored form, and the curated/pipreqs mappings count. The first
+    component is admitted solely when the distribution is a known
+    "<module>-<qualifier>" packaging of that module (readability-lxml ships
+    `readability`, fpdf2 ships `fpdf`), which `import_names` records.
+    """
     d = norm(dep)
-    names = set(import_names(dep)) | {d}
-    names |= set(d.split("_"))            # readability_lxml -> readability, pinecone_client -> pinecone
-    return {n for n in names if len(n) > 2}
+    return {n for n in (set(import_names(dep)) | {d}) if len(n) > 2}
+
+
+# A distribution whose import name is also a stdlib module (`typing`,
+# `statistics`, `dataclasses` as backports) cannot be screened: blocking the
+# name severs the standard library, so CI fails for a reason no edit can fix,
+# and the static footprint drops every real import site as stdlib. Such pairs
+# are unscreenable rather than unwinnable, and are excluded by rule.
+STDLIB_NAMES = set(getattr(sys, "stdlib_module_names", ()))
+
+
+def shadows_stdlib(dep: str) -> str | None:
+    for n in names_of(dep):
+        if n in STDLIB_NAMES:
+            return n
+    return None
 
 
 def classify(r: dict, kind: str, dep: str):
     """(evidence, origin) for a kept pair, or (None, reason) for an excluded one."""
+    shadowed = shadows_stdlib(dep)
+    if shadowed:
+        return None, f"unscreenable: distribution shadows the stdlib module {shadowed!r}"
     if r["exec"] != "fail":
+        # A pass only means "the tests do not need the package" if the blocker
+        # actually loaded. When CI runs in a subdirectory, the blocker written
+        # to the repository root is never imported and the run passes for a
+        # reason that has nothing to do with the dependency (tournesol).
+        if kind != "deletion" and r["log"] is not None:
+            lines = read_log(r["log"])
+            if not any(ACTIVE.search(l) for l in lines):
+                return None, "inconclusive: no evidence the blocker loaded (CI may run in a subdirectory)"
         return None, "blind spot: CI passes"
     if r["log"] is None:
         return ("ci_fail_unlogged", "unknown") if kind == "deletion" else (None, "no log")
@@ -195,7 +241,7 @@ def classify(r: dict, kind: str, dep: str):
                and any(n in l.lower() for n in names) for l in lines):
             return "linter_step_failed", "repo"
         return None, f"lint failure that does not name the package ({step.strip()})"
-    return "test_failure_without_import_error", "repo"
+    return "ci_failure_without_import_error", "repo"
 
 
 def tier_of(n_src: int) -> str:

@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from build_pool import BLOCK_MSG, FAILED_STEP, MISSING, load_results, read_log  # noqa: E402
 
 # how many of the sample go to each evidence class (rest proportional)
-QUOTA = {"test_failure_without_import_error": 10, "linter_step_failed": 4}
+QUOTA = {"ci_failure_without_import_error": 10, "linter_step_failed": 4}
 
 
 def excerpt(lines, marker, n=8):
@@ -79,7 +79,7 @@ def main():
         if rr and rr["log"]:
             lines = read_log(rr["log"])
             marker = BLOCK_MSG if "blocked" in r["evidence"] else MISSING
-            if r["evidence"] in ("test_failure_without_import_error", "linter_step_failed"):
+            if r["evidence"] in ("ci_failure_without_import_error", "linter_step_failed"):
                 marker = re.compile(r"^E\s{2,}\S|error:|Error:|E0401|I900")
             steps = [FAILED_STEP.search(l).group(1) for l in lines if FAILED_STEP.search(l)]
             print(f"\nFailing CI step: `{steps[0] if steps else '?'}`\n\nLog around the error:\n")

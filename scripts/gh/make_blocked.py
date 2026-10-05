@@ -236,6 +236,16 @@ def _install():
     for name in list(sys.modules):      # force every first import through the finder
         if _blocked(name):
             del sys.modules[name]
+    # Announce activation. A CI run that passes without this line in its log
+    # did not have the blocker loaded (it is written to the repository root,
+    # and some projects run their suite from a subdirectory), so the pass says
+    # nothing about the dependency and must not be read as a blind spot.
+    try:
+        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\\n"
+                         % (_DEP, os.getpid(), _ROOT))
+        sys.stderr.flush()
+    except Exception:
+        pass
 
 
 _install()
