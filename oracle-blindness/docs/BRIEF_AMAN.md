@@ -2,9 +2,14 @@
 
 The paper's related work is currently its weakest section: eleven bib entries have wrong venues or describe the wrong paper, roughly twenty-four papers that should be cited aren't, and several entries dated 2026 have never been checked against a real record. A reviewer who finds one miscited paper stops trusting the rest of the section. This is self-contained, needs no execution, and nothing anyone else is doing tonight touches these files.
 
-Repository: `https://github.com/vyallarishi/di-bench-eval`, branch `main`. Work in `oracle-blindness/paper/custom.bib` and keep notes in a new file `oracle-blindness/docs/CITATION_VERIFICATION.md`.
+**Repository: `https://github.com/vyallarishi/DependencyRefactoring`** — the paper's repo, newly created. Clone it and work in `paper/custom.bib`, keeping notes in a new file `docs/CITATION_VERIFICATION.md`.
 
-Your source of truth for what's wrong is `oracle-blindness/docs/LIT_REVIEW_AUDIT.md`, section "Appendix — bib entries that support these experiments and need fixing" (line ~325). It lists the specific errors. Don't trust it blindly either — it's one pass by one person, and if you find it wrong, that's a finding too.
+```bash
+git clone https://github.com/vyallarishi/DependencyRefactoring.git
+cd DependencyRefactoring
+```
+
+Your source of truth for what's wrong is `docs/LIT_REVIEW_AUDIT.md`, section "Appendix — bib entries that support these experiments and need fixing" (line ~325). It lists the specific errors. Don't trust it blindly either — it's one pass by one person, and if you find it wrong, that's a finding too.
 
 ---
 
@@ -41,13 +46,13 @@ Those three would change what the paper can claim to be first at, so they matter
 
 ## Task 4 (if time): cross-check the citation claims in the text
 
-`oracle-blindness/paper/acl_latex.tex` cites these works in prose. For each `\citep`/`\citet`, check the sentence actually describes what the cited paper says. Report mismatches as a list of `line number → what the text claims → what the paper shows`. Don't edit the prose; just report, because the paper is being restructured and your edits would be lost.
+`paper/acl_latex.tex` cites these works in prose. For each `\citep`/`\citet`, check the sentence actually describes what the cited paper says. Report mismatches as a list of `line number → what the text claims → what the paper shows`. Don't edit the prose; just report, because the paper is being restructured and your edits would be lost.
 
 ---
 
 ## Ground rules
 
-- **Only touch** `oracle-blindness/paper/custom.bib` and your new `CITATION_VERIFICATION.md`. Do not edit `acl_latex.tex` (being restructured), `scripts/gh/*`, or anything in `oracle-blindness/results/`.
+- **Only touch** `paper/custom.bib` and your new `docs/CITATION_VERIFICATION.md`. Do not edit `paper/acl_latex.tex` (being restructured), `code/harness/*`, or anything in `results/`.
 - Keep bib keys stable where they already exist — changing a key breaks every `\cite` in the tex.
 - `bibtex`/`biber` must still run clean after your changes. If you add a field a style doesn't know, it'll warn; check.
 - Commit incrementally with the key names in the message, so we can see progress.
