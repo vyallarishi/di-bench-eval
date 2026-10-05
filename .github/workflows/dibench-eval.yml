@@ -41,11 +41,14 @@ jobs:
       - name: Download dataset
         run: |
           mkdir -p .cache/repo-data
-          curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-regular.jsonl"
-          if [ "${{ inputs.set }}" = "mutation" ] || [ "${{ inputs.set }}" = "cheats" ] || [ "${{ inputs.set }}" = "agent" ] || [ "${{ inputs.set }}" = "blocked" ] || [ "${{ inputs.set }}" = "blocked_large" ]; then
+          if [ "${{ inputs.set }}" = "blocked_large" ]; then
+            curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-large.jsonl"
+            curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-large-python.tar.gz"
+          else
+            curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-regular.jsonl"
             curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-regular-python.tar.gz"
-            tar -xzf .cache/py.tar.gz -C .cache/repo-data && rm .cache/py.tar.gz
           fi
+          tar -xzf .cache/py.tar.gz -C .cache/repo-data && rm .cache/py.tar.gz
       - id: plan
         run: |
           pip install -q tomli
