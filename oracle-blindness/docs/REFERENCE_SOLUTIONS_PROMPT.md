@@ -4,9 +4,14 @@ You are writing the **ground truth** for a benchmark. For each assigned (reposit
 
 ## The task, precisely
 
-Repository: `/Users/rishivyalla/Downloads/DI-Bench`, branch `gh-eval`.
+**Repository: `https://github.com/vyallarishi/DependencyRefactoring`**
 
-The benchmark pool is `pilot/instances.jsonl` (built by `scripts/gh/build_pool.py --canonical`; if it does not exist yet, use the snapshot `oracle-blindness/data/pool_2026-10-05/instances_preview.jsonl` and say which you used). Each row is one pair:
+```bash
+git clone https://github.com/vyallarishi/DependencyRefactoring.git
+cd DependencyRefactoring
+```
+
+The benchmark pool is `benchmark/instances.jsonl` (built by `code/harness/build_pool.py --canonical`; if it does not exist yet, use the snapshot `data/pool_2026-10-05/instances_preview.jsonl` and say which you used). Each row is one pair:
 
 ```
 instance_id        the repository, checked out at .cache/repo-data/python/<instance_id>
@@ -30,10 +35,10 @@ For a pair to be *solved*, all of the following must hold:
 
 ## How to run the tests with D blocked
 
-`scripts/gh/make_blocked.py` generates the blocker; read `BLOCKER` in that file to understand it. Blocking is origin-scoped: imports from the repository's own code and tests are refused, imports from third-party packages still work. To set it up for one pair:
+`code/harness/make_blocked.py` generates the blocker; read `BLOCKER` in that file to understand it. Blocking is origin-scoped: imports from the repository's own code and tests are refused, imports from third-party packages still work. To set it up for one pair:
 
 ```python
-import sys, pathlib; sys.path.insert(0, 'scripts/gh')
+import sys, pathlib; sys.path.insert(0, 'code/harness')
 from make_blocked import write_blocker, import_names, own_packages
 repo = pathlib.Path('.cache/repo-data/python/<instance_id>')
 write_blocker(repo, '<dependency>', import_names('<dependency>'), own_packages(repo))
@@ -45,25 +50,34 @@ That writes `sitecustomize.py` and `conftest.py` into the repository. Then insta
 
 ## What to produce, per pair
 
-Write into `oracle-blindness/references/<mutant_id>/`:
+Write into `references/<mutant_id>/`:
 
 - `patch.diff` — the complete solution as a git diff against the repository's state at `.cache/repo-data/python/<instance_id>`, **including** the manifest edit, **excluding** the blocker files (`sitecustomize.py`, `conftest.py` additions) since the harness injects those itself.
 - `NOTES.md` — what D was used for; what you replaced it with and why; every file you changed; the exact command you ran and its result (paste the final test summary line); anything that worried you.
 
-Pairs you could not solve go in `oracle-blindness/references/UNWINNABLE.md`: pair, the specific blocker (a test asserts on D's own API; D is a build backend; D is required by a declared sibling so it stays installed; the repository's CI installs it regardless), and what evidence you have. **An honest unwinnable finding is a valuable result, not a failure** — it means the pool must drop that pair, and the benchmark gets more trustworthy. Do not stretch a solution to avoid reporting one.
+Pairs you could not solve go in `references/UNWINNABLE.md`: pair, the specific blocker (a test asserts on D's own API; D is a build backend; D is required by a declared sibling so it stays installed; the repository's CI installs it regardless), and what evidence you have. **An honest unwinnable finding is a valuable result, not a failure** — it means the pool must drop that pair, and the benchmark gets more trustworthy. Do not stretch a solution to avoid reporting one.
+
+## Coordinating with the parallel session
+
+A second person (Aman, following `docs/BRIEF_AMAN.md`) is writing reference removals at the same
+time. Before starting, read `references/CLAIMS.md` and append a line per pair you intend to do:
+`<instance_id> / <dependency> — <you> — in progress`. Commit and push that immediately.
+
+**Work from the top of each list; the other session works from the bottom.** Check CLAIMS.md
+before each pair.
 
 ## Which pairs, and how many
 
 Work in this order:
 
-1. **Every pair in `pilot/agent_instances_16.jsonl`** if it still exists and its pairs are in the pool — these are the ones agents were evaluated on, so references here directly measure false rejection.
+1. **Every pair in `benchmark/agent_instances_16.jsonl`** if it still exists and its pairs are in the pool — these are the ones agents were evaluated on, so references here directly measure false rejection.
 2. **A stratified sample across tiers and both subsets**: aim for 10 `strong`, 10 `medium`, 10 `hard`, 10 `indirect`. `indirect` pairs (D is never imported directly) are the most interesting and the most likely to be unwinnable — do not skip them because they are awkward.
 
 Pick within each tier by whatever is fastest to set up; record the selection rule you used so the sample is reproducible. If you run short of time, finish fewer pairs completely rather than many partially. Report the count.
 
 ## Reporting
 
-Finish with `oracle-blindness/references/SUMMARY.md`:
+Finish with `references/SUMMARY.md`:
 
 - Pairs attempted, solved, unwinnable, abandoned-for-time.
 - A table: pair, tier, lines changed, files changed, what replaced D, test result.
@@ -71,4 +85,4 @@ Finish with `oracle-blindness/references/SUMMARY.md`:
 - Every unwinnable pair with its reason, as a list the pool owner can act on directly.
 - Anything you learned about the blocker, the harness, or the pool labels that looks wrong. Label disagreements matter: if `source_files` missed a file that imports D, or the tier looks wrong given what you had to change, say so with the pair id.
 
-Commit as you go (one commit per few pairs is fine) so nothing is lost. Do not modify `pilot/instances.jsonl`, `scripts/gh/*`, or anything under `oracle-blindness/results/` — report problems instead of fixing them, since changing the pool mid-audit invalidates the measurements built on it.
+Commit as you go (one commit per few pairs is fine) so nothing is lost. Do not modify `pilot/instances.jsonl`, `code/harness/*`, or anything under `results/` — report problems instead of fixing them, since changing the pool mid-audit invalidates the measurements built on it.
