@@ -34,6 +34,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import inject
 import manifests as M
 
 NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
@@ -295,22 +296,7 @@ def write_blocker(root: pathlib.Path, dep: str, names: list[str], own=None,
     """Install the blocker so it runs for pytest and for any Python process."""
     tpl = BLOCKER if mode == "scoped" else BLOCKER_BROAD
     body = tpl.format(dep=dep, names=names, own=list(own or []))
-    written = []
-
-    # sitecustomize.py: imported automatically by every interpreter start.
-    sc = root / "sitecustomize.py"
-    sc.write_text(body)
-    written.append("sitecustomize.py")
-
-    # conftest.py at the rootdir: pytest imports it before collection. If one
-    # already exists, prepend rather than clobber the project's own fixtures.
-    cf = root / "conftest.py"
-    if cf.exists():
-        cf.write_text(body + "\n\n" + cf.read_text())
-    else:
-        cf.write_text(body)
-    written.append("conftest.py")
-    return written
+    return inject.install(root, body)
 
 
 # --- manifest surgery (delegated to manifests.py, which is unit- and
