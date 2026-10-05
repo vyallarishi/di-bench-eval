@@ -31,10 +31,8 @@ import subprocess
 import sys
 import tempfile
 
-try:
-    import tomllib
-except ImportError:  # Python < 3.11
-    import tomli as tomllib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import manifests as M
 
 NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
@@ -155,95 +153,14 @@ def write_blocker(root: pathlib.Path, dep: str, names: list[str]) -> list[str]:
     return written
 
 
-# --- manifest surgery -----------------------------------------------------
-def section_span(text: str, header_regex: str):
-    m = re.search(header_regex, text, re.M)
-    if not m:
-        return None
-    nxt = re.search(r"^\[", text[m.end():], re.M)
-    return m.start(), (m.end() + nxt.start() if nxt else len(text))
+# --- manifest surgery (delegated to manifests.py, which is unit- and
+# property-tested over every real DI-Bench Python instance) -----------------
+def declared(path: str, text: str) -> set[str]:
+    return M.declared(path, text)
 
 
-def balanced_end(text: str, i: int) -> int:
-    depth = 0
-    in_str = None
-    j = i
-    while j < len(text):
-        c = text[j]
-        if in_str:
-            if c == "\\":
-                j += 2
-                continue
-            if c == in_str:
-                in_str = None
-        elif c in ('"', "'"):
-            in_str = c
-        elif c in "[{":
-            depth += 1
-        elif c in "]}":
-            depth -= 1
-            if depth == 0:
-                return j + 1
-        j += 1
-    return -1
-
-
-def declared(text: str) -> set[str]:
-    data = tomllib.loads(text)
-    po = data.get("tool", {}).get("poetry", {})
-    if po:
-        return {norm(k) for k in (po.get("dependencies") or {}) if k.lower() != "python"}
-    out = set()
-    for d in data.get("project", {}).get("dependencies", []) or []:
-        m = NAME_RE.match(d)
-        if m:
-            out.add(norm(m.group(1)))
-    return out
-
-
-def remove_declaration(text: str, dep: str):
-    """Return the manifest with `dep`'s declaration removed, or None."""
-    data = tomllib.loads(text)
-    po = data.get("tool", {}).get("poetry", {})
-    if po:
-        span = section_span(text, r"^\[tool\.poetry\.dependencies\]\s*$")
-        if not span:
-            return None
-        s, e = span
-        body = text[s:e]
-        for key in po.get("dependencies") or {}:
-            if norm(key) != norm(dep):
-                continue
-            m = re.search(r'^[ \t]*"?' + re.escape(key) + r'"?[ \t]*=[ \t]*', body, re.M)
-            if not m:
-                return None
-            k = m.end()
-            if k < len(body) and body[k] in "[{":
-                k = balanced_end(body, k)
-                if k < 0:
-                    return None
-            nl = body.find("\n", k)
-            k = len(body) if nl < 0 else nl + 1
-            return text[:s] + body[:m.start()] + body[k:] + text[e:]
-        return None
-    span = section_span(text, r"^\[project\]\s*$")
-    if not span:
-        return None
-    s, e = span
-    body = text[s:e]
-    m = re.search(r"^dependencies[ \t]*=[ \t]*\[", body, re.M)
-    if not m:
-        return None
-    a = m.end() - 1
-    b = balanced_end(body, a)
-    if b < 0:
-        return None
-    entries = data["project"].get("dependencies") or []
-    keep = [d for d in entries if norm(NAME_RE.match(d).group(1)) != norm(dep)]
-    if len(keep) == len(entries):
-        return None
-    arr = "[\n" + "".join(f"    {json.dumps(d)},\n" for d in keep) + "]"
-    return text[:s] + body[:a] + arr + body[b:] + text[e:]
+def remove_declaration(path: str, text: str, dep: str):
+    return M.remove(path, text, dep)
 
 
 # --- patch construction ---------------------------------------------------
@@ -314,7 +231,7 @@ def main():
                 continue
             try:
                 gold = apply_patch(repo, r["build_files"][0], r["patch"])
-                for d in declared(gold):
+                for d in declared(r["build_files"][0], gold):
                     pairs.append((iid, d))
             except Exception:
                 continue
@@ -335,12 +252,12 @@ def main():
         try:
             masked = (repo / bf).read_text()
             gold = apply_patch(repo, bf, r["patch"])
-            base = declared(gold)
-            mutant = remove_declaration(gold, dep)
+            base = declared(bf, gold)
+            mutant = remove_declaration(bf, gold, dep)
             if mutant is None:
                 skipped.append(f"{iid}/{dep}: cannot edit manifest")
                 continue
-            if declared(mutant) != base - {norm(dep)}:
+            if declared(bf, mutant) != base - {norm(dep)}:
                 skipped.append(f"{iid}/{dep}: manifest mismatch")
                 continue
         except Exception as e:

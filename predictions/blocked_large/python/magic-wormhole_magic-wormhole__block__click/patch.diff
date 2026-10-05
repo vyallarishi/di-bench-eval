@@ -1,0 +1,118 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..6821e56
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'click' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['click']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'click')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
+diff --git a/setup.py b/setup.py
+index f95e7bd..e591e15 100644
+--- a/setup.py
++++ b/setup.py
+@@ -44,6 +44,17 @@ setup(name="magic-wormhole",
+           ]
+       },
+       install_requires=[
++          "spake2==0.8", "pynacl",
++          "attrs >= 19.2.0", # 19.2.0 replaces cmp parameter with eq/order
++          "twisted[tls] >= 17.5.0", # 17.5.0 adds failAfterFailures=
++          "autobahn[twisted] >= 0.14.1",
++          "automat",
++          "cryptography",
++          "tqdm >= 4.13.0", # 4.13.0 fixes crash on NetBSD
++          "humanize",
++          "txtorcon >= 18.0.2", # 18.0.2 fixes py3.4 support
++          "zipstream-ng >= 1.7.1, <2.0.0",
++          "iterable-io >= 1.0.0, <2.0.0",
+       ],
+       extras_require={
+           ':sys_platform=="win32"': ["pywin32"],
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..6821e56
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'click' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['click']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'click')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()

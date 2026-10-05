@@ -1,0 +1,115 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..41a0c41
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'translationstring' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['translationstring']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'translationstring')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
+diff --git a/setup.py b/setup.py
+index d3e22c5..3057d75 100644
+--- a/setup.py
++++ b/setup.py
+@@ -91,6 +91,14 @@ setup(
+     zip_safe=False,
+     python_requires='>=3.8',
+     install_requires=[
++        'hupper >= 1.5',  # ignore_files support
++        'plaster',
++        'plaster_pastedeploy',
++        'setuptools',
++        'venusian >= 1.0',  # ``ignore``
++        'webob >= 1.8.3',  # Accept.parse_offer
++        'zope.deprecation >= 3.5.0',  # py3 compat
++        'zope.interface >= 3.8.0',  # has zope.interface.registry
+     ],
+     extras_require={'testing': testing_extras, 'docs': docs_extras},
+     tests_require=tests_require,
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..41a0c41
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'translationstring' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['translationstring']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'translationstring')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()

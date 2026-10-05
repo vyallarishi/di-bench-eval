@@ -1,0 +1,122 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..4d1e5a0
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'pyramid' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['pyramid', 'ramid']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'pyramid')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
+diff --git a/requirements/adapter.txt b/requirements/adapter.txt
+index e69de29..d1dcc35 100644
+--- a/requirements/adapter.txt
++++ b/requirements/adapter.txt
+@@ -0,0 +1,21 @@
++# pip install -r requirements/adapter.txt
++# NOTE: any of async ones requires pip install -r requirements/async.txt too
++# used only under slack_bolt/adapter
++boto3<=2
++bottle>=0.12,<1
++chalice<=1.27.3; python_version=="3.6"
++chalice>=1.28,<2; python_version>"3.6"
++CherryPy>=18,<19
++Django>=3,<6
++falcon>=2,<4; python_version<"3.11"
++falcon>=3.1.1,<4; python_version>="3.11"
++fastapi>=0.70.0,<1
++Flask>=1,<4
++Werkzeug>=2,<4
++sanic>=20,<21; python_version=="3.6"
++sanic>=22,<24; python_version>"3.6"
++starlette>=0.14,<1
++tornado>=6,<7
++uvicorn<1                                # The oldest version can vary among Python runtime versions
++gunicorn>=20,<24
++websocket_client>=1.2.3,<2               # Socket Mode 3rd party implementation
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..4d1e5a0
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'pyramid' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['pyramid', 'ramid']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'pyramid')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()

@@ -1,0 +1,147 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..9ce1a86
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'django_libsass' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['django_libsass', 'djangolibsass']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'django_libsass')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..ba82390 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,45 @@
++
++django_recaptcha==3.0.0
++Django[argon2]==3.2.17
++wagtail==2.16.2
++# Allows subdomains
++django-hosts==6.0
++
++# External Libraries
++requests==2.28.2
++
++# Templates
++django-compressor==2.4.1
++wagtailfontawesome==1.2.1
++
++# Scheduled tasks
++django-kronos==1.0
++
++# User management
++rules==3.3
++django-simple-email-confirmation==0.70
++
++# Logging
++sentry-sdk==1.15.0
++
++# Postgres
++psycopg2==2.9.5
++
++# Phonenumber validation
++phonenumbers==8.13.6
++
++# Wagtail media module
++wagtailmedia==0.9.0
++
++djangorestframework==3.14.0
++
++# Recaptcha for wagtail form pages
++wagtail-django-recaptcha==1.0
++
++django-jsonschema-form==1.0.3
++
++# Improved environment variable handling
++python-decouple==3.7
++
++# Search and select widget
++django-select2==8.1.1
+\ No newline at end of file
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..9ce1a86
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'django_libsass' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['django_libsass', 'djangolibsass']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'django_libsass')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()

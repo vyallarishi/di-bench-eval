@@ -7,7 +7,7 @@ on:
         description: "Which predictions to evaluate"
         type: choice
         default: gold
-        options: [gold, recovered, mutation, cheats, agent, blocked]
+        options: [gold, recovered, mutation, cheats, agent, blocked, blocked_large]
       shards:
         description: "Parallel shards"
         default: "10"
@@ -42,7 +42,7 @@ jobs:
         run: |
           mkdir -p .cache/repo-data
           curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-regular.jsonl"
-          if [ "${{ inputs.set }}" = "mutation" ] || [ "${{ inputs.set }}" = "cheats" ] || [ "${{ inputs.set }}" = "agent" ] || [ "${{ inputs.set }}" = "blocked" ]; then
+          if [ "${{ inputs.set }}" = "mutation" ] || [ "${{ inputs.set }}" = "cheats" ] || [ "${{ inputs.set }}" = "agent" ] || [ "${{ inputs.set }}" = "blocked" ] || [ "${{ inputs.set }}" = "blocked_large" ]; then
             curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-regular-python.tar.gz"
             tar -xzf .cache/py.tar.gz -C .cache/repo-data && rm .cache/py.tar.gz
           fi
@@ -102,8 +102,13 @@ jobs:
       - name: Download dataset and repositories
         run: |
           mkdir -p .cache/repo-data
-          curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-regular.jsonl"
-          curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-regular-python.tar.gz"
+          if [ "${{ inputs.set }}" = "blocked_large" ]; then
+            curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-large.jsonl"
+            curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-large-python.tar.gz"
+          else
+            curl -sL -o .cache/dataset.jsonl "$RELEASE/dataset-dibench-regular.jsonl"
+            curl -sL -o .cache/py.tar.gz "$RELEASE/dibench-regular-python.tar.gz"
+          fi
           tar -xzf .cache/py.tar.gz -C .cache/repo-data && rm .cache/py.tar.gz
           ls .cache/repo-data/python | wc -l
       - name: Pull runner image and cache act images

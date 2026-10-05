@@ -1,0 +1,125 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..0366624
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'feedparser' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['feedparser']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'feedparser')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..5b05378 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,24 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    "importlib-metadata; python_version<\"3.8\"",
++    "aiohttp >= 3.9.0,< 3.11.0",
++    "aiohttp_jinja2 >= 1.5.1,< 1.7.0",
++    "astral ~= 3.2",
++    "bcrypt >= 4.0.1,< 4.3.0",
++    "deepdiff == 8.0.1",
++    "iso8601 >= 1.1,< 2.2",
++    "paho-mqtt >= 1.6.1,< 2.2.0",
++    "pid ~= 3.0.4",
++    "python-dateutil >= 2.8.2,< 2.10.0",
++    "python-socketio >= 5.5,< 5.12",
++    "pytz >= 2022.7.1,< 2024.2.0",
++    "pyyaml ~= 6.0.1",
++    "requests >= 2.28.2,< 2.33.0",
++    "sockjs >= 0.11,< 0.14",
++    "uvloop==0.20.0; sys_platform != \"win32\"",
++    "tomli ~= 2.0.1",
++    "tomli_w ~= 1.0.0",
+ ]
+ 
+ classifiers= [
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..0366624
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'feedparser' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['feedparser']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'feedparser')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()

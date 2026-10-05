@@ -1,0 +1,124 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..ce8d33c
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'flask' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['flask']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'flask')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..a378b0d 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,6 +16,23 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    cryptography>=36.0.0
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..ce8d33c
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,42 @@
++"""Injected by UnpinBench: make 'flask' genuinely unimportable.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed".
++"""
++import sys
++
++_BLOCKED = ['flask']
++
++
++class _BlockedFinder:
++    def find_module(self, fullname, path=None):  # legacy API
++        return self if self._blocked(fullname) else None
++
++    def find_spec(self, fullname, path=None, target=None):
++        if self._blocked(fullname):
++            raise ImportError(
++                "No module named %r (blocked: dependency %s was removed)"
++                % (fullname, 'flask')
++            )
++        return None
++
++    @staticmethod
++    def _blocked(fullname):
++        root = fullname.split(".")[0]
++        return root in _BLOCKED
++
++    def load_module(self, fullname):
++        raise ImportError("No module named %r (blocked)" % fullname)
++
++
++def _install():
++    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
++        sys.meta_path.insert(0, _BlockedFinder())
++    # drop anything already imported so later imports hit the finder
++    for name in list(sys.modules):
++        if name.split(".")[0] in _BLOCKED:
++            del sys.modules[name]
++
++
++_install()
