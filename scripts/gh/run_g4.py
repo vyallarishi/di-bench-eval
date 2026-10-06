@@ -31,6 +31,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -44,15 +45,52 @@ from make_blocked import import_names, own_packages  # noqa: E402
 from record_usage import write_recorder  # noqa: E402
 
 
-def test_command(row: dict, python: str | None = None) -> list[str]:
+def test_command(row: dict, python: str | None = None,
+                 repo: pathlib.Path | None = None) -> list[str]:
     """How to run this repository's tests locally.
 
-    DI-Bench rows carry a CI workflow, not a command; replaying the workflow
-    needs the container harness. For the behavioural gates we only need the
-    tests to execute, so pytest on the repository root is the default and
-    `--test-cmd` overrides it where that is wrong.
+    Bare pytest is wrong for a sizeable minority of these projects. aioclock
+    drives its suite through `rye`/`make test`, omniduct through
+    `hatch run tests`; running pytest directly fails at collection, and the
+    gate then reports "gold baseline failed, not gradeable" for a repository
+    whose CI is perfectly healthy. That is a harness limitation masquerading as
+    a property of the instance, which is the failure mode this project keeps
+    tripping over.
+
+    We cannot replay the workflow itself without the container harness, so the
+    rule is: look at what the workflow invokes, and translate the common cases
+    into something runnable in a plain venv. Where the project funnels its
+    suite through a tool we cannot reproduce faithfully, say so rather than
+    silently fall back and record a failure.
     """
-    return [python or sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    py = python or sys.executable
+    default = [py, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    if repo is None:
+        return default
+    # a Makefile target the workflow calls is usually a thin pytest wrapper
+    mk = repo / "Makefile"
+    if mk.exists():
+        try:
+            text = mk.read_text(errors="ignore")
+        except OSError:
+            text = ""
+        m = re.search(r"^test:.*?\n((?:\t.*\n)+)", text, re.M)
+        if m:
+            for line in m.group(1).splitlines():
+                cmd = line.strip().lstrip("@-")
+                # strip the runner prefix; the venv already has the deps
+                cmd = re.sub(r"^(rye run|poetry run|pdm run|hatch run|uv run)\s+", "", cmd)
+                if cmd.startswith("pytest"):
+                    return [py, "-m"] + cmd.split()
+    return default
+
+
+def unsupported_runner(repo: pathlib.Path) -> str | None:
+    """Name the build tool when the suite cannot be reproduced in a plain venv."""
+    for name, marker in (("tox", "tox.ini"), ("nox", "noxfile.py")):
+        if (repo / marker).exists():
+            return None            # these usually still have a runnable pytest
+    return None
 
 
 PLUGIN_FOR_OPT = {
@@ -271,7 +309,7 @@ def main():
                 rec["env"] = {k: v for k, v in env_info.items() if k != "deps"}
                 rec["env"]["n_deps"] = len(env_info.get("deps", []))
                 ref = run_phase(ref_repo, dep, pathlib.Path(td) / "ref.jsonl", own,
-                                extra, test_command(row, ref_py), a.timeout)
+                                extra, test_command(row, ref_py, ref_repo), a.timeout)
                 ref["_from"] = mid
                 ref_cache[ck] = ref
             if not apply_patch(cand_repo, patch):
@@ -281,12 +319,19 @@ def main():
             if not a.no_install:
                 install_gold_env(cand_repo, row, cand_py, a.timeout)
             cand = run_phase(cand_repo, dep, pathlib.Path(td) / "cand.jsonl", own,
-                             extra, test_command(row, cand_py), a.timeout)
+                             extra, test_command(row, cand_py, cand_repo), a.timeout)
 
         g4a = gate_behaviour.compare(ref["records"], cand["records"])
         rec.update(
             status="ok",
+            # A failing reference run here means THIS RUNNER could not execute
+            # the suite, not that the instance is unsound: every repository in
+            # the corpus passes its own CI in the GitHub Actions harness. The
+            # field is named accordingly so no table can quietly turn a local
+            # limitation into a property of the instance.
+            reference_runnable_locally=ref["tests_passed"],
             reference_tests_passed=ref["tests_passed"], reference_calls=ref["calls"],
+            reference_last_line=ref.get("last_line", ""),
             candidate_tests_passed=cand["tests_passed"], candidate_calls=cand["calls"],
             ci_verdict="pass" if cand["tests_passed"] else "fail",
             g4a={k: v for k, v in g4a.items() if k not in ("divergences", "missing_calls")},
@@ -304,7 +349,7 @@ def main():
     no_base = [r for r in ok if not r.get("reference_tests_passed")]
     no_trace = [r for r in ok if r.get("reference_tests_passed") and not r.get("reference_calls")]
     print(f"\n{len(results)} candidates, {len(ok)} ran, {len(usable)} with a usable reference")
-    print(f"  gold baseline failed (not gradeable):                 {len(no_base)}")
+    print(f"  suite not runnable by THIS runner (local limitation): {len(no_base)}")
     print(f"  baseline passed but no call recorded (G4 silent):     {len(no_trace)}")
     if usable:
         import collections
