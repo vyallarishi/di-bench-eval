@@ -223,6 +223,8 @@ def grade(patch: str, repo: pathlib.Path, dep: str, *,
         "G5_no_phantom": g5_no_phantom(ci_log, dep),
         "G7_tests_untouched": (lambda r: _verdict(r["pass"], r["reason"], **r["evidence"]))(
             gate_tests.check(patch, repo)),
+        # r["pass"] may be None, meaning the gate cannot speak; _verdict maps
+        # that to "unverified" rather than a rejection
         "G8_closure_not_grown": (lambda r: _verdict(r["pass"], r["reason"], **r["evidence"]))(
             gate_closure.check(patch, repo, dep, before, after, gold_patch=gold_patch)),
     }

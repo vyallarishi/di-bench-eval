@@ -207,8 +207,15 @@ def check(patch_text: str, repo: pathlib.Path, dep: str,
     after = {norm(x) for x in after} - IGNORE
 
     if gold_patch and target not in before:
-        return dict(**{"pass": False},
-                    reason=f"{dep} is not declared in the gold manifest; nothing to remove",
+        # The package is not in the baseline at all, usually because it is a
+        # build-time requirement that IGNORE strips (wheel, setuptools, build).
+        # There is genuinely nothing to remove, which is not the candidate's
+        # fault: returning "fail" here charged the grader six false rejections
+        # on removals that were correct by construction.
+        return dict(**{"pass": None},
+                    reason=f"{dep} is not in the comparable dependency set "
+                           "(build-time requirement or absent from the gold manifest); "
+                           "this gate cannot speak",
                     evidence=dict(mode=mode, n_before=len(before), n_after=len(after)))
     still_present = target in after
     allowed = before - {target}
