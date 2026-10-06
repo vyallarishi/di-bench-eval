@@ -57,16 +57,32 @@ MAX_CALLS = 2000
 def recorder_body(dep: str, names, own, out: str) -> str:
     body = RECORDER.format(dep=dep, names=sorted(set(names)), own=sorted(set(own or [])),
                            out=out, maxcalls=MAX_CALLS, site_exclude=[])
-    # redirect _emit from a file append to a marked stdout line
     old_emit = '''        try:
             with open(_OUT, "a") as fh:
                 fh.write(json.dumps(rec, default=str) + "\\n")'''
+    # Write to a DUPLICATE of fd 1 taken at interpreter start.
+    #
+    # pytest's default capture mode is --capture=fd: it redirects file
+    # descriptor 1 itself, so neither sys.stdout.write nor os.write(1, ...)
+    # reaches the CI log. Measured on tplot: 82 trace lines under
+    # --capture=sys and --capture=no, zero under --capture=fd. We cannot add
+    # -s to each project's own CI command, so the recorder keeps its own
+    # handle: sitecustomize runs at interpreter start, before pytest installs
+    # its capture, and a dup of fd 1 taken then still points at the real
+    # console for the life of the process.
     new_emit = '''        try:
-            sys.stdout.write("%s%s" % (_MARKER, json.dumps(rec, default=str)) + chr(10))
-            sys.stdout.flush()'''
+            os.write(_TRACE_FD, ("%s%s" % (_MARKER, json.dumps(rec, default=str))
+                                 + chr(10)).encode("utf-8", "replace"))'''
     assert old_emit in body, "recorder emit block changed; update make_traces"
     body = body.replace(old_emit, new_emit, 1)
-    body = body.replace("_MAXCALLS = ", '_MARKER = "%s"\n_MAXCALLS = ' % MARKER, 1)
+    body = body.replace(
+        "_MAXCALLS = ",
+        '_MARKER = "%s"\n'
+        "try:\n"
+        "    _TRACE_FD = os.dup(1)      # before pytest can redirect fd 1\n"
+        "except Exception:\n"
+        "    _TRACE_FD = 1\n"
+        "_MAXCALLS = " % MARKER, 1)
     return body
 
 

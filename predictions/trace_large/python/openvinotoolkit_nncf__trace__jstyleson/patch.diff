@@ -1,9 +1,9 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..ac3185c
+index 0000000..dbc9471
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,293 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -23,6 +23,10 @@ index 0000000..ac3185c
 +_OUT = '/dev/stdout'
 +_MAXREPR = 300
 +_MARKER = "UNPINTRACE "
++try:
++    _TRACE_FD = os.dup(1)      # before pytest can redirect fd 1
++except Exception:
++    _TRACE_FD = 1
 +_MAXCALLS = 2000
 +_SITE_EXCLUDE = []   # files whose calls are internal to the replacement
 +
@@ -138,8 +142,8 @@ index 0000000..ac3185c
 +            return
 +        _count[0] += 1
 +        try:
-+            sys.stdout.write("%s%s" % (_MARKER, json.dumps(rec, default=str)) + chr(10))
-+            sys.stdout.flush()
++            os.write(_TRACE_FD, ("%s%s" % (_MARKER, json.dumps(rec, default=str))
++                                 + chr(10)).encode("utf-8", "replace"))
 +        except Exception as e:
 +            # Never silent: a trace that fails to write is indistinguishable
 +            # from a dependency the tests do not exercise, and that ambiguity
@@ -323,10 +327,10 @@ index b374af8..8bd94b5 100644
      keywords=[
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..ac3185c
+index 0000000..dbc9471
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,293 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -346,6 +350,10 @@ index 0000000..ac3185c
 +_OUT = '/dev/stdout'
 +_MAXREPR = 300
 +_MARKER = "UNPINTRACE "
++try:
++    _TRACE_FD = os.dup(1)      # before pytest can redirect fd 1
++except Exception:
++    _TRACE_FD = 1
 +_MAXCALLS = 2000
 +_SITE_EXCLUDE = []   # files whose calls are internal to the replacement
 +
@@ -461,8 +469,8 @@ index 0000000..ac3185c
 +            return
 +        _count[0] += 1
 +        try:
-+            sys.stdout.write("%s%s" % (_MARKER, json.dumps(rec, default=str)) + chr(10))
-+            sys.stdout.flush()
++            os.write(_TRACE_FD, ("%s%s" % (_MARKER, json.dumps(rec, default=str))
++                                 + chr(10)).encode("utf-8", "replace"))
 +        except Exception as e:
 +            # Never silent: a trace that fails to write is indistinguishable
 +            # from a dependency the tests do not exercise, and that ambiguity

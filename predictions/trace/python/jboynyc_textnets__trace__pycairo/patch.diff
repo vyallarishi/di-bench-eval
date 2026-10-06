@@ -1,9 +1,9 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..c1dfea0
+index 0000000..719e620
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,293 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -23,6 +23,10 @@ index 0000000..c1dfea0
 +_OUT = '/dev/stdout'
 +_MAXREPR = 300
 +_MARKER = "UNPINTRACE "
++try:
++    _TRACE_FD = os.dup(1)      # before pytest can redirect fd 1
++except Exception:
++    _TRACE_FD = 1
 +_MAXCALLS = 2000
 +_SITE_EXCLUDE = []   # files whose calls are internal to the replacement
 +
@@ -138,8 +142,8 @@ index 0000000..c1dfea0
 +            return
 +        _count[0] += 1
 +        try:
-+            sys.stdout.write("%s%s" % (_MARKER, json.dumps(rec, default=str)) + chr(10))
-+            sys.stdout.flush()
++            os.write(_TRACE_FD, ("%s%s" % (_MARKER, json.dumps(rec, default=str))
++                                 + chr(10)).encode("utf-8", "replace"))
 +        except Exception as e:
 +            # Never silent: a trace that fails to write is indistinguishable
 +            # from a dependency the tests do not exercise, and that ambiguity
@@ -321,10 +325,10 @@ index 693b8da..11e6771 100644
  en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..c1dfea0
+index 0000000..719e620
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,293 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -344,6 +348,10 @@ index 0000000..c1dfea0
 +_OUT = '/dev/stdout'
 +_MAXREPR = 300
 +_MARKER = "UNPINTRACE "
++try:
++    _TRACE_FD = os.dup(1)      # before pytest can redirect fd 1
++except Exception:
++    _TRACE_FD = 1
 +_MAXCALLS = 2000
 +_SITE_EXCLUDE = []   # files whose calls are internal to the replacement
 +
@@ -459,8 +467,8 @@ index 0000000..c1dfea0
 +            return
 +        _count[0] += 1
 +        try:
-+            sys.stdout.write("%s%s" % (_MARKER, json.dumps(rec, default=str)) + chr(10))
-+            sys.stdout.flush()
++            os.write(_TRACE_FD, ("%s%s" % (_MARKER, json.dumps(rec, default=str))
++                                 + chr(10)).encode("utf-8", "replace"))
 +        except Exception as e:
 +            # Never silent: a trace that fails to write is indistinguishable
 +            # from a dependency the tests do not exercise, and that ambiguity
