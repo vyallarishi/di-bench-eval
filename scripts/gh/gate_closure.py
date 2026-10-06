@@ -100,20 +100,33 @@ def declared_before_after(patch: str, repo: pathlib.Path, path: str,
         except Exception:
             pass
 
+    # Which text the candidate patch was written against is not knowable from
+    # the patch alone. DI-Bench's own predictions target the MASKED file;
+    # constructed variants are built on the GOLD manifest. Applying to the
+    # wrong one fails on context, git leaves the file untouched, and the result
+    # reads as "nothing was removed" -- which rejected every family including
+    # the honest deletion. Try both and take whichever applies.
     applied = False
-    with tempfile.TemporaryDirectory() as td:
-        tdp = pathlib.Path(td)
-        (tdp / path).parent.mkdir(parents=True, exist_ok=True)
-        (tdp / path).write_text(masked_text)
-        (tdp / "p.diff").write_text(patch)
-        for cmd in (["git", "apply", "--allow-empty", "--ignore-whitespace",
-                     "--ignore-space-change", "--include", path, "p.diff"],
-                    ["patch", "--batch", "--fuzz=5", "-p1", "-i", "p.diff", path]):
-            if subprocess.run(cmd, cwd=tdp, capture_output=True, text=True).returncode == 0:
-                applied = True
+    for base_text in (masked_text, before_text):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = pathlib.Path(td)
+            (tdp / path).parent.mkdir(parents=True, exist_ok=True)
+            (tdp / path).write_text(base_text)
+            (tdp / "p.diff").write_text(patch)
+            for cmd in (["git", "apply", "--allow-empty", "--ignore-whitespace",
+                         "--ignore-space-change", "--include", path, "p.diff"],
+                        ["patch", "--batch", "--fuzz=5", "-p1", "-i", "p.diff", path]):
+                if subprocess.run(cmd, cwd=tdp, capture_output=True,
+                                  text=True).returncode == 0:
+                    applied = True
+                    break
+            if applied:
+                after_text = (tdp / path).read_text(errors="ignore")
                 break
-        after_text = (tdp / path).read_text(errors="ignore")
-
+        if base_text is before_text:
+            break
+    if not applied:
+        after_text = ""
     try:
         before = M.declared(path, before_text)
     except Exception:
