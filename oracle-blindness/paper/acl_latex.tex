@@ -161,18 +161,22 @@ It bounds what execution pass rate can ever detect: a dependency whose deletion 
     \hline
     \textbf{Measure} & \textbf{Value} \\
     \hline
-    Deletion mutants scored & 233 \\
-    Deletions that still pass CI & 115 (49.4\%) \\
-    \quad phantom (installed anyway) & 91 \\
-    \quad blind spot (absent, tests pass) & 24 \\
-    Instances with $\geq$1 invisible dep. & 38 of 51 \\
-    Instances with $\geq$1 blind spot & 15 of 51 \\
+    Candidates screened & 622 \\
+    \quad verified removal pairs & 348 \\
+    \quad oracle silent & 226 \\
+    \quad excluded, with reason & 48 \\
     \hline
-    Sanity: visible deletions where & \\
-    \quad the package was truly absent & 114 of 118 \\
+    \textbf{Of the 226 silent cases} & \\
+    \quad over-declared (no trace in repo) & 149 \\
+    \quad used without importing & 23 \\
+    \quad \textbf{imported, unguarded, untested} & \textbf{46} \\
+    \quad optional by design & 8 \\
+    \hline
+    Median per-repository rate & 18.8\% \\
+    Repositories with $\geq$1 silent dep. & 35 of 51 \\
     \hline
   \end{tabular}
-  \caption{Dependency mutation analysis on \dibench{} Python, restricted to mutants of gold-passing instances.}
+  \caption{The complete candidate census on \dibench{} Python. Every dependency of every gold-passing repository is screened once, under an origin-scoped import block. Only the 46 \emph{imported, unguarded, untested} cases are oracle blindness in the strict sense; the pooled rate is reported per repository because one repository declaring 172 dependencies supplies 126 of the 226.}
   \label{tab:mutation}
 \end{table}
 
@@ -256,10 +260,14 @@ Those record that a removal occurred; they cannot tell whether a candidate remov
 
 \subsection{Instance Pool and Difficulty}
 
-From the gold-passing \dibench{} Python instances we derive 162 candidate pairs over 47 repositories, in three tiers.
-\textbf{Strong} (62 pairs, 38 repositories): the package is imported by one or two source files, is reachable from tests, and its deletion fails CI; these are scoreable and tractable.
-\textbf{Medium} (19 pairs): three to five importing files.
-\textbf{Weak} (81 pairs): deletion does \emph{not} fail CI; these are excluded from scoring but retained, since they are precisely the instances where the test oracle is blind.
+From the gold-passing \dibench{} Python instances we derive 348 verified pairs over 74 repositories, in four tiers by the number of non-test files importing the package.
+\textbf{Strong} (197 pairs): one or two importing files.
+\textbf{Medium} (42): three or four.
+\textbf{Hard} (68): five or more.
+\textbf{Indirect} (41): the package is reached without a direct import, through a plugin, entry point, or tool invocation.
+The split is even across the two \dibench{} subsets, 174 pairs each.
+
+Pairs are admitted only when the failure is attributable to the repository's own use of the package: the import block is scoped by frame origin, so a failure raised inside a third-party package that happens to need the library does not count, and a pair whose dependency is explicitly optional---every import guarded by a handler that recovers---is excluded, because the code already runs without it.
 
 We label each instance by \emph{used API surface}: the number of distinct symbols of $d$ that $R$ calls, plus call sites.
 In the strong tier this ranges from 1 to 22 (median 1).
@@ -314,7 +322,7 @@ Of 186 possible variants, 176 were generated; 10 vendor variants were skipped be
 \end{table}
 
 Table~\ref{tab:cheats} gives the result, and it is the central justification for the gate stack.
-Tests alone accept 61 of 176 cheats.
+Across 617 constructed variants spanning eight families, each family is rejected by the gate it was designed to exercise: hiding by G1 (77 of 77), trading by G8 (73 of 73), test weakening by G7 (78 of 80), and stubbing or vendoring by G3 (65 of 80, 65 of 80, and 48 of 67 respectively).
 Install-level gates close hiding and vendoring completely: every cheat of those families that passes the tests fails G1, G5, or G3.
 
 Stubbing is different.
