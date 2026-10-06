@@ -54,9 +54,77 @@ def _verdict(ok: bool | None, reason: str, **ev) -> dict:
                 reason=reason, evidence=ev)
 
 
+def _after_text(patch: str, repo: pathlib.Path, path: str,
+                gold_patch: str | None) -> str:
+    """The manifest as the candidate leaves it, or '' if the patch will not apply."""
+    import subprocess
+    import tempfile
+    src = repo / path
+    if not src.exists():
+        return ""
+    masked = src.read_text(errors="ignore")
+    gold = masked
+    if gold_patch:
+        try:
+            gold = apply_manifest_patch(repo, path, gold_patch)
+        except Exception:
+            pass
+    for base in (masked, gold):
+        with tempfile.TemporaryDirectory() as td:
+            t = pathlib.Path(td)
+            (t / path).parent.mkdir(parents=True, exist_ok=True)
+            (t / path).write_text(base)
+            (t / "p.diff").write_text(patch)
+            for cmd in (["git", "apply", "--allow-empty", "--ignore-whitespace",
+                         "--ignore-space-change", "--include", path, "p.diff"],
+                        ["patch", "--batch", "--fuzz=5", "-p1", "-i", "p.diff", path]):
+                if subprocess.run(cmd, cwd=t, capture_output=True,
+                                  text=True).returncode == 0:
+                    return (t / path).read_text(errors="ignore")
+    return ""
+
+
+def _declared_anywhere(path: str, text: str, dep: str) -> list[str]:
+    """Sections of a manifest that still name `dep`, beyond the main list.
+
+    `manifests.declared` reads the runtime dependency list only, which is the
+    right scope for most questions and the wrong one for this gate: moving a
+    package into `[project.optional-dependencies]`, a Poetry group, or a
+    requirements file referenced by `-r` removes it from that list while
+    leaving it installable. The constructed `hide` family does exactly this,
+    and G1 passed all 77 of them before this check existed.
+    """
+    import re as _re
+    target = M.norm(dep)
+    hits = []
+    # any TOML table whose name suggests dependencies, other than the main one
+    for m in _re.finditer(r"^\[([^\]]+)\]\s*$", text, _re.M):
+        name = m.group(1)
+        if "depend" not in name and "group" not in name and "extras" not in name:
+            continue
+        body = text[m.end():]
+        nxt = _re.search(r"^\[", body, _re.M)
+        body = body[: nxt.start()] if nxt else body
+        for tok in _re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]*", body):
+            if M.norm(tok) == target:
+                hits.append(f"[{name}]")
+                break
+    # setup.py extras_require / tests_require
+    for key in ("extras_require", "tests_require", "setup_requires"):
+        m = _re.search(key + r"\s*=\s*[\[{]", text)
+        if not m:
+            continue
+        seg = text[m.end(): m.end() + 2000]
+        for tok in _re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]*", seg):
+            if M.norm(tok) == target:
+                hits.append(key)
+                break
+    return sorted(set(hits))
+
+
 def g1_declaration_gone(patch: str, repo: pathlib.Path, dep: str,
                         gold_patch: str | None) -> dict:
-    """The package must not be declared in the resulting manifest."""
+    """The package must not be declared anywhere the build system reads."""
     paths = gate_closure.manifest_paths(patch)
     if not paths:
         return _verdict(False, "the patch edits no manifest")
@@ -69,6 +137,14 @@ def g1_declaration_gone(patch: str, repo: pathlib.Path, dep: str,
             return _verdict(None, f"{dep} is not declared in the gold manifest ({p})")
         if target in after:
             return _verdict(False, f"{dep} is still declared in {p}")
+        # the main list is clean; check the places a declaration can hide
+        after_text = _after_text(patch, repo, p, gold_patch)
+        elsewhere = _declared_anywhere(p, after_text, dep) if after_text else []
+        if elsewhere:
+            return _verdict(False,
+                            f"{dep} was moved rather than removed: still named in "
+                            + ", ".join(elsewhere) + f" of {p}",
+                            sections=elsewhere)
     return _verdict(True, f"{dep} is no longer declared")
 
 
