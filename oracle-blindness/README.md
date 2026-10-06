@@ -17,16 +17,46 @@ docs/         explainers and audits
 
 ## The headline numbers
 
+Rebuilt 2026-10-06 by a single canonical screening of the **complete candidate
+universe**: every dependency declared by every repository whose gold manifest
+passes CI in our harness, each removed and made unimportable from the
+repository's own frames. 622 of 622 candidates screened, nothing missing.
+
 | Finding | Value | Where it comes from |
 |---|---|---|
-| DI-Bench gold patches still passing | 51 of 96 | `results/gold_honest/` |
-| Dependency deletions CI never notices | 115 of 233 (49.4%) | `results/mutation_merged/` |
-| of which phantom installs | 91 | `code/analysis/mechanism.py` |
-| of which true test blind spots | 24 | same |
-| Static predictor of blindness | P 0.81 / R 0.83 | `code/analysis/phantom_predict.py` |
+| DI-Bench gold patches still passing | 51 of 96 (regular), 32 of 50 (large) | `results/gold_honest/` |
+| Candidates screened | 622 over 80 repositories | `data/instances*.jsonl` |
+| **Verified removal pairs** | **355 over 74 repositories** | `data/instances.jsonl` |
+| **Oracle blind spots** (CI passes without the package) | **226** | `data/instances.blind.jsonl` |
+| Excluded, with a stated reason | 41 | `data/instances.excluded.jsonl` |
 | Constructed cheats passing CI | 61 of 176 (34.7%) | `results/cheats/` |
 | Stubs evading every install-level gate | 8 of 8 | `results/gates_cheats.json` |
-| Agent runs: CI pass vs genuine | 5 vs 3 (deepseek) | `results/agent_final/` |
+
+### How to report the blindness rate
+
+**Do not quote the pooled rate alone.** Dependency-weighted it is 38.6%
+(220/570 over repositories with at least three candidates), but a single
+repository, `swirlai_swirl-search`, declares 172 dependencies and contributes
+126 of the 226 blind spots. Pooling therefore measures that repository more
+than it measures the phenomenon.
+
+| Statistic | Value |
+|---|---|
+| Median per-repository blindness rate | **18.8%** |
+| Mean per-repository blindness rate | 22.6% |
+| Pooled, dependency-weighted | 38.6% |
+| Pooled, excluding `swirl-search` | 23.6% |
+| Repositories with at least one blind spot | **35 of 51** |
+
+The defensible headline is the per-repository median and the
+35-of-51 incidence: **in most repositories a fifth of declared dependencies
+can be removed without CI noticing, and 69% of repositories have at least one
+such dependency.** The spread matters too: five repositories with five or more
+candidates have *no* blind spots at all, so this is a property of test-suite
+coverage rather than something universal.
+
+A `swirl-search` blind spot was hand-checked: 67 tests genuinely run and pass
+with `amqp` blocked. The population is real, not a harness artifact.
 
 ## paper/
 
@@ -73,7 +103,10 @@ clean DI-Bench checkout.
 
 ## data/
 
-- `instances.jsonl` — the benchmark: 162 pairs over 47 repositories, three tiers
+- `instances.jsonl` — the benchmark: 355 pairs over 74 repositories, four tiers
+- `instances.blind.jsonl` — the 226 oracle blind spots, a result in their own right
+- `instances.excluded.jsonl` — all 41 dropped candidates, each with its reason
+- `audit_sheet_final.md` — stratified 40-pair hand-audit sheet
 - `agent_instances_16.jsonl` — the 16-instance agent subset
 - `cheats.jsonl`, `agent.jsonl` — evaluation set definitions
 - `per_dep_python.csv` — per-dependency import footprint and reachability
