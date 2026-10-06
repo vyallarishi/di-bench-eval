@@ -228,6 +228,11 @@ def main():
     if a.limit:
         ids = ids[: a.limit]
 
+    # The reference phase depends only on (repository, dependency), so the
+    # cheat families built on one pair share it. Recomputing it per candidate
+    # meant 154 reference runs for 54 distinct pairs, each with a fresh venv
+    # and a full dependency install -- about three times the necessary work.
+    ref_cache: dict[tuple, dict] = {}
     results = []
     for mid in ids:
         parts = mid.split("__")
@@ -255,13 +260,20 @@ def main():
                 rec.update(status="skipped", why="could not create a virtual environment")
                 results.append(rec)
                 print(f"  {mid}: venv creation failed"); continue
-            env_info = (dict(installed=True, why="--no-install", deps=[])
-                        if a.no_install
-                        else install_gold_env(ref_repo, row, ref_py, a.timeout))
-            rec["env"] = {k: v for k, v in env_info.items() if k != "deps"}
-            rec["env"]["n_deps"] = len(env_info.get("deps", []))
-            ref = run_phase(ref_repo, dep, pathlib.Path(td) / "ref.jsonl", own,
-                            extra, test_command(row, ref_py), a.timeout)
+            ck = (base, M.norm(dep))
+            if ck in ref_cache:
+                ref = ref_cache[ck]
+                rec["env"] = dict(cached_from=ref_cache[ck]["_from"])
+            else:
+                env_info = (dict(installed=True, why="--no-install", deps=[])
+                            if a.no_install
+                            else install_gold_env(ref_repo, row, ref_py, a.timeout))
+                rec["env"] = {k: v for k, v in env_info.items() if k != "deps"}
+                rec["env"]["n_deps"] = len(env_info.get("deps", []))
+                ref = run_phase(ref_repo, dep, pathlib.Path(td) / "ref.jsonl", own,
+                                extra, test_command(row, ref_py), a.timeout)
+                ref["_from"] = mid
+                ref_cache[ck] = ref
             if not apply_patch(cand_repo, patch):
                 rec.update(status="skipped", why="patch did not apply")
                 results.append(rec)
