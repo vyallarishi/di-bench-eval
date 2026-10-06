@@ -128,8 +128,10 @@ _BLOCKED = {names!r}
 _DEP = {dep!r}
 _OWN = {own!r}          # the repository's own top-level packages (non-editable installs)
 _ROOT = os.path.dirname(os.path.abspath(__file__))
+_REAL_ROOT = os.path.realpath(_ROOT)
 _SELF = {{os.path.abspath(__file__),
          os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}}
+_REAL_SELF = {{os.path.realpath(p) for p in _SELF}}
 _VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
 _STDLIB = os.path.dirname(os.__file__)
 _MARK = "(blocked: dependency %s was removed)" % _DEP
@@ -151,10 +153,21 @@ def _is_repo_file(fn):
         r = False
     elif not os.path.isabs(fn):
         r = True                                            # relative paths are project files
-    elif os.path.abspath(fn).startswith(_ROOT + "/"):
-        r = None if os.path.abspath(fn) in _SELF else True
     else:
-        r = False
+        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
+        # temporary checkout is handed to us as /var/folders/... while frames
+        # report /private/var/folders/..., and any symlinked checkout on Linux
+        # does the same. The prefix test then fails for every repository
+        # frame, the whole repository is classified foreign, and the tool
+        # silently does nothing -- a blocker that blocks nothing, or a
+        # recorder that records nothing. In a CI log that is indistinguishable
+        # from a dependency the tests never exercise, which is the one
+        # confusion this project cannot afford.
+        real = os.path.realpath(fn)
+        if real.startswith(_REAL_ROOT + os.sep):
+            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
+        else:
+            r = False
     _cache[fn] = r
     return r
 

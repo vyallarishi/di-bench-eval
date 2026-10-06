@@ -57,7 +57,9 @@ _MAXCALLS = {maxcalls}
 _SITE_EXCLUDE = {site_exclude!r}   # files whose calls are internal to the replacement
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
+_REAL_ROOT = os.path.realpath(_ROOT)
 _SELF = {{os.path.abspath(__file__)}}
+_REAL_SELF = {{os.path.realpath(p) for p in _SELF}}
 _VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
 _STDLIB = os.path.dirname(os.__file__)
 _lock = threading.Lock()
@@ -80,10 +82,21 @@ def _is_repo_file(fn):
         r = False
     elif not os.path.isabs(fn):
         r = True
-    elif os.path.abspath(fn).startswith(_ROOT + "/"):
-        r = None if os.path.abspath(fn) in _SELF else True
     else:
-        r = False
+        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
+        # temporary checkout is handed to us as /var/folders/... while frames
+        # report /private/var/folders/..., and any symlinked checkout on Linux
+        # does the same. The prefix test then fails for every repository
+        # frame, the whole repository is classified foreign, and the tool
+        # silently does nothing -- a blocker that blocks nothing, or a
+        # recorder that records nothing. In a CI log that is indistinguishable
+        # from a dependency the tests never exercise, which is the one
+        # confusion this project cannot afford.
+        real = os.path.realpath(fn)
+        if real.startswith(_REAL_ROOT + os.sep):
+            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
+        else:
+            r = False
     _fcache[fn] = r
     return r
 
@@ -157,8 +170,16 @@ def _emit(rec):
         try:
             with open(_OUT, "a") as fh:
                 fh.write(json.dumps(rec, default=str) + "\\n")
-        except Exception:
-            pass
+        except Exception as e:
+            # Never silent: a trace that fails to write is indistinguishable
+            # from a dependency the tests do not exercise, and that ambiguity
+            # is exactly what the behavioural gate must not have.
+            try:
+                sys.stderr.write("UnpinBench recorder: write to %s failed: %s: %s"
+                                 % (_OUT, type(e).__name__, e) + chr(10))
+                sys.stderr.flush()
+            except Exception:
+                pass
 
 
 def _wrap(fn, qual):
@@ -292,6 +313,12 @@ def _install():
     for name in list(sys.modules):          # force re-import so the hook sees it
         if name.split(".")[0] in _TARGETS:
             del sys.modules[name]
+    try:
+        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
+                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
+        sys.stderr.flush()
+    except Exception:
+        pass
 
 
 _install()
