@@ -106,6 +106,59 @@ if CORPUS.is_dir() and DATASET.exists():
     expect(f"no false positives over {n} real cheats", not bad, True,
            f"{len(bad)} rejected, e.g. {bad[:2]}")
 
+# ---------------------------------------------------------------- G4c
+print("\nG4c: extreme mutation of the replacement")
+import os  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+import gate_mutation  # noqa: E402
+
+
+def _build_proj(tmp):
+    """A project with two added functions: one the tests pin down, one not."""
+    base = pathlib.Path(tmp) / "proj"
+    (base / "app").mkdir(parents=True)
+    (base / "tests").mkdir()
+    (base / "app" / "__init__.py").write_text("")
+    (base / "app" / "util.py").write_text(
+        'def slugify(s):\n    return "-".join(s.lower().split())\n\n'
+        'def describe(s):\n    return "slug of length %d" % len(s)\n')
+    (base / "tests" / "test_u.py").write_text(
+        "from app.util import slugify, describe\n"
+        'def test_slug():\n    assert slugify("Hello World") == "hello-world"\n'
+        'def test_describe_runs():\n    describe("x")\n')
+    return base
+
+
+PATCH = ("diff --git a/app/util.py b/app/util.py\nnew file mode 100644\n"
+         "--- /dev/null\n+++ b/app/util.py\n"
+         '+def slugify(s):\n+    return "-".join(s.lower().split())\n'
+         '+def describe(s):\n+    return "slug of length %d" % len(s)\n')
+
+
+def _run_tests(work):
+    env = dict(os.environ, PYTHONPATH=str(work))
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                        "tests"], cwd=work, env=env, capture_output=True, text=True)
+    return r.returncode == 0
+
+
+with tempfile.TemporaryDirectory() as td:
+    proj = _build_proj(td)
+    expect("baseline suite passes", _run_tests(proj), True)
+    res = gate_mutation.check(PATCH, proj, _run_tests)
+    outcomes = {f["name"]: f["outcome"] for f in res["evidence"]["functions"]}
+    expect("asserted function is killed", outcomes.get("slugify") == "killed", True,
+           str(outcomes))
+    expect("called-but-unasserted function is pseudo-tested",
+           outcomes.get("describe") == "pseudo-tested", True, str(outcomes))
+    expect("fraction reported", res["evidence"]["pseudo_tested_fraction"] == 0.5, True,
+           str(res["evidence"]["pseudo_tested_fraction"]))
+    # a gate that fails everything is useless: a partially-constrained patch passes
+    expect("partial constraint still passes the gate", res["pass"], True)
+
 print()
 if FAILS:
     print(f"FAILED: {len(FAILS)} -> {FAILS}")
