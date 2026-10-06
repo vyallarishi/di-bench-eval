@@ -41,15 +41,15 @@ a Dependency Is Gone}
 
 \begin{abstract}
 Execution-based benchmarks judge a repository-level change by whether the project's test suite still passes.
-We show this oracle is substantially blind for dependency-related changes, and we quantify the blindness.
-Mutating the ground-truth manifests of \dibench's Python subset one dependency at a time, we find that 49.4\% of declared dependencies can be deleted without any test failing: 91 of 115 because the package is still installed transitively (a \emph{phantom}), and 24 because no test reaches the code that uses it (a \emph{blind spot}).
-Both are invisible to execution pass rate, the headline metric of the benchmark.
-We then show the blindness is predictable without running anything: a two-layer static signal over the dependency graph and the import graph identifies CI-invisible deletions with precision 0.81 and recall 0.83.
-Building on this, we introduce \bench, an executable benchmark for a task existing work does not cover: removing a dependency the code \emph{actually uses}, by rewriting the code, with behaviour preserved.
-Unlike dependency-removal datasets mined from commit histories, every \bench{} instance is verified so that deleting the dependency provably breaks CI, which makes the test suite a meaningful oracle for that instance.
-Because tests alone still accept several ways of faking a removal, we pair the benchmark with a six-gate oracle and validate it against 176 automatically constructed cheats.
-Tests alone accept 34.7\% of cheats; install-level gates close vendoring and hiding completely, while 8 stubbed removals pass every install-level check and are caught only by a structural signal.
-A pilot of two open-weight coding agents over 28 runs finds that execution pass rate reports 5 successes where only 3 are genuine removals.
+\dibench{} \citep{dibench2025} states the premise directly---``whether the tests pass is the most direct and reliable indicator of the correctness of the generated dependencies''---and its own limitations section raises test incompleteness only to set it aside.
+We measure what that assumption costs.
+Screening every dependency declared by every gold-passing repository in \dibench's Python subsets (622 candidates over 80 repositories), removing each declaration and making the package genuinely unimportable from the repository's own frames, we find the oracle stays silent in 226 cases.
+That number decomposes, and the decomposition matters more than the total: 149 are over-declarations with no trace of the package anywhere, 23 are used without being imported, 8 are optional by design, and \textbf{46 are oracle blindness in the strict sense}---the code imports the package on a path no test exercises.
+The rate is not uniform: a single repository declaring 172 dependencies supplies 126 of the 226, so we report the per-repository median (18.8\%) and the incidence (35 of 51 repositories have at least one) rather than a pooled figure.
+The surviving 348 verified pairs form \bench, a benchmark for removing a dependency the code actually uses.
+Because a passing suite also accepts several ways of faking a removal, we pair it with a gate stack and validate against 617 constructed cheats spanning eight families.
+Each family is caught by its intended gate---but one is not: 80 of 80 \emph{pseudo-genuine} replacements, structurally indistinguishable from a real rewrite, survive every structural check.
+That family motivates a behavioural gate, which is possible here and nowhere else: in a removal task the removed library is a canonical oracle, present and recordable before it is taken away.
 \end{abstract}
 
 \section{Introduction}
@@ -71,26 +71,25 @@ Neither condition holds often enough for the oracle to be trusted on its own.
 
 \paragraph{Contributions.}
 \begin{itemize}
-\item \textbf{A measurement of oracle blindness} (\S\ref{sec:blindness}).
-We mutate the ground-truth manifests of \dibench's Python subset, deleting one dependency at a time and re-running the real CI suite in a container: 531 mutants in total.
-On instances whose ground-truth patch still passes, 49.4\% of deletions go unnoticed.
-We separate the two mechanisms---phantom installation and test blind spots---because they call for different remedies.
+\item \textbf{A census, not a sample} (\S\ref{sec:blindness}).
+Every dependency of every gold-passing repository is screened by one mechanism: 622 candidates, all accounted for as verified (348), oracle-silent (226), or excluded with a stated reason (48).
+Removal is enforced by an origin-scoped import block, so a package that another dependency still installs cannot masquerade as unused.
 
-\item \textbf{A static predictor of that blindness} (\S\ref{sec:predictor}).
-Combining the package-level dependency graph with import-level reachability predicts which deletions CI will miss, at precision 0.81 and recall 0.83, with no container and no test run.
+\item \textbf{A decomposition of what the oracle misses} (\S\ref{sec:blindness}).
+The 226 silent cases are four distinct phenomena, only one of which is an oracle failure.
+Reporting them as a single rate would overstate the finding by a factor of five, and we say so.
 
 \item \textbf{\bench} (\S\ref{sec:benchmark}).
-An executable benchmark for in-situ dependency removal, where each instance is verified so that deleting the target provably fails CI.
-We release a pool of 162 candidate instances over 47 repositories.
+348 verified pairs over 74 repositories: removing a dependency the code actually uses, with behaviour preserved.
+Every candidate's disposition is published, including the pairs we rejected and why.
 
-\item \textbf{A gate stack validated against constructed cheats} (\S\ref{sec:gates}).
-Six gates, of which tests are one.
-We generate 176 cheats automatically---vendoring, stubbing, and hiding---and show that tests alone accept 34.7\% of them, that install-level gates close two cheat families entirely, and that stubbing survives every install-level check.
+\item \textbf{A gate stack validated on 617 constructed cheats} (\S\ref{sec:gates}).
+Eight families, each caught by the gate it was designed to exercise, with two controls: an honest deletion is left alone 79 times in 80, and pseudo-genuine replacements survive all 80 structural checks.
 
-\item \textbf{An agent pilot} (\S\ref{sec:agents}) over two open-weight coding agents and 28 runs, in which execution pass rate reports 5 successes against 3 genuine removals.
-\end{itemize}
-
-\paragraph{Scope.}
+\item \textbf{A behavioural gate built on the removed library} (\S\ref{sec:behaviour}).
+Recording what the library did before removing it turns the question from ``do the tests still pass'' into ``does the replacement do what the library did''.
+We show on a controlled fixture that comparison on recorded inputs is necessary but not sufficient, and that fuzzing from the recorded distribution separates an honest rewrite from a plausible stub.
+\end{itemize}\paragraph{Scope.}
 All experiments are on Python.
 \S\ref{sec:limitations} discusses what this costs us.
 The harness, the mutants, the cheat generator, and the agent scaffold are released; the harness runs on free GitHub Actions runners, so every result here is reproducible without dedicated hardware.
