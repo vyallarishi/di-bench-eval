@@ -109,6 +109,48 @@ Collected verbatim, for reuse:
 
 For us: DI-Bench's contribution is real and we build on it directly — we use their repositories, their harness, their CI replay. The paper should say so without hedging. Our finding is about the **oracle**, which is a property of the task, not a mistake by its authors; the same oracle underlies every execution-graded dependency benchmark. That framing is both true and much more publishable than "DI-Bench is broken".
 
+## 7b. Controlled perturbation as a diagnostic: a method precedent
+
+Li et al., *LLMs Can Easily Learn to Reason from Demonstrations* (arXiv 2502.07374)
+is not a comparison paper -- different genre entirely, reasoning distillation
+rather than benchmark validity -- but its **method** is the same shape as ours
+and is worth citing as precedent for the design.
+
+They perturb training data along two axes and measure which the system is
+actually sensitive to. *Content* perturbations (wrong final answers, corrupted
+digits, removed reasoning keywords) barely move performance: training on
+entirely wrong answers costs 3.2%. *Structural* perturbations (shuffling,
+inserting, deleting reasoning steps) degrade it sharply. The conclusion is
+drawn from what the system fails to notice.
+
+That is our logic. We perturb a repository and measure whether the oracle
+notices. Three things to borrow:
+
+**The two-axis framing.** Theirs is content vs. structure. Ours is naturally
+*declaration-level* (remove the declaration; a phantom install leaves the
+package importable) vs. *environment-level* (remove it and block the import).
+We have been describing these as two screening mechanisms, which is accurate
+but flat. Framing them as a perturbation taxonomy is cleaner and makes the
+phantom/blind-spot split fall out of the design rather than arrive as an
+afterthought.
+
+**Dose-response, not a binary.** They perturb at 20/50/67/100% and show the
+trend, which is far harder to dismiss than a single number. The analogue here
+is removing 1, 2, 3, N dependencies at once and plotting detection against
+dose. We currently report one binary per pair. This is cheap to add and would
+turn a number into a curve.
+
+**The negative control earns the headline.** Their 100%-digit-corruption row
+collapses to 2.7%, which proves the setup *can* register catastrophic damage --
+so robustness at 70% is a finding rather than a broken measurement. Our
+gold-baseline check plays exactly this role and should be presented the same
+way: here is the condition under which the oracle does fire, therefore its
+silence elsewhere means something. Given how many of our own harness bugs
+produced plausible-looking silence, this is not a rhetorical nicety.
+
+Cite for the method. Do not cite as a venue model or put it in the Related Work
+core.
+
 ## 8. What we are missing, concretely
 
 From this reading, the gaps between what we have and what a strong submission needs:
@@ -134,3 +176,4 @@ From this reading, the gaps between what we have and what a strong submission ne
 - Bloat beneath Python's Scales — TOSEM, `dl.acm.org/doi/10.1145/3660821`
 - Dependency Debloating in Python: How Developers Do It — Zenodo 20274119 (full text restricted; **must be checked**)
 - EACL/ACL 2026 call for papers — mandatory Limitations section
+- Li, Cao, Griggs et al. *LLMs Can Easily Learn to Reason from Demonstrations* — arXiv 2502.07374 (method precedent for controlled perturbation; not a comparison paper)
