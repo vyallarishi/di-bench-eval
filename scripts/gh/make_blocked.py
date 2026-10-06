@@ -230,9 +230,18 @@ class _BlockedFinder:
         return None
 
 
+_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
+
+
 def _install():
-    if not any(isinstance(f, _BlockedFinder) for f in sys.meta_path):
-        sys.meta_path.insert(0, _BlockedFinder())
+    # Guard on a marker on sys, not isinstance: sitecustomize.py and
+    # conftest.py are distinct modules with distinct _BlockedFinder classes,
+    # so isinstance cannot see the other's instance and two finders delegating
+    # to each other recurse without bound.
+    if getattr(sys, _FLAG, False):
+        return
+    setattr(sys, _FLAG, True)
+    sys.meta_path.insert(0, _BlockedFinder())
     for name in list(sys.modules):      # force every first import through the finder
         if _blocked(name):
             del sys.modules[name]

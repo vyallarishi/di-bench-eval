@@ -54,6 +54,7 @@ _OWN = {own!r}
 _OUT = {out!r}
 _MAXREPR = 300
 _MAXCALLS = {maxcalls}
+_SITE_EXCLUDE = {site_exclude!r}   # files whose calls are internal to the replacement
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 _SELF = {{os.path.abspath(__file__)}}
@@ -167,6 +168,8 @@ def _wrap(fn, qual):
         is_repo, site = _caller()
         if not is_repo:
             return fn(*args, **kwargs)
+        if site.split(":")[0] in _SITE_EXCLUDE:      # the replacement calling itself
+            return fn(*args, **kwargs)
         _depth.n = getattr(_depth, "n", 0) + 1
         try:
             try:
@@ -207,7 +210,8 @@ def _instrument(mod, prefix, depth=0):
         qual = prefix + "." + name
         try:
             if inspect.isclass(obj):
-                if depth < 1 and (getattr(obj, "__module__", "") or "").split(".")[0] in _TARGETS:
+                mod_name = getattr(obj, "__module__", "") or ""
+                if depth < 1 and (mod_name.split(".")[0] in _TARGETS or mod_name in _TARGETS):
                     for mname in list(vars(obj)):
                         if mname.startswith("_") and mname not in ("__init__", "__call__"):
                             continue
@@ -237,8 +241,13 @@ class _Hook:
         return None
 
     def find_spec(self, fullname, path=None, target=None):
-        root = fullname.split(".")[0]
-        if root not in _TARGETS or fullname in self._seen:
+        # A target is either a top-level package (the library, e.g. "slugger")
+        # or an explicit dotted module (the replacement, e.g. "app.textutil").
+        # Matching only the root would never instrument a replacement that
+        # lives inside the repository's own package.
+        if fullname in self._seen:
+            return None
+        if fullname.split(".")[0] not in _TARGETS and fullname not in _TARGETS:
             return None
         for finder in sys.meta_path:
             if finder is self or not hasattr(finder, "find_spec"):
@@ -268,9 +277,18 @@ class _Hook:
         return None
 
 
+_FLAG = "_unpinbench_recorder_" + "_".join(sorted(_TARGETS))
+
+
 def _install():
-    if not any(isinstance(f, _Hook) for f in sys.meta_path):
-        sys.meta_path.insert(0, _Hook())
+    # sitecustomize.py and conftest.py both carry this module, so they define
+    # two distinct _Hook classes. isinstance() cannot recognise the other's
+    # instance, and two installed hooks delegate to each other forever
+    # (RecursionError at the first import). Guard on a marker instead.
+    if getattr(sys, _FLAG, False):
+        return
+    setattr(sys, _FLAG, True)
+    sys.meta_path.insert(0, _Hook())
     for name in list(sys.modules):          # force re-import so the hook sees it
         if name.split(".")[0] in _TARGETS:
             del sys.modules[name]
@@ -281,10 +299,22 @@ _install()
 
 
 def write_recorder(root: pathlib.Path, dep: str, names, own=None,
-                   out: str = "usage.jsonl", maxcalls: int = 20000) -> list[str]:
-    """Install the recorder as sitecustomize.py + conftest.py in `root`."""
+                   out: str = "usage.jsonl", maxcalls: int = 20000,
+                   site_exclude=()) -> list[str]:
+    """Install the recorder as sitecustomize.py + conftest.py in `root`.
+
+    `names` may contain top-level package names (the library being removed) and
+    dotted module names (a replacement inside the repository, e.g.
+    "app.textutil"), so the same instrumentation records the reference run and
+    the candidate run at the same call sites.
+
+    `site_exclude` lists repository files whose calls into a target are
+    internal to the replacement rather than uses by the project, so they are
+    not recorded.
+    """
     body = RECORDER.format(dep=dep, names=sorted(set(names)), own=sorted(set(own or [])),
-                           out=str(out), maxcalls=maxcalls)
+                           out=str(out), maxcalls=maxcalls,
+                           site_exclude=sorted(set(site_exclude)))
     return inject.install(root, body)
 
 
