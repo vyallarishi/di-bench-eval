@@ -55,6 +55,56 @@ def test_command(row: dict) -> list[str]:
     return [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
 
 
+PLUGIN_FOR_OPT = {
+    "--cov": "pytest-cov", "--timeout": "pytest-timeout",
+    "--benchmark": "pytest-benchmark", "--asyncio": "pytest-asyncio",
+    "-n": "pytest-xdist", "--numprocesses": "pytest-xdist",
+    "--random-order": "pytest-random-order", "--mock": "pytest-mock",
+    "--doctest-modules": "", "--flake8": "pytest-flake8",
+    "--mypy": "pytest-mypy", "--django": "pytest-django",
+    "--hypothesis": "hypothesis", "--snapshot": "syrupy",
+}
+
+
+def _test_extras(repo: pathlib.Path) -> list[str]:
+    """Packages the test run needs that the runtime manifest does not declare.
+
+    Two sources: pytest plugins implied by options in the project's own pytest
+    configuration (an unknown option aborts the whole run), and the project's
+    declared test/dev extras.
+    """
+    want = {"pytest"}
+    text = ""
+    for name in ("pyproject.toml", "setup.cfg", "pytest.ini", "tox.ini"):
+        f = repo / name
+        if f.exists():
+            try:
+                text += f.read_text(errors="ignore")
+            except OSError:
+                pass
+    for opt, pkg in PLUGIN_FOR_OPT.items():
+        if pkg and opt in text:
+            want.add(pkg)
+    # declared test extras, e.g. [project.optional-dependencies] test = [...]
+    try:
+        import tomllib
+    except ImportError:          # pragma: no cover
+        tomllib = None
+    pp = repo / "pyproject.toml"
+    if tomllib and pp.exists():
+        try:
+            data = tomllib.loads(pp.read_text(errors="ignore"))
+            opt = (data.get("project", {}) or {}).get("optional-dependencies", {}) or {}
+            for key in ("test", "tests", "testing", "dev"):
+                for spec in opt.get(key, []) or []:
+                    n = M._req_name(spec)
+                    if n:
+                        want.add(n.replace("_", "-"))
+        except Exception:
+            pass
+    return sorted(want)
+
+
 def install_gold_env(repo: pathlib.Path, row: dict, venv_py: str, timeout: int) -> dict:
     """Install the repository's gold dependency set into the shared venv.
 
@@ -71,9 +121,22 @@ def install_gold_env(repo: pathlib.Path, row: dict, venv_py: str, timeout: int) 
         return dict(installed=False, why=f"manifest: {type(e).__name__}", deps=[])
     if not deps:
         return dict(installed=False, why="no declared dependencies", deps=[])
+    # Test-only requirements are usually NOT in the runtime manifest: pytest
+    # plugins named in addopts (--cov, --timeout) make pytest abort with
+    # "unrecognized arguments" before a single test runs, and optional extras
+    # make collection fail. Install the project's own test extras and the
+    # plugins its config asks for, so the reference run is a real test run.
+    extras = _test_extras(repo)
     r = subprocess.run([venv_py, "-m", "pip", "install", "--quiet",
-                        "--disable-pip-version-check", *deps],
+                        "--disable-pip-version-check", *deps, *extras],
                        capture_output=True, text=True, timeout=timeout)
+    # Install the project itself, editable, as its CI does. Without this a
+    # setuptools-scm version module or a package that only exists once built
+    # is missing, and the suite fails at import before any test runs -- which
+    # the gate would otherwise report as "no reference available".
+    subprocess.run([venv_py, "-m", "pip", "install", "--quiet",
+                    "--disable-pip-version-check", "--no-deps", "-e", "."],
+                   cwd=repo, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
         # retry one-by-one: a single unresolvable pin should not lose the instance
         ok = []
