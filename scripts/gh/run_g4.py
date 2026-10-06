@@ -44,7 +44,7 @@ from make_blocked import import_names, own_packages  # noqa: E402
 from record_usage import write_recorder  # noqa: E402
 
 
-def test_command(row: dict) -> list[str]:
+def test_command(row: dict, python: str | None = None) -> list[str]:
     """How to run this repository's tests locally.
 
     DI-Bench rows carry a CI workflow, not a command; replaying the workflow
@@ -52,7 +52,7 @@ def test_command(row: dict) -> list[str]:
     tests to execute, so pytest on the repository root is the default and
     `--test-cmd` overrides it where that is wrong.
     """
-    return [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    return [python or sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
 
 
 PLUGIN_FOR_OPT = {
@@ -105,8 +105,28 @@ def _test_extras(repo: pathlib.Path) -> list[str]:
     return sorted(want)
 
 
+def make_venv(where: pathlib.Path, timeout: int = 300) -> str | None:
+    """A fresh interpreter for one instance. Returns its python, or None.
+
+    Instances must not share an environment. Projects here install themselves
+    editable and register entry points, so a flake8 plugin left behind by one
+    repository makes flake8 fail for the next, and an editable install whose
+    source directory has since been deleted breaks imports outright. A shared
+    venv accumulated 195 packages this way and the GOLD baseline of an
+    untouched repository began failing for a reason that had nothing to do with
+    it -- which the gate would have recorded as a behavioural result.
+    """
+    try:
+        subprocess.run([sys.executable, "-m", "venv", str(where)],
+                       capture_output=True, text=True, timeout=timeout)
+    except subprocess.SubprocessError:
+        return None
+    py = where / "bin" / "python"
+    return str(py) if py.exists() else None
+
+
 def install_gold_env(repo: pathlib.Path, row: dict, venv_py: str, timeout: int) -> dict:
-    """Install the repository's gold dependency set into the shared venv.
+    """Install the repository's gold dependency set into a fresh environment.
 
     The reference phase must actually execute the tests, so the declared
     dependencies have to be present. Installed from the *gold* manifest (the
@@ -229,20 +249,27 @@ def main():
             shutil.copytree(src, cand_repo, symlinks=True,
                             ignore=shutil.ignore_patterns(".git", "__pycache__"))
             own = own_packages(ref_repo)
-            cmd = test_command(row)
+            ref_py = sys.executable if a.no_install else make_venv(pathlib.Path(td) / "venv-ref")
+            cand_py = sys.executable if a.no_install else make_venv(pathlib.Path(td) / "venv-cand")
+            if ref_py is None or cand_py is None:
+                rec.update(status="skipped", why="could not create a virtual environment")
+                results.append(rec)
+                print(f"  {mid}: venv creation failed"); continue
             env_info = (dict(installed=True, why="--no-install", deps=[])
                         if a.no_install
-                        else install_gold_env(ref_repo, row, sys.executable, a.timeout))
+                        else install_gold_env(ref_repo, row, ref_py, a.timeout))
             rec["env"] = {k: v for k, v in env_info.items() if k != "deps"}
             rec["env"]["n_deps"] = len(env_info.get("deps", []))
             ref = run_phase(ref_repo, dep, pathlib.Path(td) / "ref.jsonl", own,
-                            extra, cmd, a.timeout)
+                            extra, test_command(row, ref_py), a.timeout)
             if not apply_patch(cand_repo, patch):
                 rec.update(status="skipped", why="patch did not apply")
                 results.append(rec)
                 print(f"  {mid}: patch did not apply"); continue
+            if not a.no_install:
+                install_gold_env(cand_repo, row, cand_py, a.timeout)
             cand = run_phase(cand_repo, dep, pathlib.Path(td) / "cand.jsonl", own,
-                             extra, cmd, a.timeout)
+                             extra, test_command(row, cand_py), a.timeout)
 
         g4a = gate_behaviour.compare(ref["records"], cand["records"])
         rec.update(
@@ -262,7 +289,11 @@ def main():
     pathlib.Path(a.out).write_text(json.dumps(results, indent=1, default=str))
     ok = [r for r in results if r.get("status") == "ok"]
     usable = [r for r in ok if r.get("reference_tests_passed") and r.get("reference_calls")]
+    no_base = [r for r in ok if not r.get("reference_tests_passed")]
+    no_trace = [r for r in ok if r.get("reference_tests_passed") and not r.get("reference_calls")]
     print(f"\n{len(results)} candidates, {len(ok)} ran, {len(usable)} with a usable reference")
+    print(f"  gold baseline failed (not gradeable):                 {len(no_base)}")
+    print(f"  baseline passed but no call recorded (G4 silent):     {len(no_trace)}")
     if usable:
         import collections
         c = collections.Counter((r["ci_verdict"], r["g4a"]["verdict"]) for r in usable)
