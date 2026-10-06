@@ -1,0 +1,767 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..77939f4
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,289 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++"""Injected by UnpinBench: record calls this repository makes into 'oracledb'."""
++import json
++import os
++import sys
++import threading
++
++_TARGETS = ['oracledb']
++_DEP = 'oracledb'
++_OWN = ['manage', 'swirl', 'swirl_load', 'swirl_server']
++_OUT = '/dev/stdout'
++_MAXREPR = 300
++_MARKER = "UNPINTRACE "
++_MAXCALLS = 2000
++_SITE_EXCLUDE = []   # files whose calls are internal to the replacement
++
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__)}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_lock = threading.Lock()
++_count = [0]
++_depth = threading.local()
++_fcache = {}
++
++
++def _is_repo_file(fn):
++    if fn in _fcache:
++        return _fcache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _fcache[fn] = r
++    return r
++
++
++def _caller():
++    """(repo_origin, 'file:line') of the nearest frame outside the recorder."""
++    f = sys._getframe(2)
++    while f is not None:
++        fn = f.f_code.co_filename
++        if os.path.abspath(fn) not in _SELF:
++            r = _is_repo_file(fn)
++            if r is not None:
++                try:
++                    rel = os.path.relpath(os.path.abspath(fn), _ROOT)
++                except ValueError:
++                    rel = fn
++                return r, "%s:%d" % (rel, f.f_lineno)
++        f = f.f_back
++    return False, "?"
++
++
++def _summary(v, _d=0):
++    """Type-tagged, length-capped structural summary of a value."""
++    t = type(v)
++    name = getattr(t, "__name__", "?")
++    if v is None or isinstance(v, bool):
++        return {"t": name, "v": v}
++    if isinstance(v, int):
++        return {"t": "int", "v": v}
++    if isinstance(v, float):
++        # bit pattern so NaN/-0.0 compare exactly; G4a applies a tolerance rule
++        return {"t": "float", "v": repr(v)}
++    if isinstance(v, (str, bytes)):
++        s = v if isinstance(v, str) else v.decode("utf-8", "replace")
++        return {"t": name, "n": len(v), "v": s[:_MAXREPR]}
++    if isinstance(v, (list, tuple, set, frozenset)) and _d < 3:
++        items = list(v)[:20]
++        return {"t": name, "n": len(v), "items": [_summary(i, _d + 1) for i in items]}
++    if isinstance(v, dict) and _d < 3:
++        keys = sorted(map(str, list(v)))[:20]
++        return {"t": "dict", "n": len(v),
++                "items": [[k, _summary(v[k] if k in v else v.get(k), _d + 1)] for k in keys if k in v]}
++    mod = getattr(t, "__module__", "") or ""
++    out = {"t": name, "mod": mod.split(".")[0]}
++    try:
++        r = repr(v)[:_MAXREPR]
++    except Exception:
++        r = "<unreprable>"
++    # a default repr carries the object's address, which differs on every run;
++    # keep the type only, so comparison is not defeated by allocation
++    import re as _re
++    out["r"] = _re.sub(r" at 0x[0-9a-fA-F]+", " at 0xADDR", r)
++    # structural fingerprint for array-likes, so numerics are comparable at all
++    for attr in ("shape", "dtype", "size"):
++        a = getattr(v, attr, None)
++        if a is not None and not callable(a):
++            out[attr] = str(a)[:64]
++    try:
++        if hasattr(v, "tolist") and getattr(v, "size", 1 << 30) <= 64:
++            out["list"] = _summary(v.tolist(), _d + 1)
++    except Exception:
++        pass
++    return out
++
++
++def _emit(rec):
++    with _lock:
++        if _count[0] >= _MAXCALLS:
++            return
++        _count[0] += 1
++        try:
++            sys.stdout.write("%s%s" % (_MARKER, json.dumps(rec, default=str)) + chr(10))
++            sys.stdout.flush()
++        except Exception as e:
++            # Never silent: a trace that fails to write is indistinguishable
++            # from a dependency the tests do not exercise, and that ambiguity
++            # is exactly what the behavioural gate must not have.
++            try:
++                sys.stderr.write("UnpinBench recorder: write to %s failed: %s: %s"
++                                 % (_OUT, type(e).__name__, e) + chr(10))
++                sys.stderr.flush()
++            except Exception:
++                pass
++
++
++def _wrap(fn, qual):
++    def wrapper(*args, **kwargs):
++        if getattr(_depth, "n", 0):          # ignore D calling itself
++            return fn(*args, **kwargs)
++        is_repo, site = _caller()
++        if not is_repo:
++            return fn(*args, **kwargs)
++        if site.split(":")[0] in _SITE_EXCLUDE:      # the replacement calling itself
++            return fn(*args, **kwargs)
++        _depth.n = getattr(_depth, "n", 0) + 1
++        try:
++            try:
++                out = fn(*args, **kwargs)
++            except BaseException as e:
++                _emit({"q": qual, "site": site, "pid": os.getpid(),
++                       "args": [_summary(a) for a in args[:8]],
++                       "kwargs": {k: _summary(v) for k, v in list(kwargs.items())[:8]},
++                       "raised": type(e).__name__, "msg": str(e)[:200]})
++                raise
++            _emit({"q": qual, "site": site, "pid": os.getpid(),
++                   "args": [_summary(a) for a in args[:8]],
++                   "kwargs": {k: _summary(v) for k, v in list(kwargs.items())[:8]},
++                   "ret": _summary(out)})
++            return out
++        finally:
++            _depth.n -= 1
++    try:
++        wrapper.__name__ = getattr(fn, "__name__", "wrapped")
++        wrapper.__qualname__ = qual
++        wrapper.__doc__ = getattr(fn, "__doc__", None)
++        wrapper.__wrapped__ = fn
++    except Exception:
++        pass
++    return wrapper
++
++
++def _instrument(mod, prefix, depth=0):
++    """Wrap public callables on a module and its public classes, in place."""
++    import inspect
++    for name in list(vars(mod)):
++        if name.startswith("_"):
++            continue
++        try:
++            obj = getattr(mod, name)
++        except Exception:
++            continue
++        qual = prefix + "." + name
++        try:
++            if inspect.isclass(obj):
++                mod_name = getattr(obj, "__module__", "") or ""
++                if depth < 1 and (mod_name.split(".")[0] in _TARGETS or mod_name in _TARGETS):
++                    for mname in list(vars(obj)):
++                        if mname.startswith("_") and mname not in ("__init__", "__call__"):
++                            continue
++                        try:
++                            m = inspect.getattr_static(obj, mname)
++                        except Exception:
++                            continue
++                        if isinstance(m, staticmethod):
++                            setattr(obj, mname, staticmethod(_wrap(m.__func__, qual + "." + mname)))
++                        elif isinstance(m, classmethod):
++                            setattr(obj, mname, classmethod(_wrap(m.__func__, qual + "." + mname)))
++                        elif inspect.isfunction(m):
++                            setattr(obj, mname, _wrap(m, qual + "." + mname))
++            elif inspect.isfunction(obj) or inspect.isbuiltin(obj):
++                setattr(mod, name, _wrap(obj, qual))
++        except Exception:
++            continue
++
++
++class _Hook:
++    """Instrument each target module the first time it finishes importing."""
++
++    def __init__(self):
++        self._seen = set()
++
++    def find_module(self, fullname, path=None):
++        return None
++
++    def find_spec(self, fullname, path=None, target=None):
++        # A target is either a top-level package (the library, e.g. "slugger")
++        # or an explicit dotted module (the replacement, e.g. "app.textutil").
++        # Matching only the root would never instrument a replacement that
++        # lives inside the repository's own package.
++        if fullname in self._seen:
++            return None
++        if fullname.split(".")[0] not in _TARGETS and fullname not in _TARGETS:
++            return None
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is None or spec.loader is None or not hasattr(spec.loader, "exec_module"):
++                continue
++            inner, hook = spec.loader, self
++
++            class _L:
++                def create_module(self, s):
++                    return inner.create_module(s) if hasattr(inner, "create_module") else None
++
++                def exec_module(self, module):
++                    inner.exec_module(module)
++                    hook._seen.add(module.__name__)
++                    try:
++                        _instrument(module, module.__name__)
++                    except Exception:
++                        pass
++
++                def __getattr__(self, k):
++                    return getattr(inner, k)
++
++            spec.loader = _L()
++            return spec
++        return None
++
++
++_FLAG = "_unpinbench_recorder_" + "_".join(sorted(_TARGETS))
++
++
++def _install():
++    # sitecustomize.py and conftest.py both carry this module, so they define
++    # two distinct _Hook classes. isinstance() cannot recognise the other's
++    # instance, and two installed hooks delegate to each other forever
++    # (RecursionError at the first import). Guard on a marker instead.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _Hook())
++    for name in list(sys.modules):          # force re-import so the hook sees it
++        if name.split(".")[0] in _TARGETS:
++            del sys.modules[name]
++    try:
++        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
++                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..3adf362 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,172 @@
++amqp==5.2.0
++annotated-types==0.7.0
++anyio==4.4.0
++asgiref==3.8.1
++asn1crypto==1.5.1
++attrs==23.2.0
++autobahn==23.6.2
++Automat==22.10.0
++beautifulsoup4==4.12.3
++billiard==4.2.0
++blis==0.7.11
++bs4==0.0.2
++cachetools==5.3.3
++catalogue==2.0.10
++celery==5.4.0
++certifi==2024.7.4
++cffi==1.16.0
++channels==4.1.0
++channels-redis==4.2.0
++chardet==5.2.0
++charset-normalizer==3.3.2
++click==8.1.7
++click-didyoumean==0.3.1
++click-plugins==1.1.1
++click-repl==0.3.0
++cloudpathlib==0.18.1
++confection==0.1.5
++constantly==23.10.4
++cron-descriptor==1.4.3
++cryptography==42.0.8
++cssselect==1.2.0
++cymem==2.0.8
++daphne==4.1.2
++distro==1.9.0
++Django==5.0.7
++django-celery-beat==2.6.0
++django-environ==0.11.2
++django-restframework==0.0.1
++django-timezone-field==7.0
++djangorestframework==3.15.2
++dnspython==2.6.1
++docutils==0.21.2
++drf-spectacular==0.27.2
++elastic-transport==8.13.1
++elasticsearch==8.14.0
++en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.7.1/en_core_web_lg-3.7.1-py3-none-any.whl#sha256=ab70aeb6172cde82508f7739f35ebc9918a3d07debeed637403c8f794ba3d3dc
++Events==0.5
++filelock==3.15.4
++fsspec==2024.6.1
++google-api-core==2.19.1
++google-auth==2.32.0
++google-cloud-bigquery==3.25.0
++google-cloud-core==2.4.1
++google-crc32c==1.5.0
++google-resumable-media==2.7.1
++googleapis-common-protos==1.63.2
++grpcio==1.64.1
++grpcio-status==1.64.1
++grpcio-tools==1.64.1
++h11==0.14.0
++h2==4.1.0
++hpack==4.0.0
++httpcore==1.0.5
++httpx==0.27.0
++huggingface-hub==0.23.4
++hyperframe==6.0.1
++hyperlink==21.0.0
++idna==3.7
++incremental==22.10.0
++inflection==0.5.1
++Jinja2==3.1.4
++joblib==1.4.2
++jsonpath-ng==1.6.1
++jsonschema==4.23.0
++jsonschema-specifications==2023.12.1
++kombu==5.3.7
++langcodes==3.4.0
++language_data==1.2.0
++lxml==5.2.2
++lxml_html_clean==0.1.1
++marisa-trie==1.2.0
++markdown-it-py==3.0.0
++MarkupSafe==2.1.5
++mdurl==0.1.2
++mpmath==1.3.0
++msal==1.29.0
++msgpack==1.0.8
++murmurhash==1.0.10
++natsort==8.4.0
++networkx==3.3
++nltk==3.8.1
++numpy==1.26.4
++openai==1.35.13
++opensearch-py==2.6.0
++oracledb==2.2.1
++packaging==24.1
++pandas==2.2.2
++pika==1.3.2
++pinecone-client==4.1.2
++pinecone-plugin-interface==0.0.7
++platformdirs==4.2.2
++ply==3.11
++portalocker==2.10.0
++preshed==3.0.9
++prompt_toolkit==3.0.47
++proto-plus==1.24.0
++protobuf==5.27.2
++psycopg2-binary==2.9.9
++pyahocorasick==2.1.0
++pyasn1==0.6.0
++pyasn1_modules==0.4.0
++pycparser==2.22
++pydantic==2.8.2
++pydantic_core==2.20.1
++Pygments==2.18.0
++PyJWT==2.8.0
++pymongo==4.8.0
++pyOpenSSL==24.1.0
++python-crontab==3.2.0
++python-dateutil==2.9.0.post0
++pytz==2024.1
++PyYAML==6.0.1
++qdrant-client==1.10.0
++readability-lxml==0.8.1
++redis==5.0.7
++referencing==0.35.1
++regex==2024.5.15
++requests==2.32.3
++rich==13.7.1
++rpds-py==0.19.0
++rsa==4.9
++safetensors==0.4.3
++service-identity==24.1.0
++setuptools==70.3.0
++shellingham==1.5.4
++six==1.16.0
++smart-open==7.0.4
++sniffio==1.3.1
++snowflake-connector-python==3.11.0
++sortedcontainers==2.4.0
++soupsieve==2.5
++spacy==3.7.5
++spacy-legacy==3.0.12
++spacy-loggers==1.0.5
++sqlparse==0.5.0
++srsly==2.4.8
++statistics==1.0.3.5
++sympy==1.13.0
++textblob==0.18.0.post0
++thinc==8.2.5
++tika==2.6.0
++tiktoken==0.7.0
++tokenizers==0.19.1
++tomlkit==0.13.0
++torch==2.3.1
++tqdm==4.66.4
++transformers==4.42.3
++Twisted==24.3.0
++txaio==23.1.1
++typer==0.12.3
++typing_extensions==4.12.2
++tzdata==2024.1
++uritemplate==4.1.1
++urllib3==2.2.2
++vine==5.1.0
++wasabi==1.1.3
++wcwidth==0.2.13
++weasel==0.4.1
++whitenoise==6.7.0
++wrapt==1.16.0
++xmltodict==0.13.0
++zope.interface==6.4.post2
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..77939f4
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,289 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++"""Injected by UnpinBench: record calls this repository makes into 'oracledb'."""
++import json
++import os
++import sys
++import threading
++
++_TARGETS = ['oracledb']
++_DEP = 'oracledb'
++_OWN = ['manage', 'swirl', 'swirl_load', 'swirl_server']
++_OUT = '/dev/stdout'
++_MAXREPR = 300
++_MARKER = "UNPINTRACE "
++_MAXCALLS = 2000
++_SITE_EXCLUDE = []   # files whose calls are internal to the replacement
++
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__)}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_lock = threading.Lock()
++_count = [0]
++_depth = threading.local()
++_fcache = {}
++
++
++def _is_repo_file(fn):
++    if fn in _fcache:
++        return _fcache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _fcache[fn] = r
++    return r
++
++
++def _caller():
++    """(repo_origin, 'file:line') of the nearest frame outside the recorder."""
++    f = sys._getframe(2)
++    while f is not None:
++        fn = f.f_code.co_filename
++        if os.path.abspath(fn) not in _SELF:
++            r = _is_repo_file(fn)
++            if r is not None:
++                try:
++                    rel = os.path.relpath(os.path.abspath(fn), _ROOT)
++                except ValueError:
++                    rel = fn
++                return r, "%s:%d" % (rel, f.f_lineno)
++        f = f.f_back
++    return False, "?"
++
++
++def _summary(v, _d=0):
++    """Type-tagged, length-capped structural summary of a value."""
++    t = type(v)
++    name = getattr(t, "__name__", "?")
++    if v is None or isinstance(v, bool):
++        return {"t": name, "v": v}
++    if isinstance(v, int):
++        return {"t": "int", "v": v}
++    if isinstance(v, float):
++        # bit pattern so NaN/-0.0 compare exactly; G4a applies a tolerance rule
++        return {"t": "float", "v": repr(v)}
++    if isinstance(v, (str, bytes)):
++        s = v if isinstance(v, str) else v.decode("utf-8", "replace")
++        return {"t": name, "n": len(v), "v": s[:_MAXREPR]}
++    if isinstance(v, (list, tuple, set, frozenset)) and _d < 3:
++        items = list(v)[:20]
++        return {"t": name, "n": len(v), "items": [_summary(i, _d + 1) for i in items]}
++    if isinstance(v, dict) and _d < 3:
++        keys = sorted(map(str, list(v)))[:20]
++        return {"t": "dict", "n": len(v),
++                "items": [[k, _summary(v[k] if k in v else v.get(k), _d + 1)] for k in keys if k in v]}
++    mod = getattr(t, "__module__", "") or ""
++    out = {"t": name, "mod": mod.split(".")[0]}
++    try:
++        r = repr(v)[:_MAXREPR]
++    except Exception:
++        r = "<unreprable>"
++    # a default repr carries the object's address, which differs on every run;
++    # keep the type only, so comparison is not defeated by allocation
++    import re as _re
++    out["r"] = _re.sub(r" at 0x[0-9a-fA-F]+", " at 0xADDR", r)
++    # structural fingerprint for array-likes, so numerics are comparable at all
++    for attr in ("shape", "dtype", "size"):
++        a = getattr(v, attr, None)
++        if a is not None and not callable(a):
++            out[attr] = str(a)[:64]
++    try:
++        if hasattr(v, "tolist") and getattr(v, "size", 1 << 30) <= 64:
++            out["list"] = _summary(v.tolist(), _d + 1)
++    except Exception:
++        pass
++    return out
++
++
++def _emit(rec):
++    with _lock:
++        if _count[0] >= _MAXCALLS:
++            return
++        _count[0] += 1
++        try:
++            sys.stdout.write("%s%s" % (_MARKER, json.dumps(rec, default=str)) + chr(10))
++            sys.stdout.flush()
++        except Exception as e:
++            # Never silent: a trace that fails to write is indistinguishable
++            # from a dependency the tests do not exercise, and that ambiguity
++            # is exactly what the behavioural gate must not have.
++            try:
++                sys.stderr.write("UnpinBench recorder: write to %s failed: %s: %s"
++                                 % (_OUT, type(e).__name__, e) + chr(10))
++                sys.stderr.flush()
++            except Exception:
++                pass
++
++
++def _wrap(fn, qual):
++    def wrapper(*args, **kwargs):
++        if getattr(_depth, "n", 0):          # ignore D calling itself
++            return fn(*args, **kwargs)
++        is_repo, site = _caller()
++        if not is_repo:
++            return fn(*args, **kwargs)
++        if site.split(":")[0] in _SITE_EXCLUDE:      # the replacement calling itself
++            return fn(*args, **kwargs)
++        _depth.n = getattr(_depth, "n", 0) + 1
++        try:
++            try:
++                out = fn(*args, **kwargs)
++            except BaseException as e:
++                _emit({"q": qual, "site": site, "pid": os.getpid(),
++                       "args": [_summary(a) for a in args[:8]],
++                       "kwargs": {k: _summary(v) for k, v in list(kwargs.items())[:8]},
++                       "raised": type(e).__name__, "msg": str(e)[:200]})
++                raise
++            _emit({"q": qual, "site": site, "pid": os.getpid(),
++                   "args": [_summary(a) for a in args[:8]],
++                   "kwargs": {k: _summary(v) for k, v in list(kwargs.items())[:8]},
++                   "ret": _summary(out)})
++            return out
++        finally:
++            _depth.n -= 1
++    try:
++        wrapper.__name__ = getattr(fn, "__name__", "wrapped")
++        wrapper.__qualname__ = qual
++        wrapper.__doc__ = getattr(fn, "__doc__", None)
++        wrapper.__wrapped__ = fn
++    except Exception:
++        pass
++    return wrapper
++
++
++def _instrument(mod, prefix, depth=0):
++    """Wrap public callables on a module and its public classes, in place."""
++    import inspect
++    for name in list(vars(mod)):
++        if name.startswith("_"):
++            continue
++        try:
++            obj = getattr(mod, name)
++        except Exception:
++            continue
++        qual = prefix + "." + name
++        try:
++            if inspect.isclass(obj):
++                mod_name = getattr(obj, "__module__", "") or ""
++                if depth < 1 and (mod_name.split(".")[0] in _TARGETS or mod_name in _TARGETS):
++                    for mname in list(vars(obj)):
++                        if mname.startswith("_") and mname not in ("__init__", "__call__"):
++                            continue
++                        try:
++                            m = inspect.getattr_static(obj, mname)
++                        except Exception:
++                            continue
++                        if isinstance(m, staticmethod):
++                            setattr(obj, mname, staticmethod(_wrap(m.__func__, qual + "." + mname)))
++                        elif isinstance(m, classmethod):
++                            setattr(obj, mname, classmethod(_wrap(m.__func__, qual + "." + mname)))
++                        elif inspect.isfunction(m):
++                            setattr(obj, mname, _wrap(m, qual + "." + mname))
++            elif inspect.isfunction(obj) or inspect.isbuiltin(obj):
++                setattr(mod, name, _wrap(obj, qual))
++        except Exception:
++            continue
++
++
++class _Hook:
++    """Instrument each target module the first time it finishes importing."""
++
++    def __init__(self):
++        self._seen = set()
++
++    def find_module(self, fullname, path=None):
++        return None
++
++    def find_spec(self, fullname, path=None, target=None):
++        # A target is either a top-level package (the library, e.g. "slugger")
++        # or an explicit dotted module (the replacement, e.g. "app.textutil").
++        # Matching only the root would never instrument a replacement that
++        # lives inside the repository's own package.
++        if fullname in self._seen:
++            return None
++        if fullname.split(".")[0] not in _TARGETS and fullname not in _TARGETS:
++            return None
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is None or spec.loader is None or not hasattr(spec.loader, "exec_module"):
++                continue
++            inner, hook = spec.loader, self
++
++            class _L:
++                def create_module(self, s):
++                    return inner.create_module(s) if hasattr(inner, "create_module") else None
++
++                def exec_module(self, module):
++                    inner.exec_module(module)
++                    hook._seen.add(module.__name__)
++                    try:
++                        _instrument(module, module.__name__)
++                    except Exception:
++                        pass
++
++                def __getattr__(self, k):
++                    return getattr(inner, k)
++
++            spec.loader = _L()
++            return spec
++        return None
++
++
++_FLAG = "_unpinbench_recorder_" + "_".join(sorted(_TARGETS))
++
++
++def _install():
++    # sitecustomize.py and conftest.py both carry this module, so they define
++    # two distinct _Hook classes. isinstance() cannot recognise the other's
++    # instance, and two installed hooks delegate to each other forever
++    # (RecursionError at the first import). Guard on a marker instead.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _Hook())
++    for name in list(sys.modules):          # force re-import so the hook sees it
++        if name.split(".")[0] in _TARGETS:
++            del sys.modules[name]
++    try:
++        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
++                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
