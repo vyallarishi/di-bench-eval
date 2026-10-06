@@ -168,6 +168,28 @@ What does not exist is their composition for this task, and the observation that
 
 ---
 
+## The cheat corpora overlap: do not add them together
+
+Two corpora of constructed cheats exist and they are **not independent**.
+
+| | families | variants | (repo, dep) pairs |
+|---|---|---|---|
+| ours (`predictions/cheats/`) | hide, stub, vendor | 176 | 62 |
+| Sushane's (`sushane/work/`) | the same three plus mutant, stub_smart, pseudo_genuine, weaken_tests, trade | ~503 emitted | 65 |
+
+Our three families are a strict subset of his eight, and **57 variants are
+identical (repository, family, dependency) triples**; 20 of the 62 pairs are
+shared. Reporting "176 + 617" as a combined corpus would double-count those,
+and a reviewer who checks will find it.
+
+The honest framing: **Sushane's eight-family corpus is the primary evidence**
+for per-gate detection, because it is a superset in both families and pairs.
+Ours is a smaller, independently generated corpus over partly different pairs,
+useful as a replication check on the three shared families -- and worth
+reporting as such, because agreement between two generators written separately
+is a stronger statement than either alone. State the overlap explicitly
+wherever both appear.
+
 ## Build order
 
 Status as of 2026-10-06: step 3's recorder is built and tested (`scripts/gh/record_usage.py`), with injection shared with the blocker (`scripts/gh/inject.py`). Steps 1, 2 and 4-7 are open. The dynamic dependency-resolution mechanism once planned as a fourth contribution is **future work**, not part of this paper.
