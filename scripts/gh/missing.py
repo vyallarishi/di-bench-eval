@@ -18,7 +18,7 @@ import json
 import pathlib
 import subprocess
 
-PREBUILT = {"cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large"}
+PREBUILT = {"cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large"}
 
 
 def expected_ids(s: str, subset: str) -> list[str]:
