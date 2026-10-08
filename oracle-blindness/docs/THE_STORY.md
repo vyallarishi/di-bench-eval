@@ -46,6 +46,18 @@ it aside.
 
 We measured it.
 
+### A warning sign before we even start
+
+Before testing anything of ours, we re-ran the benchmark's *own* published
+answers — the correct solutions it ships — through its own test suites.
+
+**51 of 96 still pass.**
+
+Nearly half no longer work. Not because the answers were wrong when written, but
+because the world moved: packages released new versions, services changed,
+pinned things drifted. We therefore only ever measure against repositories whose
+correct answer still works today. Every number below is conditioned that way.
+
 ### What we did
 
 Take every dependency, of every repository whose tests pass in our harness.
@@ -188,6 +200,12 @@ Caught on the first input, and on **300 out of 300** after that.
 
 **Every fake of this family we could evaluate was caught. None slipped through.**
 
+We also ran the behavioural check against a separate set of fakes built earlier,
+on real repositories. **12 of them passed the test suite.** The behavioural check
+rejected all 12 — none got through both. In one case the project called the
+library 279 times during its tests, so there was no ambiguity about whether the
+replacement was doing the work.
+
 No other benchmark of this kind can do this. When you fix a bug, there is no
 "correct version" to compare against — only a human's patch, which might itself
 be wrong. Here the correct version was running five minutes ago.
@@ -212,6 +230,20 @@ The nearest comparable technique in the literature reports 2.3% false rejections
 
 ---
 
+## A first look at what agents actually do
+
+We gave the task to coding agents on a sample of the benchmark and graded their
+attempts both ways.
+
+Of 52 attempts, **7 passed the test suite**. That is the number a conventional
+benchmark would report as success. Checking them properly is exactly what the
+grader above is for, and it is why the two halves of this work belong together:
+without the grader, those 7 are simply believed.
+
+This is a pilot, not a headline — a small sample on a subset of the tasks. It
+shows the benchmark is neither trivially easy nor impossible, which is what a
+benchmark needs to be.
+
 ## Where this leaves us
 
 **Two findings, each measured, that support each other.**
@@ -229,11 +261,13 @@ The nearest comparable technique in the literature reports 2.3% false rejections
 | | |
 |---|---|
 | Dependencies screened, all accounted for | 622 |
+| The benchmark's own published answers that still pass | 51 of 96 |
 | Benchmark tasks, verified | **335** over 74 repositories |
 | Cases where the tests were blind | 239 (49 strictly) |
 | Fake removals tested against the grader | **617** |
 | Fakes that beat every structural check | 80 — all caught behaviourally |
 | Honest removals wrongly rejected | **0 of 172** |
+| Library calls recorded from real test runs | **38,381** across 86 projects |
 
 Everything above is measured on real repositories, running their own real test
 suites. Nothing is simulated.
