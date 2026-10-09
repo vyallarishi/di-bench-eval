@@ -87,3 +87,22 @@ repr. Coverage is therefore reported per trace rather than assumed, and a
 G4a pass on a pair whose values are mostly repr-only is weaker evidence than
 a pass on a pair whose values are mostly exact. The grade carries that
 coverage.
+
+
+## After the recorder change
+
+The same classification over the 85 reference traces re-recorded with the
+current recorder (`results/trace_states.json` lists the outcome per pair):
+
+| class | values | share |
+|---|---|---|
+| exact | 30,977 | 81.6% |
+| hashed (past a cap, hash decides) | 2,724 | 7.2% |
+| opaque (repr only) | 1,982 | 5.2% |
+| array, content inlined | 1,489 | 3.9% |
+| structural (public attributes and length) | 508 | 1.3% |
+| exception (compared by type) | 261 | 0.7% |
+| truncated, no hash | 6 | 0.0% |
+
+37,947 recorded return values; **94.8%** decided on the whole value, 5.2% on
+a repr or prefix (was 85.8% / 14.2%).

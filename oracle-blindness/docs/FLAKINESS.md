@@ -45,21 +45,23 @@ Three sources of paired runs.
 | verified pairs, `all_large` vs `repeat_large` | 169 (same manifest change) | 169 fail/fail | **0** |
 | of which byte-identical, `requeue` vs `repeat` | 10 + 4 | 14 fail/fail | **0** |
 | incidental, `scoped` vs `all` | 56 (byte-identical) | 2 pass/pass, 54 fail/fail | **0** |
-| blind pairs, `all` vs `repeat_blind` (regular) | 53 | *pending* | |
-| blind pairs, `all_large` vs `repeat_blind_large` | 186 | *pending* | |
-| gold, regular, twice | 96 | *pending* | |
-| gold, large, twice | 50 | *pending* | |
+| blind pairs, `all` vs `repeat_blind` (regular) | 53 (same manifest change) | 42 pass/pass; 11 fail→pass | **0** (the 11 are the re-screened pairs, see below) |
+| blind pairs, `all_large` vs `repeat_blind_large` | 186 (same manifest change) | 184 pass/pass; 2 fail→pass | **0** (the 2 are re-screened pairs) |
+| gold, regular, twice | 96 | 51 pass/pass, 45 fail/fail | **0** |
+| gold, large, twice | 45 in both runs | 29 pass/pass, 16 fail/fail | **0** |
 
-So far: 330 of 330 verified pairs are red again on a second execution, and
-the 56 incidental pairs agree. The blind side and the gold side are the runs
-still to land; the table is complete only when they do.
+The 13 `fail→pass` rows on the blind side are not flips. They are the 13
+pairs the blind file labels `re-screened with the fixed blocker`: their first
+screening crashed in the pre-fix blocker and recorded `fail`, and the
+re-screen that admitted them to the blind set is the second run compared
+here. Among the 226 blind pairs whose first verdict was already `pass`, the
+second replay agrees on every one.
 
-<!-- PENDING: runs 37892594154 (repeat_blind), 37892602364 (repeat_blind_large),
-37892606428 (gold regular), 37892610569 (gold large). Fill with
-flakiness.py --first <baseline> --second <repeat> --patches-* --ignore-injected
-(blind: baseline res_all / res_all_large, patches predictions/all vs
-predictions/repeat_blind*); gold: audit/results/gold_honest and res_gold_large*
-vs the new gold runs, no patch check needed (gold patch is the dataset's). -->
+Every verified pair is red twice, every blind pair is green twice, and every
+gold run repeats its verdict. No pair leaves the pool or the census on this
+measurement.
+
+Result files: `results/flakiness/{blind_regular,blind_large,gold_regular,gold_large}.json`.
 
 ## What a flip would mean
 

@@ -163,7 +163,8 @@ def make_venv(where: pathlib.Path, timeout: int = 300) -> str | None:
     return str(py) if py.exists() else None
 
 
-def install_gold_env(repo: pathlib.Path, row: dict, venv_py: str, timeout: int) -> dict:
+def install_gold_env(repo: pathlib.Path, row: dict, venv_py: str, timeout: int,
+                     deps: list[str] | None = None) -> dict:
     """Install the repository's gold dependency set into a fresh environment.
 
     The reference phase must actually execute the tests, so the declared
@@ -172,11 +173,12 @@ def install_gold_env(repo: pathlib.Path, row: dict, venv_py: str, timeout: int) 
     reference is the behaviour of the library the project declared.
     """
     bf = row["build_files"][0]
-    try:
-        gold = apply_manifest_patch(repo, bf, row["patch"])
-        deps = sorted(M.declared(bf, gold))
-    except Exception as e:
-        return dict(installed=False, why=f"manifest: {type(e).__name__}", deps=[])
+    if deps is None:
+        try:
+            gold = apply_manifest_patch(repo, bf, row["patch"])
+            deps = sorted(M.declared(bf, gold))
+        except Exception as e:
+            return dict(installed=False, why=f"manifest: {type(e).__name__}", deps=[])
     if not deps:
         return dict(installed=False, why="no declared dependencies", deps=[])
     # Test-only requirements are usually NOT in the runtime manifest: pytest
@@ -209,6 +211,9 @@ def install_gold_env(repo: pathlib.Path, row: dict, venv_py: str, timeout: int) 
     return dict(installed=True, why="", deps=deps)
 
 
+KEEP = None
+
+
 def run_phase(repo: pathlib.Path, dep: str, out: pathlib.Path, own: list[str],
               extra_targets: tuple[str, ...], cmd: list[str], timeout: int) -> dict:
     names = tuple(import_names(dep)) + extra_targets
@@ -220,9 +225,24 @@ def run_phase(repo: pathlib.Path, dep: str, out: pathlib.Path, own: list[str],
         r = subprocess.run(cmd, cwd=repo, env=env, capture_output=True,
                            text=True, timeout=timeout)
         rc, tail = r.returncode, (r.stdout or r.stderr).strip().splitlines()
+        if KEEP:
+            KEEP.mkdir(parents=True, exist_ok=True)
+            (KEEP / (out.stem + ".stdout")).write_text(r.stdout or "")
+            (KEEP / (out.stem + ".stderr")).write_text(r.stderr or "")
     except subprocess.TimeoutExpired:
         rc, tail = -1, ["timeout"]
     recs = gate_behaviour.load(out)
+    # The two phases run in different checkouts; a value that embeds the
+    # checkout path (a cwd, a file argument) must not differ for that reason.
+    # Under the CI harness both roots are /project and this is a no-op.
+    roots = sorted({str(repo), str(repo.resolve()), os.path.realpath(str(repo))}, key=len, reverse=True)
+    txt = json.dumps(recs)
+    for r_ in roots:
+        txt = txt.replace(r_, "<repo>")
+    recs = json.loads(txt)
+    if KEEP and out.exists():
+        import shutil
+        shutil.copy(out, KEEP / out.name)
     return dict(returncode=rc, tests_passed=rc == 0,
                 last_line=(tail[-1][:120] if tail else ""), calls=len(recs),
                 records=recs)
@@ -254,9 +274,13 @@ def main():
     ap.add_argument("--fuzz", type=int, default=200)
     ap.add_argument("--no-install", action="store_true",
                     help="assume the dependencies are already importable")
+    ap.add_argument("--keep", default=None,
+                    help="directory to keep each phase's trace and console output in, for diagnosis")
     ap.add_argument("--replacement-module", default=None,
                     help="dotted module of the replacement, when it is not a package shadow")
     a = ap.parse_args()
+    global KEEP
+    KEEP = pathlib.Path(a.keep) if a.keep else None
 
     rows = {json.loads(l)["instance_id"]: json.loads(l)
             for l in open(a.dataset) if l.strip()}
@@ -311,13 +335,24 @@ def main():
                 ref = run_phase(ref_repo, dep, pathlib.Path(td) / "ref.jsonl", own,
                                 extra, test_command(row, ref_py, ref_repo), a.timeout)
                 ref["_from"] = mid
+                ref["_deps"] = env_info.get("deps", [])
                 ref_cache[ck] = ref
             if not apply_patch(cand_repo, patch):
                 rec.update(status="skipped", why="patch did not apply")
                 results.append(rec)
                 print(f"  {mid}: patch did not apply"); continue
             if not a.no_install:
-                install_gold_env(cand_repo, row, cand_py, a.timeout)
+                # The candidate has rewritten the manifest, so the gold patch
+                # may no longer apply to it; install the dependency set the
+                # reference phase resolved, which is the gold set by definition.
+                install_gold_env(cand_repo, row, cand_py, a.timeout,
+                                 deps=ref.get("_deps") or None)
+            # The candidate manifest may no longer carry the test runner (a
+            # reference that rewrites the manifest can drop a dev group); the
+            # suite must still run, or "no calls" would read as a rejection.
+            if subprocess.run([str(cand_py), "-c", "import pytest"], capture_output=True).returncode != 0:
+                subprocess.run([str(cand_py), "-m", "pip", "install", "-q", "pytest"],
+                               capture_output=True, timeout=a.timeout)
             cand = run_phase(cand_repo, dep, pathlib.Path(td) / "cand.jsonl", own,
                              extra, test_command(row, cand_py, cand_repo), a.timeout)
 

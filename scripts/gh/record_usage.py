@@ -112,7 +112,7 @@ def _caller():
             r = _is_repo_file(fn)
             if r is not None:
                 try:
-                    rel = os.path.relpath(os.path.abspath(fn), _ROOT)
+                    rel = os.path.relpath(os.path.realpath(fn), os.path.realpath(_ROOT))
                 except ValueError:
                     rel = fn
                 return r, "%s:%d" % (rel, f.f_lineno)
@@ -508,8 +508,18 @@ def values_equal(a, b) -> bool:
         return False
     if not isinstance(a, dict):
         return a == b
-    if a.get("t") != b.get("t") or a.get("n") != b.get("n"):
+    if a.get("n") != b.get("n"):
         return False
+    if a.get("t") != b.get("t"):
+        # A replacement returns its own class where the library returned its
+        # own: a type name is not behaviour. Two values of different type are
+        # equal when both are containers with equal elements, or both are
+        # objects with equal public attributes and length. A primitive against
+        # anything else is still a difference.
+        structural = (("items" in a and "items" in b) or ("attrs" in a and "attrs" in b)
+                      or ("list" in a and "list" in b))
+        if not structural:
+            return False
     t = a.get("t")
     if t == "float":
         return _floats_equal(a.get("v"), b.get("v"))
@@ -531,8 +541,8 @@ def values_equal(a, b) -> bool:
         return False
     for k in ("v", "r", "shape", "dtype", "size"):
         if a.get(k) != b.get(k):
-            if k == "r" and a.get("t") == b.get("t"):
-                return False
+            if k == "r" and ("attrs" in a or "attrs" in b or a.get("t") != b.get("t")):
+                continue        # the repr names the class; the attributes decided
             return False
     if "list" in a or "list" in b:
         return values_equal(a.get("list"), b.get("list"))

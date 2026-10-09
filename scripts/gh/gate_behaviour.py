@@ -51,25 +51,36 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from record_usage import values_equal  # noqa: E402
 
 
-def _pair_key(rec: dict) -> tuple:
-    """Identity of a call for reference-to-candidate pairing.
+def _norm_site(site):
+    """A call site relative to the repository root, whatever checkout it was recorded in.
 
-    Deliberately NOT the qualified name. A removal renames the callee by
-    construction -- `slugger.slugify` becomes `app.textutil.slugify` or a local
-    helper -- so keying on it rejects every honest replacement along with every
-    cheat. What must be stable across the two runs is *where the repository
-    asked for the work and with what arguments*: the call site and the
-    arguments. The function's own name is the one thing the task changes.
-
-    The last dotted component is kept as a weak hint, because a replacement
-    that renames the function but preserves behaviour is still a valid removal
-    and we do not want to depend on the name matching; it is recorded in the
-    evidence rather than used for pairing.
+    The reference and candidate runs live in different working copies; a site
+    recorded as a path through a temporary directory, or through the '..'
+    segments a symlinked checkout produces, must pair with the same file and
+    line in the other copy. Only the repository-relative path identifies a site.
     """
-    import json as _j
-    return (rec.get("site"),
-            _j.dumps(rec.get("args"), sort_keys=True, default=str),
-            _j.dumps(rec.get("kwargs"), sort_keys=True, default=str))
+    import re as _re
+    if not isinstance(site, str):
+        return site
+    s = _re.sub(r"^(?:\.\./)+", "", site)
+    s = _re.sub(r"^.*?/(?:ref|cand)/", "", s)
+    return s
+
+
+def _pair_key(rec: dict) -> tuple:
+    """Identity of a call for reference-to-candidate pairing: the call site.
+
+    Deliberately NOT the qualified name, and NOT the arguments either. A
+    removal renames the callee by construction, and it also changes what is
+    passed: a rewrite hands its own Color object where the library's was
+    handed before, and a path argument differs between two checkouts. What
+    is stable across the two runs is *where* the repository asked for the
+    work. Calls at a site are paired in order: the i-th call the reference
+    made at a site pairs with the i-th call the candidate made there. The
+    arguments travel with the record as evidence and are reported with every
+    divergence, but they do not decide pairing.
+    """
+    return (_norm_site(rec.get("site")),)
 
 
 def load(path) -> list[dict]:
