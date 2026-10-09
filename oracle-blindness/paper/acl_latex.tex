@@ -26,6 +26,8 @@
 \input{numbers}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 
 \title{Remove This Dependency: Why Passing Tests Cannot Tell You\\
 a Dependency Is Gone}
@@ -109,7 +111,7 @@ It can speak only where a recording exists, which is currently \nTracedPairs{} o
 Only \nPseudoTraced{} of the \nPseudo{} counterfeit rewrites fall on such a pair; the gate could evaluate four of them, five functions in all, and it rejects every one.
 Where it cannot speak, the grader does not return a pass: it reports the structural verdict and marks the behavioural one as inconclusive.
 Of \nOverDeclGraded{} removals that are correct by construction, the candidates the code never uses, the grader accepts \nFRAccepted, cannot resolve the dependency closure of \nFRInconclusive, and flags \nFRFlagged{} that was not in fact a removal.
-On the hand-written rewrites the behavioural gate accepts every rewrite it can observe, \nRefsObservableAccepted{} of \nRefsObservable, and wrongly rejects \nRefsUnobservableAccepted{} of \nRefsUnobservable{} it cannot: a boundary we measure rather than hide.
+Of the \nRefsEvaluable{} hand-written rewrites whose suites call the library locally, the behavioural gate accepts \nRefsAccepted, returns inconclusive on \nRefsInconclusive{} it cannot observe, and rejects none; where it cannot see, it says so rather than guessing.
 In a pilot of \nAgents{} coding agents on \nAgentTasks{} tasks, \nAgentPass{} of \nAgentAttempts{} attempts pass the test suite, the number a conventional benchmark would report.
 Of those \nAgentPass, the grader rejects \todo{r} and leaves the behavioural verdict inconclusive for \todo{w}.
 
@@ -308,7 +310,9 @@ They are admitted on the third and fourth kinds of evidence, their removal elimi
 \paragraph{Reference removals.}
 Admission establishes that the oracle sees the removal; it does not establish that the removal can be done.
 For \nRefs{} pairs we wrote the removal by hand: the declaration deleted, the code rewritten so that the library is no longer needed, and no new package added.
-\todo{How the pairs were chosen (stratified by tier, or hand-picked, and on what basis); who wrote them; that they were written without access to the gate implementations, or before the gates existed; how many were rejected on first grading and why.}
+Pairs were taken in pool order from the tractable candidates rather than chosen for the gates, and the resulting spread follows the pool's: \nRefsStrong{} narrow, \nRefsMedium{} medium and \nRefsHard{} wide, \nRefsRegular{} regular and \nRefsLarge{} large.
+Of \nRefsAttempted{} pairs attempted, \nRefs{} were completed and \nRefsAbandoned{} were set aside with a written reason, published with the references; the commonest reason is that a faithful replacement would be a wire-protocol implementation of several hundred lines, which is outside the scope of a single removal and not a claim about winnability in principle.
+\todo{Confirm for the camera-ready who wrote each reference and whether any author consulted the gate implementations while writing it; the honest answer shapes how \S\ref{sec:validation} may be read.}
 A reference is correct by authorial intent and review by a second author, not by passing tests; all \nRefs{} pass the workflow under the block, and the grader is evaluated on them in \S\ref{sec:validation}.
 The references are released with the pairs and are the only submissions in this paper that are correct rewrites of a library the code uses.
 
@@ -424,7 +428,7 @@ This is differential testing \citep{mckeeman1998differential} with inputs extend
 The gate distinguishes nothing to verify from cannot verify.
 If the repository never imported the package, as for the over-declared candidates of \S\ref{sec:screening}, there is no behaviour to preserve and the gate passes vacuously.
 If the repository did use the package but the tests never call it, or the recorder did not load under the repository's test runner, there is no recording and the gate returns inconclusive rather than a pass.
-One case it does not yet recognise: a replacement written into an existing module, or inlined at the call site, is not a callable the recorder can be pointed at, so its calls go unobserved and the recorded sites are reported as missing, which is a rejection; \S\ref{sec:results} measures what that costs on correct rewrites.
+When the candidate records nothing at either level, when a site is at module level or in a decorator with no function to observe, or when the function was renamed, the gate says it cannot see rather than rejecting; a gate that cannot see does not reject, and \S\ref{sec:results} reports how often that happens.
 It observes nothing on a path no test executes, so a replacement wrong only there passes.
 It cannot compare what the summary does not capture, and the share of a recording decided on the whole value is reported with every verdict.
 It records calls, and an interface is more than calls: classes, attributes, and exception types are used without a call, and migration studies find such non-function elements in a large share of library interfaces \citep{islam2023characterizing}.
@@ -479,8 +483,8 @@ The pilot is sized to establish that the task is neither trivial nor impossible 
 \hline
 \textbf{Submission} & \textbf{Tests pass} & \textbf{Screening or grader} \\
 \hline
-Delete one declaration (\nCand{} candidates) & \nSilent{} & \nStrict{} are blindness; \nOverDecl{} were never used \\
-Counterfeit removal (\nCounterfeit{} variants) & see Tab.~\ref{tab:matrix} & every kind rejected but one; that one caught behaviourally where observable \\
+Delete one declaration (\nCand{} candidates) & \nSilent{} indifferent & in \nOverDecl{} the declaration was unneeded, in \nStrict{} it was needed \\
+Counterfeit removal (\nCounterfeit{} variants) & see Fig.~\ref{fig:stopped} & six kinds mostly stopped by cheap checks; the semantic kind survives them all and is caught only by the library \\
 Agent attempt (\nAgentAttempts{} on \nAgentTasks{} pairs) & \nAgentPass{} & \todo{r} rejected, \todo{w} inconclusive \\
 \hline
 \end{tabular}
@@ -494,11 +498,12 @@ Each research question below opens with its answer and rests on one exhibit; eve
 \subsection{RQ1: How often is the CI oracle silent, and why?}
 \label{sec:rq1}
 
-\textbf{In the median repository, one declared dependency in five can be removed without the tests failing; \nStrict{} candidates over \nStrictRepos{} repositories are blindness in the strict sense, and the rest are declarations the code never used.}
+\textbf{For \nSilent{} of \nCand{} candidates the tests cannot distinguish keeping the declaration from removing it; in \nOverDecl{} it was unneeded and in \nStrict{} it was needed, and in the median repository the oracle is indifferent to one declared dependency in five.}
 
 \paragraph{Controls.}
-The gold manifests of the population pass CI twice, \nGoldPass{} of \nGold{} in the regular subset and 29 of 45 in the large, with no verdict changing between runs; the \nGold{} is itself a finding, since 45 published solutions no longer pass their own suites.
-Every verified pair is red on a second replay (\nPairs{} of \nPairs), every silent case is green on a second replay (226 of 226 whose first verdict was green), and no gold run flips.
+The gold manifests of the population pass CI twice, \nGoldPass{} of \nGold{} regular and \nGoldLargePass{} of \nGoldLargeCompared{} large solutions, with no verdict changing between runs; the \nGoldFail{} regular solutions that no longer pass their own suites are a finding in themselves.
+Every verified pair is red on a second replay (\nRepeatVerified{} of \nRepeatVerified) and every silent pair is green again (\nRepeatSilent{} of \nRepeatSilent), for \nRepeatFlips{} differing verdicts over \nRepeatCompared{} patch-matched comparisons.
+\nRepeatExcluded{} silent pairs are excluded from that count and the reason is stated rather than absorbed: they were first screened by a block that recursed when another package imported the blocked dependency, so the run ended on a harness fault rather than on the repository's own use, and they were re-screened before the pool was built; the pool carries the corrected verdict.
 Silence is therefore a property of the pair, not of the run.
 
 \begin{table}[t]
@@ -536,13 +541,13 @@ The last are the oracle's blindness, over \nStrictRepos{} repositories.
 
 \paragraph{Robustness.}
 The effect is not carried by outliers or by neglected projects.
-One repository supplies \nSwirlSilent{} silent cases, and dropping the ten most silent repositories still leaves a median of \dropTenMedian\% with 23 of 40 affected; \nMajorAffected{} of \nMajor{} repositories maintained by large organisations have at least one silent candidate; and the silent rate correlates at $-0.34$ with the share of a repository's files that are tests, which is what the mechanism predicts and the opposite of what an artifact would produce.
+One repository supplies \nSwirlSilent{} silent cases, and dropping the ten most silent repositories still leaves a median of \dropTenMedian\% with \dropTenIncidence{} affected; \nMajorAffected{} of \nMajor{} repositories maintained by large organisations have at least one silent candidate; and the silent rate correlates at $\corrTestShare$ with the share of a repository's files that are tests, which is what the mechanism predicts and the opposite of what an artifact would produce.
 Appendix~\ref{app:robustness} gives the full table.
 
 \subsection{RQ2: Can a cheaper oracle substitute for CI execution?}
 \label{sec:rq2}
 
-\textbf{No: the two other graders used for dependency work and a static predictor each miss cases CI catches, and the predictor's precision is bounded by how often the code never used the package at all.}
+\textbf{No: each misses cases CI catches, and no oracle in the family contains another.}
 
 \paragraph{Other oracles.}
 Derived per candidate from the screening artifacts (\S\ref{sec:derived}), over the \nScreenedRule{} candidates not excluded: a static import check is silent on \nImportSilent{} and collection-only grading on \nCollectionSilent{}, against \nSilent{} for CI.
@@ -553,42 +558,40 @@ Collection-only grading detects \nCollectionCatches{} of the \nPairs{} pairs, th
 No oracle in the family contains another; Appendix~\ref{app:overlap} gives the overlap.
 
 \paragraph{Static prediction.}
-On the \nPredSubset{} candidates with a closure prediction, of which \nPredSubsetSilent{} are silent, test reachability predicts silence at precision 0.62 and recall 0.79, against a base rate of 0.25 for predicting silence everywhere; the closure baseline reaches 0.34 and 0.49, and of the 76 candidates it flags, CI notices 50, because the block removes the mechanism it detects.
-Over all \nScreened{} screened candidates the predictor reaches 0.80 and 0.88, inflated by the candidates with no importing file, which it predicts silent vacuously and correctly.
+On the \nPredSubset{} candidates with a closure prediction, of which \nPredSubsetSilent{} are silent, test reachability predicts silence at precision \predPrecision{} and recall \predRecall, against a base rate of \predBaseRate{} for predicting silence everywhere; the closure baseline reaches \closurePrecision{} and \closureRecall, and of the \closureFlagged{} candidates it flags, CI notices \closureNoticed, because the block removes the mechanism it detects.
+Over all \nScreened{} screened candidates the predictor reaches \predPrecisionAll{} and \predRecallAll, inflated by the candidates with no importing file, which it predicts silent vacuously and correctly; its precision is bounded above by how often the package was never used.
 
-\subsection{RQ3: What do the structural gates catch, and what do they wrongly reject?}
+\subsection{RQ3: What survives the tests and the structural gates?}
 \label{sec:rq3}
 
-\textbf{Each counterfeit kind is caught by the gate built for it, one kind survives every structural gate, and the controls are left alone.}
+\textbf{Only one kind of counterfeit is hard: six kinds are mostly stopped by cheap structural checks, with a minority surviving them, and the semantic kind survives them all, 80 times in 80, so the tests and the structural gates together do not suffice.}
 
-\begin{table}[t]
+\begin{figure}[t]
 \centering
-\small
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{lrrrrrrr}
-\hline
-\textbf{Kind} & $n$ & G1 & G3 & G7 & G8 & \textbf{Rej.} & Tests \\
-\hline
-Hide & 77 & \textbf{77} & 0 & 0 & 0 & 77 & 35/62 \\
-Trade & 73 & 0 & 0 & 0 & \textbf{73} & 73 & -- \\
-Weaken tests & 80 & 0 & 0 & \textbf{78} & 0 & 78 & -- \\
-Stub & 80 & 1 & \textbf{65} & 0 & 8 & 65 & 8/62 \\
-Smart stub & 80 & 1 & \textbf{65} & 0 & 8 & 65 & -- \\
-Vendor (named) & 67 & 1 & \textbf{46} & 0 & 14 & 48 & 18/52 \\
-Pseudo-genuine & 80 & 0 & 0 & 0 & 0 & \textbf{0} & -- \\
-\hline
-Honest deletion & \nHonest{} & 1 & 0 & 0 & 1 & 1 & -- \\
-Over-declared removal & \nOverDeclGraded{} & 1 & 0 & 0 & 0 & 1 & \nOverDeclGraded{} \\
-\hline
-\end{tabular}
-\caption{Structural gates over the constructed variants. Cells count variants the gate rejects; bold marks the gate each kind targets; ``Rej.'' counts variants any gate rejects. ``Tests'' is the share passing CI, available from the replication corpus for three kinds (its $n$ differs) and by construction for the over-declared removals; the main corpus was not run through CI. Rows below the rule are controls that must pass.}
-\label{tab:matrix}
-\end{table}
+\begin{tikzpicture}
+\begin{axis}[
+  xbar stacked, width=0.84\columnwidth, height=5.2cm, bar width=7pt,
+  xmin=0, xmax=100, xlabel={\% of variants}, xlabel style={font=\small},
+  symbolic y coords={{Pseudo-genuine},{Vendor (named)},{Smart stub},Stub,{Weaken tests},Trade,Hide},
+  ytick=data, y tick label style={font=\small}, tick label style={font=\small},
+  legend style={at={(0.5,1.02)},anchor=south,legend columns=3,font=\footnotesize,draw=none},
+  enlarge y limits=0.12]
+\addplot[fill=black!70, draw=black!70] coordinates {(100,Hide) (100,Trade) (97.5,{Weaken tests}) (81.3,Stub) (81.3,{Smart stub}) (68.7,{Vendor (named)}) (0,{Pseudo-genuine})};
+\addplot[fill=black!35, draw=black!35] coordinates {(0,Hide) (0,Trade) (0,{Weaken tests}) (0,Stub) (0,{Smart stub}) (3.0,{Vendor (named)}) (0,{Pseudo-genuine})};
+\addplot[fill=white, draw=black] coordinates {(0,Hide) (0,Trade) (2.5,{Weaken tests}) (18.7,Stub) (18.7,{Smart stub}) (28.3,{Vendor (named)}) (100,{Pseudo-genuine})};
+\legend{targeted gate, another gate, survives all structural gates}
+\end{axis}
+\end{tikzpicture}
+\caption{Where each counterfeit is stopped by the structural gates (counts in Appendix~\ref{app:matrix}). Only the pseudo-genuine kind survives every structural gate; \S\ref{sec:rq4} shows where the behavioural gate catches it.}
+\label{fig:stopped}
+\end{figure}
 
-Table~\ref{tab:matrix} is the exhibit.
-Hiding and trading are caught completely, test weakening 78 times in 80, and stubs 65 times in 80, with the closure gate catching eight more that the shadow check misses.
-Vendored copies keep the library's name in this corpus, so their 48 of 67 measures the named case only; a renamed copy is an open route (\S\ref{sec:gates}).
-The pseudo-genuine kind passes every structural gate 80 times in 80.
+Figure~\ref{fig:stopped} is the exhibit.
+Hidden declarations and trades are stopped completely, test weakening in 78 of 80, stubs and smart stubs with \nStubSurvive{} of 80 surviving the shadow check and the closure gate, and named vendored copies with \nVendorSurvive{} of 67 surviving.
+Those survivors are what the tests exist to catch: a stub that shadows nothing returns nothing, and a vendored copy under its own name is the library, so under a conventional grader, without the block, stubs pass CI 8 times in 62 and vendored copies 18 in 52 in the replication corpus, while hidden declarations pass 35 times in 62.
+The main corpus was not run through CI, so the figure measures the structural gates as run; the fingerprint check since added to G3 catches \nVendorNamedCaught{} of \nVendorNamed{} named copies and \nVendorRenamedCaught{} of \nVendorRenamed{} copies with every identifier renamed and comments stripped, with no false positive on the references, the pseudo-genuine rewrites, the smart stubs, or the honest deletions.
+The pseudo-genuine kind survives every structural gate 80 times in 80: it shadows nothing, copies nothing, touches no test, and shrinks the closure, and the structural checks have nothing left to say.
+That is the bridge to RQ4.
 The honest-deletion control is rejected once, on a variant whose declaration was in fact still present, which is the correct verdict.
 On the \nOverDeclGraded{} over-declared removals, the grader accepts \nFRAccepted, returns inconclusive on \nFRInconclusive{} whose dependency closure it could not resolve, and flags \nFRFlagged: a package moved to an extras group rather than removed.
 That flag is correct, and it also means one candidate the attribution called over-declared was not; the attribution's precision is therefore at least that one case short of perfect, and we report it as such.
@@ -596,12 +599,13 @@ That flag is correct, and it also means one candidate the attribution called ove
 \subsection{RQ4: Where can the removed library act as the oracle?}
 \label{sec:rq4}
 
-\textbf{Where the recorder can observe the replacement, the behavioural gate catches every counterfeit rewrite and accepts every correct one; where it cannot, it rejects correct rewrites, and that boundary, not the detection rate, is the result.}
+\textbf{Where the gate can observe the replacement, every counterfeit rewrite diverges on every generated input and every correct rewrite is accepted; where it cannot, it returns inconclusive, and that boundary, reached while grading these same references, is the result.}
 
 \paragraph{Coverage.}
-Recordings exist for \nTracedPairs{} of the \nPairs{} pairs, \nTraceCalls{} calls in all, re-recorded with the current recorder; \fidelityWhole\% of recorded values are compared on the whole value rather than on a representation.
-For the remaining pairs the recorder loaded but recorded no call (77), was not observed loading (168), or the suite was not green under it (62).
-\todo{Replace with the figures from the corrected recorder runs when they land; if coverage stays below half the pool, this paragraph moves into the abstract as the headline caveat.}
+Recordings exist for \nTracedPairs{} of the \nPairs{} pairs, \nTraceCalls{} calls in all, re-recorded with the current recorder; \fidelityWhole\% of recorded values are compared on the whole value rather than on a representation, against \fidelityWholeBefore\% for the same projects recorded under the earlier summariser, which capped long values instead of hashing them.
+For the remaining pairs the recorder loaded but recorded no call (\nRecLoadedNoCall, which is a property of those suites rather than a gap in the method), was not observed loading (\nRecNotObserved), or the suite was not green under it (\nRecNotGreen).
+Coverage, not fidelity, is the binding limit on this gate, and we report it as such.
+
 
 \begin{table}[t]
 \centering
@@ -611,25 +615,39 @@ For the remaining pairs the recorder loaded but recorded no call (77), was not o
 \hline
  & \textbf{Replacement observable} & \textbf{Not observable} \\
 \hline
-Counterfeit (pseudo-genuine) & \nPseudoEvaluable{} of \nPseudoEvaluable{} rejected, each on \nFuzzInputs{} of \nFuzzInputs{} inputs & 76 of \nPseudo{} outside coverage \\
-Correct (reference) & \nRefsObservableAccepted{} of \nRefsObservable{} accepted & \nRefsUnobservableAccepted{} of \nRefsUnobservable{} accepted, 4 wrongly rejected \\
+Counterfeit (pseudo-genuine) & \nPseudoEvaluable{} of \nPseudoEvaluable{} rejected, each on \nFuzzInputs{} of \nFuzzInputs{} inputs & \nPseudoOutside{} of \nPseudo{} outside coverage \\
+Correct (reference) & \nRefsAccepted{} of \nRefsAccepted{} accepted, 0 rejected & \nRefsInconclusive{} inconclusive, 0 rejected \\
 \hline
 \end{tabular}
-\caption{The behavioural gate's boundary. ``Observable'' means the replacement is a callable in a module of its own that the recorder can be pointed at; ``not observable'' means it is written into an existing module or inlined. Counts are rewrites; the four pseudo-genuine rewrites expose five library functions, all five diverging.}
+\caption{The behavioural gate's boundary. ``Observable'' means the recorder captured the replacement at the library boundary or at a usage site; ``not observable'' means it captured nothing: the suite recorded no library call locally (\nRefsNoCalls{} references) or the only sites are at module level or in decorators no test exercises (\nRefsNotObservable). Counts are rewrites; the four pseudo-genuine rewrites expose five library functions, all five diverging.}
 \label{tab:boundary}
 \end{table}
 
 \paragraph{The boundary.}
 Table~\ref{tab:boundary} crosses correct against counterfeit with observable against not.
 Of the \nPseudo{} pseudo-genuine rewrites, \nPseudoTraced{} fall on a recorded pair and \nPseudoEvaluable{} expose a function the recording shows the repository calling; all \nPseudoEvaluable{} are rejected, each on every one of \nFuzzInputs{} generated inputs, including the running example.
-Of the \nRefs{} references, \nRefsEvaluable{} recorded library calls in the local run.
-Where the replacement is a new module, \nRefsObservableAccepted{} of \nRefsObservable{} reproduce every recorded call.
-Where it is written into an existing module or inlined, the recorder sees the project's own functions or nothing, and 4 of \nRefsUnobservable{} correct rewrites are reported as missing and rejected.
-The gate does not yet recognise that case, so those are false rejections, and recording at the enclosing project function rather than the library boundary, which the design anticipates, is the remedy.
-A further reference could not be evaluated because its candidate suite does not run on our machine, and one reference is reproduced only after temporary-directory paths are normalised.
+Of the \nRefs{} references, \nRefsEvaluable{} are evaluable in the local run.
+The gate accepts \nRefsAccepted: \nRefsNewModuleAccepted{} whose replacement is a new module, reproduced at the library boundary, and one inlined rewrite, reproduced at the usage site where the boundary saw nothing.
+It returns inconclusive on \nRefsInconclusive{} and rejects none: \nRefsNoCalls{} suites record no library call on our machine, and \nRefsNotObservable{} use the library only at module level or in a decorator that no test exercises, so there is nothing at either level to compare.
+One accepted reference showed 39 usage-level differences, all from a function returning git hashes, which the nondeterminism rule set aside.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.9\columnwidth, height=3.0cm, xmin=-0.03, xmax=1.03, ymin=0.4, ymax=2.6,
+  xlabel={fraction of compared inputs that diverge}, xlabel style={font=\small},
+  ytick={1,2}, yticklabels={correct, counterfeit}, y tick label style={font=\small},
+  tick label style={font=\small}, xtick={0,0.25,0.5,0.75,1}]
+\addplot[only marks, mark=*, mark size=2.2pt, black] coordinates {(1,2) (1,2) (1,2) (1,2) (1,2)};
+\addplot[only marks, mark=o, mark size=2.2pt, black] coordinates {(0,1) (0,1) (0,1) (0,1) (0,1)};
+\end{axis}
+\end{tikzpicture}
+\caption{Separation where the gate can observe. Counterfeit: five functions from four pseudo-genuine rewrites, each diverging on \nFuzzInputs{} of \nFuzzInputs{} generated inputs. Correct: five references, each agreeing on every recorded input. The inputs differ by row and the counts are small; the margin, not the count, is the evidence.}
+\label{fig:separation}
+\end{figure}
 
 \paragraph{A development result.}
-The \nRefsObservableAccepted{} of \nRefsObservable{} were reached after three changes to the gate made while grading these same references: pairing by site and order rather than by arguments, equality that ignores a differing type name when the structure is equal, and path normalisation.
+The \nRefsAccepted{} of \nRefsAccepted{} were reached after four changes to the gate made while grading these same references: pairing by site and order rather than by arguments, equality that ignores a differing type name when the structure is equal, path normalisation, and the usage-site level with its inconclusive rule.
 Before them the gate rejected 7 of \nRefsEvaluable.
 No reference was held out, so the acceptance figure is a development result, not an evaluation; it shows the gate can accept correct rewrites of this kind, and a held-out set is needed to estimate how often.
 
@@ -641,19 +659,19 @@ No reference was held out, so the acceptance figure is a development result, not
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{lrrl}
+\begin{tabular}{lrr}
 \hline
-\textbf{Tier} & \textbf{Pairs} & \textbf{References} & \\
+\textbf{Tier} & \textbf{Pairs} & \textbf{References} \\
 \hline
-Narrow (1--2 files) & \nTierNarrow{} & \todo{n} & \\
-Medium (3--4) & \nTierMedium{} & \todo{n} & \\
-Wide (5+) & \nTierWide{} & \todo{n} & \\
-Indirect track & \nTierIndirect{} & 0 & tool or plugin, no import \\
+Narrow (1--2 files) & \nTierNarrow{} & \todo{n} \\
+Medium (3--4) & \nTierMedium{} & \todo{n} \\
+Wide (5+) & \nTierWide{} & \todo{n} \\
+Indirect track & \nTierIndirect{} & 0 \\
 \hline
-Total & \nPairs{} & \nRefs{} & \nRefsPass{} pass under the block \\
+Total & \nPairs{} & \nRefs{} \\
 \hline
 \end{tabular}
-\caption{Pool composition and reference coverage.}
+\caption{Pool composition and reference coverage. The indirect track is reached through a tool or plugin with no import; \nRefsPass{} of the \nRefs{} references pass the workflow under the block.}
 \label{tab:pool}
 \end{table}
 
@@ -668,54 +686,35 @@ In the pilot, \nAgents{} agents made \nAgentAttempts{} attempts on \nAgentTasks{
 \section*{Limitations}
 \label{sec:limitations}
 
-\paragraph{Winnability is verified by rule, not demonstrated.}
-Every pair is admitted only when CI fails attributably to the repository's own use of the package, and pairs that cannot be won are excluded by rule: a dependency that is optional by design (7), one installed from a second source CI reads (5), one whose failure arises inside another package (12), one whose name shadows a standard-library module (2).
-What those rules cannot establish is that a correct removal \emph{exists} for the pairs that remain.
-That requires writing one, and we have written none at scale.
-This is the benchmark's largest open risk and the first thing a reader should discount.
+\paragraph{The behavioural gate's acceptance is a development result.}
+Four changes to the gate were made while grading the same \nRefs{} references that now measure its false rejection, and no reference was held out.
+The \nRefsAccepted{} of \nRefsAccepted{} accepted shows that correct rewrites of this kind can be accepted; it does not estimate how often a fresh one would be.
+A held-out set, and mutation analysis of the observable references, are the measurements that would.
 
-\paragraph{False rejection is bounded from below, not above.}
-We measure it at 0 of 172 using removals that are correct by construction: the package appears nowhere in the repository, so deleting the declaration and changing no code is the right answer.
-Those removals require no rewriting, so they exercise the manifest and closure gates far more than the behavioural one.
-A rate measured on harder removals could be higher, and nothing here rules that out.
+\paragraph{The gate speaks for a minority of pairs.}
+Recordings exist for \nTracedPairs{} of \nPairs{} pairs, and \nRefsInconclusive{} of \nRefsEvaluable{} references are inconclusive because the suite never calls the library on our machine or uses it only at module level.
+Where the gate cannot see it says so, and the structural gates and the tests carry the grade; coverage is reported with every verdict, and the corrected recorder runs may change it.
 
-\paragraph{The behavioural gate speaks for a minority of pairs.}
-It compares what the library did against what the replacement does, which requires the test suite to call the library at least once.
-Recording under the real CI harness yielded traces for 86 instances and 38{,}381 calls; for the remainder either the suite never touches the dependency, in which case there is nothing to compare, or our recorder did not load under that project's test runner.
-Where the gate cannot speak it says so, and the structural gates carry the grade.
-We report the coverage rather than the detection rate alone.
+\paragraph{Seventeen silent runs are set aside, not resolved.}
+The activation rule excludes \nExclInconclusive{} silent runs from three repositories whose workflows never demonstrably loaded the block; their replay is pending, and the census is reported with and without them.
 
-\paragraph{The behavioural comparison is over summaries, not objects.}
-The library is deleted by the task, so its return values cannot be kept; the gates compare recorded summaries under published rules (exact for primitives and small containers, a hash of the whole for anything past a cap, public attributes and length for objects, type and name for callables).
-Over the 38{,}381 recorded return values, 85.8\% were decided on the whole value by the recorder that produced them and 14.2\% on a repr or a prefix, where a divergence could be missed; the current recorder hashes and carves those classes, and we report the coverage per trace rather than assume it.
-A generator's output is seen only when the repository consumes it through a recorded call, and private state is not compared.
+\paragraph{Winnability is demonstrated for a sample.}
+\nRefsPass{} of \nRefs{} hand-written removals pass the workflow under the block, over \nRefsRegular{} regular and \nRefsLarge{} large pairs chosen by the authors, none in the indirect track; for the other pairs admission establishes only that the oracle sees the removal.
 
-\paragraph{Pilot scale.}
-The agent results rest on 52 patches over 15 instances, sized to a small budget, of which 7 pass CI.
-Confidence intervals on proportions at this scale are wide; we report counts, not rates, and treat the pilot as evidence that the task is neither trivial nor impossible rather than as a measurement of any model.
+\paragraph{The counterfeit corpus was not run through CI.}
+The structural results measure what the gates see; whether each variant passes the tests is known only for the replication corpus, and the corpus author also wrote two of the gates.
+\todo{State the corpus and reference provenance once the authors confirm it.}
 
-\paragraph{The cross-oracle comparison is derived, not observed.}
-Our 42\% blindness figure for CI replay is measured.
-The 47\% for a static import check follows from what that oracle inspects, applied to footprints we computed on \emph{our} population; we have not run EnvBench's harness over its own repositories.
-The ordering of the three oracles is sound and their mechanisms are verified in source, but the precise figure for another benchmark's population is not ours to claim.
+\paragraph{Derived oracles.}
+The verdicts of the import check and of collection-only grading are projections onto our population from what each oracle inspects, not runs of those systems; the projection favours the import check.
 
-\paragraph{Benchmark decay.}
-Only 51 of 96 published gold patches still pass their own suites.
-We condition on gold-passing repositories throughout, but the surviving set may be systematically simpler, for instance better pinned.
+\paragraph{Open routes.}
+Two reflection escapes defeat the block and therefore G5, and a test runner invoked through a Makefile or script lies outside what G7 inspects.
+The grader faces an adaptive submitter and is not adversarially complete.
 
-\paragraph{Static prediction.}
-Test reachability predicts blindness at precision 0.65 and recall 0.77 from import statements alone.
-The dependency-closure layer, which predicts transitively installed packages, no longer contributes: blocking the import removes the mechanism it detects, and of the 76 pairs it flags CI notices 50 anyway.
-Both layers under-approximate dynamic imports.
-
-\paragraph{Cheat realism.}
-The 617 variants are constructed, not observed in the wild.
-They establish what an oracle \emph{admits}, not what agents \emph{do}.
-The two corpora also overlap: 57 variants are identical triples and our three families are a subset of the eight, so they are not independent evidence and we do not sum them.
-
-\paragraph{Language scope.}
-All results are Python.
-The mechanisms, transitive installation and uneven test coverage, are not Python-specific, but their magnitudes certainly are: ecosystems with stricter dependency resolution should exhibit fewer phantoms.
+\paragraph{Scope.}
+All results are Python, on the repositories of one benchmark, selected for runnable CI, which biases against finding blindness.
+The pilot is \nAgentAttempts{} attempts and supports no rate estimate; its gate verdicts are pending.
 
 \section*{Acknowledgments}
 
@@ -752,6 +751,32 @@ A second corpus of hide, vendor, and stub variants was generated by a separate g
 It overlaps the main corpus on 57 identical (repository, kind, dependency) triples and is never summed with it.
 
 
+
+\section{Gate by Kind}
+\label{app:matrix}
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lrrrrrrr}
+\hline
+\textbf{Kind} & $n$ & G1 & G3 & G7 & G8 & \textbf{Rej.} & Tests \\
+\hline
+Hide & 77 & \textbf{77} & 0 & 0 & 0 & 77 & 35/62 \\
+Trade & 73 & 0 & 0 & 0 & \textbf{73} & 73 & -- \\
+Weaken tests & 80 & 0 & 0 & \textbf{78} & 0 & 78 & -- \\
+Stub & 80 & 1 & \textbf{65} & 0 & 8 & 65 & 8/62 \\
+Smart stub & 80 & 1 & \textbf{65} & 0 & 8 & 65 & -- \\
+Vendor (named) & 67 & 1 & \textbf{46} & 0 & 14 & 48 & 18/52 \\
+Pseudo-genuine & 80 & 0 & 0 & 0 & 0 & \textbf{0} & -- \\
+\hline
+Honest deletion & \nHonest{} & 1 & 0 & 0 & 1 & 1 & -- \\
+Over-declared removal & \nOverDeclGraded{} & 1 & 0 & 0 & 0 & 1 & \nOverDeclGraded{} \\
+\hline
+\end{tabular}
+\caption{Structural gates over the constructed variants. Cells count variants the gate rejects; bold marks the gate each kind targets; ``Rej.'' counts variants any gate rejects. ``Tests'' is the share passing CI, available from the replication corpus for three kinds (its $n$ differs) and by construction for the over-declared removals; the main corpus was not run through CI. Rows below the rule are controls that must pass.}
+\label{tab:matrix}
+\end{table}
 \section{Robustness of the Silent Rate}
 \label{app:robustness}
 Over the \nReposThree{} repositories with at least three candidates, after the activation rule; figures with the \nExclInconclusive{} set-aside runs counted in parentheses.

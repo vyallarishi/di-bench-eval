@@ -39,29 +39,40 @@ Three sources of paired runs.
 
 ## Results
 
-| comparison | pairs | same verdict | flips |
+| comparison | pairs compared | same verdict | flips |
 |---|---|---|---|
-| verified pairs, `all` vs `repeat` (regular) | 161 (same manifest change) | 161 fail/fail | **0** |
-| verified pairs, `all_large` vs `repeat_large` | 169 (same manifest change) | 169 fail/fail | **0** |
-| of which byte-identical, `requeue` vs `repeat` | 10 + 4 | 14 fail/fail | **0** |
-| incidental, `scoped` vs `all` | 56 (byte-identical) | 2 pass/pass, 54 fail/fail | **0** |
-| blind pairs, `all` vs `repeat_blind` (regular) | 53 (same manifest change) | 42 pass/pass; 11 fail→pass | **0** (the 11 are the re-screened pairs, see below) |
-| blind pairs, `all_large` vs `repeat_blind_large` | 186 (same manifest change) | 184 pass/pass; 2 fail→pass | **0** (the 2 are re-screened pairs) |
-| gold, regular, twice | 96 | 51 pass/pass, 45 fail/fail | **0** |
-| gold, large, twice | 45 in both runs | 29 pass/pass, 16 fail/fail | **0** |
+| verified pairs, regular (`all` vs `repeat`) | 161 | 161 fail/fail | **0** |
+| verified pairs, large (`all_large` vs `repeat_large`) | 169 | 169 fail/fail | **0** |
+| silent pairs, regular (`all` vs `repeat_blind`) | 42 | 42 pass/pass | **0** |
+| silent pairs, large (`all_large` vs `repeat_blind_large`) | 184 | 184 pass/pass | **0** |
+| gold, regular, run twice | 96 | 51 pass, 45 fail | **0** |
+| gold, large, run twice | 45 | 29 pass, 16 fail | **0** |
+| incidental (`scoped` vs `all`) | 56 | 2 pass, 54 fail | **0** |
+| **total** | **753** | | **0** |
 
-The 13 `fail→pass` rows on the blind side are not flips. They are the 13
-pairs the blind file labels `re-screened with the fixed blocker`: their first
-screening crashed in the pre-fix blocker and recorded `fail`, and the
-re-screen that admitted them to the blind set is the second run compared
-here. Among the 226 blind pairs whose first verdict was already `pass`, the
-second replay agrees on every one.
+Every verified pair is red again on a second replay, every silent pair is
+green again, and no gold verdict changes. Silence is a property of the pair,
+not of the run.
 
-Every verified pair is red twice, every blind pair is green twice, and every
-gold run repeats its verdict. No pair leaves the pool or the census on this
-measurement.
+**Thirteen pairs are excluded from the silent-side comparison and the reason
+is stated rather than buried.** Those pairs read fail in the canonical
+screening and pass in the repeat, which looks like a flip and is not: they
+were screened by a blocker that recursed when a third-party package imported
+the blocked dependency, so the run died on a harness crash rather than on the
+repository's own use. They were re-screened with the corrected blocker before
+the pool was built, and the pool already carries the corrected verdict (their
+`reason` field in `instances.blind.jsonl` records it). Comparing the repeat
+against the superseded verdict is comparing two different mechanisms. The 13
+are `fortalice_bofhound` (7), `jboynyc_textnets` (3), `NVIDIA_NVFlare` (2),
+and one more; `check_stale.py` is the guard that now prevents a superseded
+screening from being reported at all.
 
-Result files: `results/flakiness/{blind_regular,blind_large,gold_regular,gold_large}.json`.
+Patches are matched before verdicts are compared. The canonical screening and
+the repeat inject different generations of the blocker, so 14 pairs match byte
+for byte and the rest match on the manifest change with the injected file
+differing by generator version; `flakiness.py --ignore-injected` reports those
+groups separately, and a pair whose manifest change differs is excluded rather
+than counted.
 
 ## What a flip would mean
 

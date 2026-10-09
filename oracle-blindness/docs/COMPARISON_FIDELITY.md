@@ -41,41 +41,71 @@ two gates cannot disagree about what "same" means.
 ## Measured coverage
 
 `trace_fidelity.py` classifies every recorded return value by what the
-comparison can see of it. Over the 38,381 return values in the 86 reference
-traces recorded by the **earlier** recorder (repr-only objects, no hashes):
+comparison can see of it. The traces were recorded twice under the real CI
+harness, once with the original summariser and once with the current one, on
+the same projects, so the change is measured rather than argued.
 
-| class | values | share |
+| class | before | after |
 |---|---|---|
-| exact | 31,321 | 81.6% |
-| array, full content inlined | 1,333 | 3.5% |
-| exception (compared by type) | 295 | 0.8% |
-| opaque: object by repr only | 3,316 | 8.6% |
-| truncated: past a cap, no hash | 2,116 | 5.5% |
+| exact (primitive, or a container of exact elements) | 82.3% | 81.6% |
+| array, full content inlined | 3.5% | 3.9% |
+| hashed: past a cap, hash of the whole decides | — | 7.2% |
+| structural: object compared by public attributes and length | — | 1.3% |
+| exception, compared by type | 0.7% | 0.7% |
+| **opaque: object by repr only** | **7.9%** | **5.2%** |
+| **truncated: past a cap, no hash** | **5.6%** | **0.0%** |
+| **decided on the whole value** | **86.5%** | **94.8%** |
 
-So 85.8% of recorded values were decided on the whole value and 14.2% on a
-repr or a prefix. The opaque class was dominated by generators (527),
-`pandas.DataFrame` (450), functions (446), `bytearray` (300, which the earlier
-summariser did not recognise as bytes), Flask/Werkzeug responses (521), and
-pydantic field and model objects (222).
+Measured on the 84 projects traced by both recorders, 37,914 and 37,947
+return values respectively. Truncation is effectively eliminated (2,116
+values to 6) because anything past a display cap now carries a hash of the
+whole; the remaining 5.2% are objects that expose no public attributes and no
+length, for which type and address-stripped repr is all there is.
 
-The new recorder changes the class of each of those: bytearrays are bytes;
-functions and generators are identified by name; DataFrames hash their
-content; responses and pydantic objects are compared by attributes; anything
-past a cap is hashed. The re-recorded traces will be measured with the same
-script and the table above repeated for them; until then the paper quotes the
-**earlier** coverage as the lower bound and does not quote a number for the
-new recorder.
+The opaque class under the original summariser was dominated by generators
+(527), `pandas.DataFrame` (450), functions (446), `bytearray` (300, which the
+summariser did not recognise as bytes), Flask and Werkzeug responses (521),
+and pydantic field and model objects (222). Each of those is now in a class
+where equality is decided on content or on observable state.
 
-<!-- AFTER RE-RECORDING: run `python3 scripts/gh/trace_fidelity.py` on the
-new traces and add the second table here. Numbers above are from the traces
-committed in a6c5e2e. -->
+Coverage of the pool is a separate number from fidelity of a value, and it is
+the weaker one: recordings exist for 85 of the 330 pairs. For the remainder
+the recorder loaded but the suite made no call into the package (77, which is
+a finding rather than a gap: those suites do not exercise the dependency), or
+the recorder did not load under that project's test runner (168), or CI was
+not green under it (62). The behavioural gate speaks for the pairs it can
+observe and says so otherwise.
+
+## One thing that is deliberately not compared: the method receiver
+
+An instance method's first argument is the object the method is called on, and
+it is the same object on every call into that instance. Carving its attributes
+per call re-serialises the whole object state thousands of times: on
+`mandiant_speakeasy` / `pefile`, where `self` is a parsed PE image, the trace
+reached 145 MB over 21,394 calls with 98% of the bytes being the receiver,
+repeated.
+
+The receiver is therefore summarised by type and address-stripped repr, not
+carved. The justification is not the file size: the receiver is not the call's
+input, and a replacement is not judged on the internal state of an object the
+library itself owns. What the gate compares is the arguments the repository
+passed and the value it got back, and those are recorded in full — after the
+change, `width("xx")` still records `{"t": "str", "n": 2, "v": "xx"}` as the
+argument and the returned integer exactly. Measured on a synthetic library
+with a fat receiver: 568 bytes per call against 10,687, a 19-fold reduction
+with no loss to either side of the comparison.
+
+The cost is that a removal which changes observable state on a library object
+*and* nothing else would not be caught here. That is a narrow case — the
+object belongs to the library being deleted — and the usage-level comparison
+sees the repository-visible effects.
 
 ## What this does and does not change
 
 It changes nothing about the results already reported. The five `pseudo_genuine`
-variants that G4b caught were re-run under the new comparison and are still
-caught, 5 of 5, each at 300 of 300 generated inputs
-(`results/g4b_pseudo_genuine.json`, produced by `g4b_variants.py`). The gate
+variants that G4b caught were re-run against the re-recorded traces under the
+new comparison and are still caught, 5 of 5, each at 300 of 300 generated
+inputs (`results/g4b_pseudo_genuine.json`, produced by `g4b_variants.py`). The gate
 test suite (25 two-way cases) and the G4 fixture (honest / pseudo / hollow)
 are unchanged. The false-rejection measurement does not depend on the summary
 form.

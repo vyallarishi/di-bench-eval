@@ -289,6 +289,34 @@ def _emit(rec, counter=None):
                 pass
 
 
+def _is_receiver(a):
+    """Does this look like a bound instance rather than a value?"""
+    if isinstance(a, (str, bytes, bytearray, int, float, bool, type(None),
+                      list, tuple, dict, set, frozenset)):
+        return False
+    return hasattr(a, "__dict__") or hasattr(a, "__slots__")
+
+
+def _summary_args(args):
+    """Summarise a call's arguments, recording a method receiver shallowly.
+
+    An instance method's first argument is the receiver, and it is the same
+    object on every call into that instance. Carving its attributes once per
+    call re-serialises the whole object state thousands of times: on
+    speakeasy/pefile, `self` is a parsed PE image, and the trace reached
+    138 MB over 21,394 calls with 98% of the bytes being the receiver.
+
+    The receiver's type and identity are what pairing needs; its contents are
+    not the call's input, and a replacement is not judged on them. So the
+    first argument is summarised at a depth that suppresses attribute carving
+    and every other argument in full.
+    """
+    out = []
+    for i, a in enumerate(args[:8]):
+        out.append(_summary(a, 2) if i == 0 and _is_receiver(a) else _summary(a))
+    return out
+
+
 def _record_call(qual, site, args, kwargs, out=None, exc=None, level=None,
                  method=False, counter=None):
     """Summarise one call and write it. Calls the summariser itself provokes
@@ -301,7 +329,7 @@ def _record_call(qual, site, args, kwargs, out=None, exc=None, level=None,
         if level:
             rec["level"] = level
             rec["m"] = method
-        rec["args"] = [_summary(a) for a in args[:8]]
+        rec["args"] = _summary_args(args)
         rec["kwargs"] = {{k: _summary(v) for k, v in list(kwargs.items())[:8]}}
         if exc is not None:
             rec["raised"] = type(exc).__name__
