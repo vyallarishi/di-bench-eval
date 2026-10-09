@@ -216,19 +216,19 @@ Package $d$ is predicted unreachable if no test file reaches, directly or transi
     \hline
     \textbf{Predictor} & \textbf{Pred.} & \textbf{Prec.} & \textbf{Rec.} \\
     \hline
-    Dependency layer & 73 & 0.97 & 0.62 \\
-    Code layer & 70 & 0.69 & 0.42 \\
-    Both (disjunction) & 118 & 0.81 & 0.83 \\
+    Dependency layer & 76 & 0.34 & 0.49 \\
+    Code layer & 63 & 0.65 & 0.77 \\
+    Both (disjunction) & 113 & 0.42 & 0.89 \\
     \hline
   \end{tabular}
-  \caption{Static prediction of CI-invisible deletions, evaluated against the 233 executed mutants, of which 115 are invisible.}
+  \caption{Static prediction of CI-invisible deletions, evaluated against the canonical screening on the 214 pairs where both are available, of which 53 are invisible. The dependency layer predicts \emph{phantoms}, a mechanism the import block eliminates, and collapses accordingly; test reachability alone remains informative.}
   \label{tab:predictor}
 \end{table}
 
 Table~\ref{tab:predictor} reports the result.
 The dependency layer is almost never wrong, which matches its mechanism: if the package is in the closure it \emph{will} be installed.
 The code layer is noisier, because static import reachability under-approximates dynamic imports.
-Together they recover five in six invisible deletions at four in five precision, from the manifest, public package metadata, and import statements alone.
+Test reachability alone recovers three in four invisible deletions at roughly two in three precision, from import statements alone. The dependency layer, which predicts packages installed transitively, no longer helps: of the 76 pairs it flags, CI notices 50 anyway, because blocking the import removes the mechanism it detects. That collapse is a direct measurement of what the block changes rather than a failure of the signal.
 
 \paragraph{Symbol-level reachability.}
 We also evaluated a symbol-level variant using PyCG \citep{pycg2021} call graphs.
