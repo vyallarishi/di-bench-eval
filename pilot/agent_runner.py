@@ -30,6 +30,7 @@ Work efficiently: read the files that use {dep} and {build_file}, make your edit
 then call finish. You have a limited number of steps.""",
 }
 PROMPT_KIND = os.environ.get('AGENT_PROMPT', 'neutral')
+HINT = os.environ.get('AGENT_HINT', '1') != '0'   # give the importing files, or make the agent find them
 SYSTEM = PROMPTS[PROMPT_KIND]
 TOOLS = [
     {"type": "function", "function": {"name": "list_files", "description": "List files under a directory (relative path, '' for root).", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
@@ -57,7 +58,35 @@ def collapse_history(msgs):
             msgs[i] = dict(msgs[i], content=f'[elided {len(c)} chars]')
     return msgs
 
-SPEND = {'prompt': 0, 'completion': 0, 'cost': 0.0}
+CACHE = os.environ.get('AGENT_CACHE', '1') != '0'
+
+
+def cache_marked(msgs):
+    """Mark the stable prefix cacheable (OpenRouter `cache_control`).
+
+    Every step re-sends the whole conversation, so prompt tokens dominate the
+    bill: the pilot spent 59k-178k prompt tokens per instance against 2k-9k
+    completion. Providers that read `cache_control` (Anthropic) then charge the
+    prefix at the cache rate; providers that cache automatically (OpenAI) or
+    ignore the field are unaffected, so this is safe to leave on.
+
+    Only the system prompt is marked. Marking the last tool result as well
+    would cache a prefix that changes every step, which costs cache *writes*
+    for nothing.
+    """
+    if not msgs:
+        return msgs
+    first = msgs[0]
+    if not isinstance(first, dict) or first.get('role') != 'system':
+        return msgs
+    content = first.get('content')
+    if not isinstance(content, str):
+        return msgs
+    return [{**first, 'content': [{'type': 'text', 'text': content,
+                                   'cache_control': {'type': 'ephemeral'}}]}] + list(msgs[1:])
+
+
+SPEND = {'prompt': 0, 'completion': 0, 'cost': 0.0, 'cached': 0}
 BUDGET = float(os.environ.get('AGENT_BUDGET_USD', '2.50'))
 MAX_PROMPT_TOKENS_PER_INSTANCE = int(os.environ.get('AGENT_MAX_PROMPT_TOKENS', '400000'))
 
@@ -72,8 +101,18 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
             (td / rel).parent.mkdir(parents=True, exist_ok=True); (td / rel).write_text(txt)
         (td / bf).write_text(apply_patch_text(repo, bf, row['patch']))  # start from the gold state
         inst_prompt = 0
+        # Whether to hand over the files that import the package. The pilot did,
+        # which is information a maintainer would have to find with grep; with
+        # AGENT_HINT=0 the agent is told to locate them itself, so the run can
+        # be reported either way rather than defended.
+        if HINT:
+            task = (f"Repository root is the current directory. Files that import {dep}: "
+                    f"{list(inst['source_files'])}. Start by reading them and {bf}.")
+        else:
+            task = (f"Repository root is the current directory. Find where {dep} is used "
+                    f"(the grep tool searches the repository) and read {bf}.")
         msgs = [{"role": "system", "content": SYSTEM.format(dep=dep, build_file=bf)},
-                {"role": "user", "content": f"Repository root is the current directory. Files that import {dep}: {list(inst['source_files'])}. Start by reading them and {bf}."}]
+                {"role": "user", "content": task}]
         traj = []; finished = False
         t_start = time.time()
         for step in range(max_steps):
@@ -84,9 +123,10 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
                 msgs.append({"role": "user", "content": f"{left} steps remaining. Make your edits now with the edit tool, then call finish."})
             collapse_history(msgs)
             resp = None
+            sent = cache_marked(msgs) if CACHE else msgs
             for attempt in range(4):
                 try:
-                    resp = client.chat.completions.create(model=model, messages=msgs, tools=TOOLS, tool_choice="auto", temperature=0.0, top_p=1.0,
+                    resp = client.chat.completions.create(model=model, messages=sent, tools=TOOLS, tool_choice="auto", temperature=0.0, top_p=1.0,
                                                           extra_body={"usage": {"include": True}}, timeout=180)
                     break
                 except Exception as e:  # rate limits, transient 5xx
@@ -98,6 +138,10 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
                 SPEND['prompt'] += getattr(u, 'prompt_tokens', 0) or 0; SPEND['completion'] += getattr(u, 'completion_tokens', 0) or 0
                 extra = getattr(u, 'model_extra', None) or {}
                 SPEND['cost'] += float(getattr(u, 'cost', None) or extra.get('cost') or 0)
+                det = (getattr(u, 'prompt_tokens_details', None) or extra.get('prompt_tokens_details') or {})
+                if not isinstance(det, dict):
+                    det = getattr(det, 'model_extra', None) or {'cached_tokens': getattr(det, 'cached_tokens', 0)}
+                SPEND['cached'] += int(det.get('cached_tokens') or 0)
                 inst_prompt += getattr(u, 'prompt_tokens', 0) or 0
             if inst_prompt > MAX_PROMPT_TOKENS_PER_INSTANCE or SPEND['cost'] > BUDGET:
                 traj.append({"role": "system", "content": f"stopped: instance prompt tokens {inst_prompt}, total cost ${SPEND['cost']:.3f}"}); break
@@ -204,7 +248,8 @@ def main():
             print(f"{i['instance_id']}/{i['dependency']}: ERROR {e}", flush=True)
     with open(out_dir / 'dataset.jsonl', 'a') as f:
         for r in out_rows: f.write(json.dumps(r) + '\n')
-    print(f"spend: prompt={SPEND['prompt']} completion={SPEND['completion']} cost=${SPEND['cost']:.3f} (budget ${BUDGET})")
+    print(f"spend: prompt={SPEND['prompt']} (cached {SPEND['cached']}) completion={SPEND['completion']} "
+          f"cost=${SPEND['cost']:.3f} (budget ${BUDGET}) prompt_kind={PROMPT_KIND} hint={int(HINT)} cache={int(CACHE)}")
 
 
 if __name__ == '__main__':
