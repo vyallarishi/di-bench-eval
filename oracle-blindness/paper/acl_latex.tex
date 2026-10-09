@@ -416,6 +416,11 @@ Recording under the real CI harness yielded traces for 86 instances and 38{,}381
 Where the gate cannot speak it says so, and the structural gates carry the grade.
 We report the coverage rather than the detection rate alone.
 
+\paragraph{The behavioural comparison is over summaries, not objects.}
+The library is deleted by the task, so its return values cannot be kept; the gates compare recorded summaries under published rules (exact for primitives and small containers, a hash of the whole for anything past a cap, public attributes and length for objects, type and name for callables).
+Over the 38{,}381 recorded return values, 85.8\% were decided on the whole value by the recorder that produced them and 14.2\% on a repr or a prefix, where a divergence could be missed; the current recorder hashes and carves those classes, and we report the coverage per trace rather than assume it.
+A generator's output is seen only when the repository consumes it through a recorded call, and private state is not compared.
+
 \paragraph{Pilot scale.}
 The agent results rest on 52 patches over 15 instances, sized to a small budget, of which 7 pass CI.
 Confidence intervals on proportions at this scale are wide; we report counts, not rates, and treat the pilot as evidence that the task is neither trivial nor impossible rather than as a measurement of any model.

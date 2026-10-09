@@ -18,9 +18,13 @@ running*, so its outputs are recordable. The removed library is the oracle.
 What a divergence means, stated carefully. A difference in the recorded value
 at a call site is evidence the replacement does not do what the library did on
 an input the tests actually exercise. It is not proof of incorrectness: the
-repository may not care about the part of the value that changed, and our
-summaries are lossy by construction (see `record_usage.values_equal`). So this
-gate reports *divergences with evidence*, and the grade distinguishes
+repository may not care about the part of the value that changed. And a pass is
+only as strong as what the summary captures: a value past the cap is compared
+by a hash of the whole, an object by its public attributes and length, and
+only a bare object with neither is compared by repr alone; `trace_fidelity.py`
+reports how much of a trace falls in each class (see `record_usage.values_equal`
+for the rules). So this gate reports *divergences with evidence*, and the grade
+distinguishes
 
   identical    every reference call has a matching candidate call, same value
   divergent    a call site returns a different value, or raises differently

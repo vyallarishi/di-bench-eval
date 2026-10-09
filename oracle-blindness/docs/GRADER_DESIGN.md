@@ -152,7 +152,9 @@ We should still run the hacker-fixer loop against the full stack before claiming
 
 **The sidecar.** G4b needs the library present to compute reference outputs. That is a second environment per instance, roughly doubling grading cost for that layer. Affordable at our scale; the paper should quote the number.
 
-**Normalised equality is a judgement.** Deciding that two floats are equal within 1e-9, or that dict ordering does not matter, encodes an opinion about what behaviour means. The rules must be published with the benchmark.
+**Normalised equality is a judgement.** Deciding that two floats are equal within 1e-9, or that dict ordering does not matter, encodes an opinion about what behaviour means. The rules are published in `record_usage.values_equal` and stated in `docs/COMPARISON_FIDELITY.md`.
+
+**The comparison sees a summary, not the object.** A value past the display cap carries a hash of the whole; an object is compared by its public attributes and length (Elbaum et al.'s carving, Rostra's state comparison); only a bare object with neither is a repr. Over the 38,381 recorded return values from the first recorder, 85.8% were decided on the whole value and 14.2% on a repr or prefix; `trace_fidelity.py` reports the split for any trace, and a G4a pass on a mostly-repr trace is weaker evidence than one on a mostly-exact trace. See `docs/COMPARISON_FIDELITY.md`.
 
 **Frame-origin attribution under-counts framework-driven use.** When Django imports an app listed in `INSTALLED_APPS`, or pytest loads a plugin named in configuration, the importing frame is the framework's, so the pair is classified as foreign-origin and excluded even though the repository's configuration caused the import and the removal is winnable. We exclude conservatively and report the count; a configuration-aware attribution would recover these pairs.
 
