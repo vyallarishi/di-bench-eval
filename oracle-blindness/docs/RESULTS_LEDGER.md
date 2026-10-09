@@ -99,9 +99,17 @@ a correct flag). 0 false rejections of 172.
 | evaluable | 4 rewrites, 5 functions; **all rejected, 300 of 300 inputs each**; 3 no reconstructible input; rest no recording | same |
 | references, CI under the block | **30 of 32 pass**; 2 fail on the workflow's lint step (humanlayer/python_dotenv: mypy on an edited test; inscriptis/requests: flake8 D401 and S310) | `results/references_ci.json` |
 | references, structural gates | 30 pass every structural gate; the 2 above rejected by G2 only; G4a pending | `results/references_structural.json` |
-| references, behavioural gate (replay on recorded inputs, local run, each reference's replacement module named as a target) | 21 inconclusive (the local run recorded no library calls); **4 accepted** (wcwidth, python_dateutil, python_slugify, boltons: every recorded call reproduced); **7 rejected as "missing"** | `results/references_g4.json` |
+| references, behavioural gate (replay on recorded inputs, local run; pairing by site and order, type-lenient equality, temporary paths normalised) | 21 inconclusive (the local run recorded no library calls; 14 of these because the suite is not runnable on this machine); **11 evaluable: 6 reproduced every recorded call, 4 "missing", 1 "divergent"** | `results/references_g4.json` |
 
-The seven rejections are false, and each has a mechanism: the pandas reference inlines the work into the calling function, so there is no callable to observe; the two tbump references (docopt, cli_ui) route calls through a new repository module that was named as a target but from which no call was recorded, an instrumentation gap still open; iso8601, colorama (130 of 4494 paired), flask_sqlalchemy and pytools (30 of 73 paired) pair some calls and miss the rest, where the rewrite changed the call's shape or site. On real rewrites the library-boundary replay therefore rejects 7 of 11 evaluable references. Recording at the enclosing project function rather than at the library boundary, which the design document proposed, is the remedy and is not implemented. The generated-neighbour layer was not run on the references, since it pairs library and replacement functions by name and a rewrite renames them.
+By where the replacement lives, which decides whether the library-boundary recorder can observe it:
+
+| replacement | evaluable | reproduced | rejected | why |
+|---|---|---|---|---|
+| a new repository module, named as a target | 4 (wcwidth, python_slugify, cli_ui, docopt) | **4** | 0 | observed directly; docopt reproduced only after temporary paths were normalised |
+| a new module but the candidate suite failed locally | 1 (flask_sqlalchemy) | 0 | 1 (missing) | runner limitation, not a gate verdict |
+| inside a modified module, or inlined | 6 (python_dateutil, boltons, iso8601, colorama, pandas, pytools) | 2 | 4 | the recorder cannot observe a replacement that is not a callable in a module of its own: naming the modified module records the project's own API instead (colorama, pytools), an inlined rewrite produces no call (pandas), a relocated call never reaches the recorded site (iso8601) |
+
+So where the gate can observe the replacement it accepted every correct rewrite (4 of 4); where it cannot, it must return inconclusive rather than a verdict, and detecting that condition automatically is open. Three fixes were needed to get here and are committed: pairing by call site and order rather than by arguments (a rewrite hands its own objects where the library's were handed), equality that ignores a differing type name when the structure is equal, and normalisation of checkout and temporary paths. Before them the gate rejected 7 of 11.
 
 **Pending re-runs (dispatched 9 October 18:28Z, runs 37973530805, 37973536037,
 37973540628, 37973545522):** the recorder and the block were found to lose their output

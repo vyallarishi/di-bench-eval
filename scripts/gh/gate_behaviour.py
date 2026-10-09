@@ -67,6 +67,35 @@ def _norm_site(site):
     return s
 
 
+_TMP_PATTERNS = None
+
+
+def _norm_value(v):
+    """Strip temporary-directory paths from recorded strings before comparing.
+
+    A test suite that creates a temporary directory passes its path into the
+    library and gets it back in results; the path differs between any two
+    runs, including two CI jobs, and is not behaviour. Checkout roots are
+    handled by the runner; pytest's and the OS's temporary directories are
+    handled here.
+    """
+    global _TMP_PATTERNS
+    import re as _re
+    if _TMP_PATTERNS is None:
+        _TMP_PATTERNS = [_re.compile(r"pytest-of-[^/\\]+[/\\]pytest-\d+(?:[/\\][^/\\'\" ]*)?"),
+                         _re.compile(r"(?:/private)?/var/folders/[^ '\"]*?/T/[^ '\"/]+"),
+                         _re.compile(r"/tmp/(?:tmp|pytest-)[A-Za-z0-9_.-]+")]
+    if isinstance(v, str):
+        for pat in _TMP_PATTERNS:
+            v = pat.sub("<tmp>", v)
+        return v
+    if isinstance(v, list):
+        return [_norm_value(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _norm_value(x) for k, x in v.items()}
+    return v
+
+
 def _pair_key(rec: dict) -> tuple:
     """Identity of a call for reference-to-candidate pairing: the call site.
 
@@ -117,6 +146,8 @@ def _same_outcome(a: dict, b: dict) -> bool:
 
 
 def compare(reference: list[dict], candidate: list[dict]) -> dict:
+    reference = [_norm_value(r) for r in reference]
+    candidate = [_norm_value(c) for c in candidate]
     """Compare two usage traces call-for-call.
 
     Calls are paired by (call site, arguments) -- see `_pair_key` -- so a
