@@ -136,10 +136,10 @@ index 0000000..71a4ffc
 +            ')\n')
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..06b5569
+index 0000000..e471825
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,192 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -307,15 +307,37 @@ index 0000000..06b5569
 +    except Exception:
 +        pass
 +
++
++# Nothing may be written to fd 1 at interpreter start: tools such as Poetry
++# introspect the interpreter by parsing a subprocess's stdout as JSON, and a
++# line there fails 35 of 53 blind-side runs before any test runs. The console
++# announcement below therefore happens only inside pytest, through the saved
++# console descriptor, where stdout is the test log.
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py, this module imported after pytest redirected
++    # fd 1; pytest keeps the real console on targetfd_save. Announce there, so
++    # a silent run under pytest still shows the block was live.
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            os.write(saved, ("UnpinBench blocker active (pytest saved fd %d): %s"
++                             % (saved, _DEP) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
 +
 +_install()
 +# <<< UnpinBench injected block <<<
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..06b5569
+index 0000000..e471825
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,192 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -483,6 +505,28 @@ index 0000000..06b5569
 +    except Exception:
 +        pass
 +
++
++# Nothing may be written to fd 1 at interpreter start: tools such as Poetry
++# introspect the interpreter by parsing a subprocess's stdout as JSON, and a
++# line there fails 35 of 53 blind-side runs before any test runs. The console
++# announcement below therefore happens only inside pytest, through the saved
++# console descriptor, where stdout is the test log.
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py, this module imported after pytest redirected
++    # fd 1; pytest keeps the real console on targetfd_save. Announce there, so
++    # a silent run under pytest still shows the block was live.
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            os.write(saved, ("UnpinBench blocker active (pytest saved fd %d): %s"
++                             % (saved, _DEP) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
 +
 +_install()
 +# <<< UnpinBench injected block <<<

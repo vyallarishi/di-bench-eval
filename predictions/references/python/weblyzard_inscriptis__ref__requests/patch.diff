@@ -16,7 +16,7 @@ index e1292a2..a4360d9 100644
  [build-system]
  requires = ["poetry-core"]
 diff --git a/src/inscriptis/cli/inscript.py b/src/inscriptis/cli/inscript.py
-index be085e0..5275fc9 100755
+index be085e0..1297ec5 100755
 --- a/src/inscriptis/cli/inscript.py
 +++ b/src/inscriptis/cli/inscript.py
 @@ -8,7 +8,8 @@ from json import load, dumps
@@ -42,7 +42,7 @@ index be085e0..5275fc9 100755
 +
 +
 +def _encoding_from_headers(headers: Message) -> Optional[str]:
-+    """The declared charset; else ISO-8859-1 for text and UTF-8 for JSON."""
++    """Return the declared charset, else ISO-8859-1 for text and UTF-8 for JSON."""
 +    content_type = headers.get("content-type", "")
 +    charset = headers.get_content_charset()
 +    if charset:
@@ -56,7 +56,7 @@ index be085e0..5275fc9 100755
 +
 +def http_get(url: str, timeout: int) -> HttpResponse:
 +    """Fetch the URL and return its body and the encoding it declares."""
-+    with urllib.request.urlopen(url, timeout=timeout) as response:
++    with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
 +        return HttpResponse(response.read(), response.headers)
 +
 +
@@ -89,10 +89,10 @@ index 4e4cfc4..81d5215 100644
      # Capture the printed output
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..5c813f2
+index 0000000..96985e2
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,192 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -260,15 +260,37 @@ index 0000000..5c813f2
 +    except Exception:
 +        pass
 +
++
++# Nothing may be written to fd 1 at interpreter start: tools such as Poetry
++# introspect the interpreter by parsing a subprocess's stdout as JSON, and a
++# line there fails 35 of 53 blind-side runs before any test runs. The console
++# announcement below therefore happens only inside pytest, through the saved
++# console descriptor, where stdout is the test log.
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py, this module imported after pytest redirected
++    # fd 1; pytest keeps the real console on targetfd_save. Announce there, so
++    # a silent run under pytest still shows the block was live.
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            os.write(saved, ("UnpinBench blocker active (pytest saved fd %d): %s"
++                             % (saved, _DEP) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
 +
 +_install()
 +# <<< UnpinBench injected block <<<
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..5c813f2
+index 0000000..96985e2
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,192 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -436,6 +458,28 @@ index 0000000..5c813f2
 +    except Exception:
 +        pass
 +
++
++# Nothing may be written to fd 1 at interpreter start: tools such as Poetry
++# introspect the interpreter by parsing a subprocess's stdout as JSON, and a
++# line there fails 35 of 53 blind-side runs before any test runs. The console
++# announcement below therefore happens only inside pytest, through the saved
++# console descriptor, where stdout is the test log.
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py, this module imported after pytest redirected
++    # fd 1; pytest keeps the real console on targetfd_save. Announce there, so
++    # a silent run under pytest still shows the block was live.
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            os.write(saved, ("UnpinBench blocker active (pytest saved fd %d): %s"
++                             % (saved, _DEP) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
 +
 +_install()
 +# <<< UnpinBench injected block <<<
