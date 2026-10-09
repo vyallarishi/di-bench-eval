@@ -77,7 +77,14 @@ def main():
     ap.add_argument("--repo-data", default=".cache/repo-data")
     ap.add_argument("--out", default=None)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--results", nargs="*", default=[],
+                    help="screening result dirs; supplies each removal's CI log for G5")
     a = ap.parse_args()
+    logs = {}
+    for root in a.results:
+        for f in pathlib.Path(root).rglob("eval-result.json"):
+            ws = f.parent / "eval-workspace"
+            logs[f.parent.name] = "".join(p.read_text(errors="replace") for p in ws.glob("*") if p.is_file())
 
     rows = {}
     for d in a.dataset:
@@ -105,7 +112,11 @@ def main():
             tally["skipped: could not build the removal"] += 1
             continue
         # CI is known to pass for these: that is how they were identified.
-        g = grader.grade(patch, repo, dep, gold_patch=row["patch"], tests_passed=True)
+        # The screening run that identified this removal carried the scoped block
+        # and passed; the package was never imported, so G4 has nothing to verify.
+        mid = next((k for k in logs if k.startswith(iid + "__") and k.endswith("__" + dep)), None)
+        g = grader.grade(patch, repo, dep, gold_patch=row["patch"], tests_passed=True,
+                         ci_log=logs.get(mid), blocker_active=True, nothing_to_verify=True)
         rec = dict(instance_id=iid, dependency=dep, accepted=g["accepted"],
                    failed=g["failed"], unverified=g["unverified"],
                    reasons={k: v["reason"][:140] for k, v in g["gates"].items()

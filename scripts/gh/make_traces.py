@@ -83,6 +83,14 @@ def recorder_body(dep: str, names, own, out: str) -> str:
         "except Exception:\n"
         "    _TRACE_FD = 1\n"
         "_MAXCALLS = " % MARKER, 1)
+    body = body.replace(
+        "_install()\n", "_install()\n" + '\n\ndef _unpinbench_pytest_fd(config):\n    # Loaded through conftest.py rather than sitecustomize.py, this module is\n    # imported after pytest has already redirected fd 1, so the dup above\n    # points at the capture file and every trace line is swallowed. pytest\n    # keeps the real console on its FDCapture.targetfd_save; switch to it.\n    global _TRACE_FD\n    try:\n        cap = config.pluginmanager.get_plugin("capturemanager")\n        out = getattr(getattr(cap, "_global_capturing", None), "out", None)\n        saved = getattr(out, "targetfd_save", None)\n        if saved is not None:\n            _TRACE_FD = saved\n            os.write(_TRACE_FD, ("UnpinBench recorder active (pytest saved fd %d): targets=%r"\n                                 % (saved, _TARGETS) + chr(10)).encode("utf-8", "replace"))\n    except Exception:\n        pass\n\n\npytest_configure = _unpinbench_pytest_fd\n', 1)
+    assert "_unpinbench_pytest_fd" in body, "recorder body has no trailing _install() call"
+    # announce on the trace channel too: stderr is captured for only some workflows
+    body = body.replace(
+        '        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"',
+        '        os.write(_TRACE_FD, ("UnpinBench recorder active: targets=%r out=%s pid=%d" % (_TARGETS, _OUT, os.getpid()) + chr(10)).encode("utf-8", "replace"))\n'
+        '        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"', 1)
     return body
 
 

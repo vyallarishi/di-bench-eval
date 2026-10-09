@@ -268,7 +268,36 @@ def _install():
         sys.stderr.flush()
     except Exception:
         pass
+    # stderr reaches the CI log for only some workflows; say it on fd 1 as well
+    try:
+        os.write(_ANNOUNCE_FD, ("UnpinBench blocker active: %s (pid %d, root %s)"
+                                % (_DEP, os.getpid(), _ROOT) + chr(10)).encode("utf-8", "replace"))
+    except Exception:
+        pass
 
+
+try:
+    _ANNOUNCE_FD = os.dup(1)        # before pytest can redirect fd 1
+except Exception:
+    _ANNOUNCE_FD = 1
+
+
+def _unpinbench_pytest_fd(config):
+    # Loaded through conftest.py, this module imported after pytest redirected
+    # fd 1; pytest keeps the real console on targetfd_save. Announce there, so
+    # a silent run under pytest still shows the block was live.
+    try:
+        cap = config.pluginmanager.get_plugin("capturemanager")
+        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
+        saved = getattr(out, "targetfd_save", None)
+        if saved is not None:
+            os.write(saved, ("UnpinBench blocker active (pytest saved fd %d): %s"
+                             % (saved, _DEP) + chr(10)).encode("utf-8", "replace"))
+    except Exception:
+        pass
+
+
+pytest_configure = _unpinbench_pytest_fd
 
 _install()
 '''

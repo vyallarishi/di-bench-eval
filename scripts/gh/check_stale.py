@@ -49,6 +49,10 @@ MARKERS = {
     "_TRACE_FD = os.dup(1)": (
         "recorder keeps its own fd, so traces survive pytest's --capture=fd "
         "(without it a whole harness run yields zero traces)", True),
+    "_unpinbench_pytest_fd": (
+        "injected file announces and writes through pytest's saved console fd when "
+        "loaded via conftest.py; without it a conftest-loaded recorder's traces and a "
+        "conftest-loaded blocker's activation line are swallowed by --capture=fd", True),
     "_MAXREC = ": (
         "recorder hashes values past the display cap and records an object's "
         "public attributes; without it anything past 300 characters or 20 items, "
@@ -57,8 +61,8 @@ MARKERS = {
 
 # which markers each kind of set is expected to carry
 EXPECTED = {
-    "blocker": ["_unpinbench_blocker_", "_REAL_ROOT", "UnpinBench blocker active"],
-    "recorder": ["_unpinbench_recorder_", "_TRACE_FD = os.dup(1)", "_MAXREC = "],
+    "blocker": ["_unpinbench_blocker_", "_REAL_ROOT", "UnpinBench blocker active", "_unpinbench_pytest_fd"],
+    "recorder": ["_unpinbench_recorder_", "_TRACE_FD = os.dup(1)", "_MAXREC = ", "_unpinbench_pytest_fd"],
 }
 
 

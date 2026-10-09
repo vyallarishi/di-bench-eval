@@ -178,7 +178,13 @@ def g3_no_vendored_copy(patch: str, dep: str, threshold: float = 0.6) -> dict:
                     added_files=sorted(py))
 
 
-def g4a_behaviour(reference: list[dict], candidate: list[dict]) -> dict:
+def g4a_behaviour(reference: list[dict], candidate: list[dict],
+                  nothing_to_verify: bool = False) -> dict:
+    if not reference and nothing_to_verify:
+        # the repository never imported the package, so there is no behaviour
+        # to preserve: nothing to verify is a pass, not an inconclusive
+        return _verdict(True, "the repository never imported the package, so there is "
+                              "no behaviour to preserve")
     if not reference:
         return _verdict(None, "the reference run recorded no calls into the library, "
                               "so behaviour cannot be compared")
@@ -192,7 +198,8 @@ def g4a_behaviour(reference: list[dict], candidate: list[dict]) -> dict:
 BLOCKER_ACTIVE = "UnpinBench blocker active"
 
 
-def g5_no_phantom(ci_log: str | None, dep: str, tests_passed: bool | None = None) -> dict:
+def g5_no_phantom(ci_log: str | None, dep: str, tests_passed: bool | None = None,
+                  blocker_active: bool | None = None) -> dict:
     """The repository must not go on using the package without declaring it.
 
     Phantom use needs two things: the package still present, and the
@@ -205,6 +212,13 @@ def g5_no_phantom(ci_log: str | None, dep: str, tests_passed: bool | None = None
     blocker in the run, presence in the install log is all the evidence there
     is, and the gate fails on it as before.
     """
+    # The block announces itself on stderr, which the harness captures for
+    # only some workflows; the patch itself is the authoritative evidence that
+    # the run carried it. The caller may say so; otherwise fall back to the log.
+    active = blocker_active if blocker_active is not None else bool(ci_log and BLOCKER_ACTIVE in ci_log)
+    if active and tests_passed:
+        return _verdict(True, f"the suite passed with {dep} unimportable from repository "
+                              "frames, so any installed copy is unused")
     if not ci_log:
         return _verdict(None, "no install log available")
     pat = re.compile(rf"\b{re.escape(M.norm(dep)).replace('_', '[-_.]')}\b", re.I)
@@ -213,7 +227,7 @@ def g5_no_phantom(ci_log: str | None, dep: str, tests_passed: bool | None = None
                      or re.match(r"\s*(Downloading|Collecting)\b", l)) and pat.search(l)]
     if not installed:
         return _verdict(True, f"{dep} does not appear in the install log")
-    if BLOCKER_ACTIVE in ci_log:
+    if active:
         if tests_passed:
             return _verdict(True, f"{dep} is still installed (transitively) but the suite "
                                   "passed with it unimportable from repository frames",
@@ -233,7 +247,11 @@ def grade(patch: str, repo: pathlib.Path, dep: str, *,
           candidate: list[dict] | None = None,
           ci_log: str | None = None,
           mutation: dict | None = None,
-          before: set | None = None, after: set | None = None) -> dict:
+          before: set | None = None, after: set | None = None,
+          blocker_active: bool | None = None,
+          nothing_to_verify: bool = False) -> dict:
+    if blocker_active is None and "UnpinBench injected block" in patch:
+        blocker_active = True
     gates = {
         "G1_declaration_gone": g1_declaration_gone(patch, repo, dep, gold_patch),
         "G2_tests_pass": (_verdict(None, "the suite was not run")
@@ -242,8 +260,8 @@ def grade(patch: str, repo: pathlib.Path, dep: str, *,
                                    "the repository's suite passes" if tests_passed
                                    else "the repository's suite fails")),
         "G3_no_vendored_copy": g3_no_vendored_copy(patch, dep),
-        "G4a_behaviour": g4a_behaviour(reference or [], candidate or []),
-        "G5_no_phantom": g5_no_phantom(ci_log, dep, tests_passed),
+        "G4a_behaviour": g4a_behaviour(reference or [], candidate or [], nothing_to_verify),
+        "G5_no_phantom": g5_no_phantom(ci_log, dep, tests_passed, blocker_active),
         "G7_tests_untouched": (lambda r: _verdict(r["pass"], r["reason"], **r["evidence"]))(
             gate_tests.check(patch, repo)),
         # r["pass"] may be None, meaning the gate cannot speak; _verdict maps

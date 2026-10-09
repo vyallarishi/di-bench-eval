@@ -1,9 +1,9 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..c2941b8
+index 0000000..8769056
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,395 @@
+@@ -0,0 +1,417 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -390,6 +390,7 @@ index 0000000..c2941b8
 +        if name.split(".")[0] in _TARGETS:
 +            del sys.modules[name]
 +    try:
++        os.write(_TRACE_FD, ("UnpinBench recorder active: targets=%r out=%s pid=%d" % (_TARGETS, _OUT, os.getpid()) + chr(10)).encode("utf-8", "replace"))
 +        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
 +                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
 +        sys.stderr.flush()
@@ -398,6 +399,27 @@ index 0000000..c2941b8
 +
 +
 +_install()
++
++
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py rather than sitecustomize.py, this module is
++    # imported after pytest has already redirected fd 1, so the dup above
++    # points at the capture file and every trace line is swallowed. pytest
++    # keeps the real console on its FDCapture.targetfd_save; switch to it.
++    global _TRACE_FD
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            _TRACE_FD = saved
++            os.write(_TRACE_FD, ("UnpinBench recorder active (pytest saved fd %d): targets=%r"
++                                 % (saved, _TARGETS) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
 +# <<< UnpinBench injected block <<<
 diff --git a/setup.py b/setup.py
 index de366e7..83ad77d 100644
@@ -422,10 +444,10 @@ index de366e7..83ad77d 100644
          'event-file-poller': ['watchdog==2.3.1'],
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..c2941b8
+index 0000000..8769056
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,395 @@
+@@ -0,0 +1,417 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -812,6 +834,7 @@ index 0000000..c2941b8
 +        if name.split(".")[0] in _TARGETS:
 +            del sys.modules[name]
 +    try:
++        os.write(_TRACE_FD, ("UnpinBench recorder active: targets=%r out=%s pid=%d" % (_TARGETS, _OUT, os.getpid()) + chr(10)).encode("utf-8", "replace"))
 +        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
 +                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
 +        sys.stderr.flush()
@@ -820,4 +843,25 @@ index 0000000..c2941b8
 +
 +
 +_install()
++
++
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py rather than sitecustomize.py, this module is
++    # imported after pytest has already redirected fd 1, so the dup above
++    # points at the capture file and every trace line is swallowed. pytest
++    # keeps the real console on its FDCapture.targetfd_save; switch to it.
++    global _TRACE_FD
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            _TRACE_FD = saved
++            os.write(_TRACE_FD, ("UnpinBench recorder active (pytest saved fd %d): targets=%r"
++                                 % (saved, _TARGETS) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
 +# <<< UnpinBench injected block <<<
