@@ -59,6 +59,11 @@ def collapse_history(msgs):
     return msgs
 
 CACHE = os.environ.get('AGENT_CACHE', '1') != '0'
+# Headroom kept free so the budget cannot be crossed by a call already in
+# flight. The pilot's most expensive single instance was $1.03 on Sonnet; one
+# call is a fraction of that, and 0.25 is comfortably above any single call.
+RESERVE_USD = float(os.environ.get('AGENT_RESERVE_USD', '0.25'))
+HALT = {'stop': False}
 
 
 def cache_marked(msgs):
@@ -121,7 +126,17 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
             left = max_steps - step
             if left <= 6 and not any(isinstance(m, dict) and m.get('role') == 'user' and 'steps remaining' in str(m.get('content', '')) for m in msgs[-3:]):
                 msgs.append({"role": "user", "content": f"{left} steps remaining. Make your edits now with the edit tool, then call finish."})
-            collapse_history(msgs)
+            # Pre-call stop. Checking the budget only after a call returns
+            # means a run at the limit can still issue one more call and
+            # overshoot it. Refuse to start a call unless enough headroom
+            # remains to pay for a worst-case one.
+            if SPEND['cost'] + RESERVE_USD > BUDGET:
+                traj.append({"role": "system",
+                             "content": f"stopped: ${SPEND['cost']:.3f} spent, "
+                                        f"${RESERVE_USD:.2f} reserve would exceed the "
+                                        f"${BUDGET:.2f} budget"})
+                HALT['stop'] = True
+                break
             resp = None
             sent = cache_marked(msgs) if CACHE else msgs
             for attempt in range(4):
@@ -138,10 +153,11 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
                 SPEND['prompt'] += getattr(u, 'prompt_tokens', 0) or 0; SPEND['completion'] += getattr(u, 'completion_tokens', 0) or 0
                 extra = getattr(u, 'model_extra', None) or {}
                 SPEND['cost'] += float(getattr(u, 'cost', None) or extra.get('cost') or 0)
-                det = (getattr(u, 'prompt_tokens_details', None) or extra.get('prompt_tokens_details') or {})
-                if not isinstance(det, dict):
-                    det = getattr(det, 'model_extra', None) or {'cached_tokens': getattr(det, 'cached_tokens', 0)}
-                SPEND['cached'] += int(det.get('cached_tokens') or 0)
+                det = getattr(u, 'prompt_tokens_details', None)
+                cached = (getattr(det, 'cached_tokens', None) if det is not None else None)
+                if cached is None and isinstance(det, dict):
+                    cached = det.get('cached_tokens')
+                SPEND['cached'] += int(cached or 0)
                 inst_prompt += getattr(u, 'prompt_tokens', 0) or 0
             if inst_prompt > MAX_PROMPT_TOKENS_PER_INSTANCE or SPEND['cost'] > BUDGET:
                 traj.append({"role": "system", "content": f"stopped: instance prompt tokens {inst_prompt}, total cost ${SPEND['cost']:.3f}"}); break
@@ -192,17 +208,26 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
                     else:
                         p.parent.mkdir(parents=True, exist_ok=True); p.write_text(args.get('content', '')); result = f'created {p.relative_to(td)}'
                 elif name == 'grep':
-                    hits = []
-                    for x in td.rglob('*.py'):
-                        if any(s in x.parts for s in SKIP): continue
-                        for i, line in enumerate(x.read_text(errors='ignore').splitlines(), 1):
-                            if re.search(args.get('pattern', ''), line): hits.append(f'{x.relative_to(td)}:{i}: {line.strip()[:160]}')
-                    result = '\n'.join(hits[:50]) or 'no matches'  # SWE-agent caps search results at 50
+                    try:
+                        rx = re.compile(args.get('pattern', ''))
+                    except re.error as ex:
+                        # The agent's own malformed pattern. This must be an
+                        # error it can see and retry, not an exception that
+                        # aborts the instance and is scored as a failure.
+                        result = f'error: invalid regex: {ex}'
+                    else:
+                        hits = []
+                        for x in td.rglob('*.py'):
+                            if any(s in x.parts for s in SKIP): continue
+                            for i, line in enumerate(x.read_text(errors='ignore').splitlines(), 1):
+                                if rx.search(line): hits.append(f'{x.relative_to(td)}:{i}: {line.strip()[:160]}')
+                        result = '\n'.join(hits[:50]) or 'no matches'  # SWE-agent caps search results at 50
                 elif name == 'finish':
                     finished = True; result = 'ok'
                 else:
                     result = f'unknown tool {name}'
                 msgs.append({"role": "tool", "tool_call_id": tc.id, "name": name, "content": str(result)})
+                collapse_history(msgs)   # elide on append: never rewrite the cached prefix later
                 traj.append({"role": "tool", "name": name, "content": str(result)[:2000]})
             if finished: break
         variant = snapshot(td)
@@ -238,7 +263,7 @@ def main():
         tag = re.sub(r'[^A-Za-z0-9]+', '-', model).strip('-')
         if (out_dir / 'python' / f"{i['instance_id']}__agent-{tag}__{i['dependency'].lower().replace('-', '_').replace('.', '_')}" / 'patch.diff').exists():
             print('cached', i['instance_id'], i['dependency']); continue
-        if SPEND['cost'] > BUDGET:
+        if HALT['stop'] or SPEND['cost'] + RESERVE_USD > BUDGET:
             print('budget reached, stopping'); break
         t0 = time.time()
         try:
