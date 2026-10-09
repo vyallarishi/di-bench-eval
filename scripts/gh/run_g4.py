@@ -219,7 +219,7 @@ def install_gold_env(repo: pathlib.Path, row: dict, venv_py: str, timeout: int,
     return dict(installed=True, why="", deps=deps)
 
 
-KEEP = None
+KEEP = None          # directory for this instance's kept traces and console output
 
 
 def run_phase(repo: pathlib.Path, dep: str, out: pathlib.Path, own: list[str],
@@ -230,15 +230,29 @@ def run_phase(repo: pathlib.Path, dep: str, out: pathlib.Path, own: list[str],
         out.unlink()
     write_recorder(repo, dep, names, own, out=str(out), usage=usage)
     env = dict(os.environ, PYTHONPATH=str(repo), PYTHONDONTWRITEBYTECODE="1")
+    # The suite runs in its own session so that a timeout kills the whole
+    # process group. Killing pytest alone is not enough: a test that spawned
+    # workers (jax, multiprocessing) leaves grandchildren holding the output
+    # pipe, and the runner then waits on them for ever.
+    import signal
+    proc = subprocess.Popen(cmd, cwd=repo, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
-        r = subprocess.run(cmd, cwd=repo, env=env, capture_output=True,
-                           text=True, timeout=timeout)
-        rc, tail = r.returncode, (r.stdout or r.stderr).strip().splitlines()
+        stdout, stderr = proc.communicate(timeout=timeout)
+        rc, tail = proc.returncode, (stdout or stderr).strip().splitlines()
         if KEEP:
             KEEP.mkdir(parents=True, exist_ok=True)
-            (KEEP / (out.stem + ".stdout")).write_text(r.stdout or "")
-            (KEEP / (out.stem + ".stderr")).write_text(r.stderr or "")
+            (KEEP / (out.stem + ".stdout")).write_text(stdout or "")
+            (KEEP / (out.stem + ".stderr")).write_text(stderr or "")
     except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:
+            proc.kill()
+        try:
+            proc.communicate(timeout=30)
+        except Exception:
+            pass
         rc, tail = -1, ["timeout"]
     recs = gate_behaviour.load(out)
     # The two phases run in different checkouts; a value that embeds the
@@ -298,7 +312,7 @@ def main():
                          "e.g. '{py} -m pytest -q -p no:cacheprovider tests/unit_test'")
     a = ap.parse_args()
     global KEEP, BASE_PYTHON
-    KEEP = pathlib.Path(a.keep) if a.keep else None
+    keep_root = pathlib.Path(a.keep) if a.keep else None
     if a.python:
         BASE_PYTHON = a.python
 
@@ -322,6 +336,8 @@ def main():
         row = rows.get(base)
         src = pathlib.Path(a.repo_data) / "python" / base
         rec = dict(id=mid, base=base, dependency=dep)
+        # one subdirectory per instance, so a corpus run keeps every trace
+        KEEP = keep_root / mid if keep_root else None
         if row is None or not src.is_dir():
             rec.update(status="skipped", why="no dataset row or repo data")
             results.append(rec)
@@ -426,10 +442,13 @@ def main():
                               not_observable=g4a["missing_calls"][:5]),
         )
         results.append(rec)
+        # written after every instance: a suite that hangs the machine must
+        # not take the finished instances' results with it
+        pathlib.Path(a.out).write_text(json.dumps(results, indent=1, default=str))
         print(f"  {mid}: ref_tests={'pass' if ref['tests_passed'] else 'FAIL'}"
               f" ({ref.get('library_calls')} lib + {ref.get('usage_calls')} usage calls) | cand_tests="
               f"{'pass' if cand['tests_passed'] else 'FAIL'} ({cand.get('library_calls')} lib + "
-              f"{cand.get('usage_calls')} usage) | G4a={g4a['verdict']} [{g4a['decided_at']}]")
+              f"{cand.get('usage_calls')} usage) | G4a={g4a['verdict']} [{g4a['decided_at']}]", flush=True)
 
     pathlib.Path(a.out).write_text(json.dumps(results, indent=1, default=str))
     ok = [r for r in results if r.get("status") == "ok"]

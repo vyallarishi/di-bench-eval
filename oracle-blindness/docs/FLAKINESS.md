@@ -82,3 +82,14 @@ removed from the pool and the blindness rate is recomputed without it; the
 number is reported with and without. A gold verdict that flips (green then
 red with nothing removed) marks the repository itself as unstable and all its
 pairs go with it.
+
+## Corrected reruns (10 Oct)
+
+The blind side was replayed once more with the blocker that announces through pytest's
+saved console descriptor and writes nothing to fd 1 at interpreter start (runs
+37981758207 and 37981762948; the latter's two shards that failed on Docker Hub's pull
+limit were re-run as 37996130281 and 37996134281). The table above reproduces exactly:
+53 regular (42 pass/pass, 11 fail→pass re-screens) and 186 large (184 pass/pass, 2
+fail→pass re-screens), 0 flips. `results/flakiness/blind_regular.json` and
+`blind_large.json` are from these runs, and the same runs supply the activation evidence
+in `results/activation.json`.

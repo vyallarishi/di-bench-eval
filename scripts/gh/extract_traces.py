@@ -25,12 +25,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("results", nargs="+")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--states", default=None,
+                    help="write the per-pair outcome ('<repo>|<dep>' -> state) here")
+    ap.add_argument("--clean", action="store_true",
+                    help="delete traces already in --out before extracting")
     a = ap.parse_args()
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    if a.clean:
+        for old in out.glob("*.jsonl"):
+            old.unlink()
 
     tally = collections.Counter()
     calls = collections.Counter()
+    states = {}
     for root in a.results:
         for res in pathlib.Path(root).rglob("eval-result.json"):
             iid = res.parent.name
@@ -55,12 +63,23 @@ def main():
                 (out / f"{iid}.jsonl").write_text("\n".join(lines) + "\n")
                 tally["traced"] += 1
                 calls[iid] = len(lines)
+                state = "traced"
             elif active:
                 tally["recorder loaded, no call recorded"] += 1
+                state = "loaded, no call"
             else:
                 tally["recorder never loaded"] += 1
+                state = "never loaded"
             if ci != "pass":
                 tally["CI not green under the recorder"] += 1
+                # a trace from a red run is kept, but the pair is reported as
+                # not green: its suite did not run to completion under the recorder
+                state = "not green"
+            parts = iid.split("__")
+            key = f"{parts[0]}|{parts[-1]}" if len(parts) >= 3 else iid
+            states[key] = state
+    if a.states:
+        pathlib.Path(a.states).write_text(json.dumps(dict(sorted(states.items())), indent=0))
 
     n = tally["traced"] + tally["recorder loaded, no call recorded"] + tally["recorder never loaded"]
     print(f"{n} instances")

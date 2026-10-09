@@ -528,13 +528,13 @@ Incidence & \nIncidence{} of \nReposThree{} \\
 Median after dropping the ten most silent & \dropTenMedian\% \\
 \hline
 \end{tabular}
-\caption{The census. Rates are per repository over repositories with at least three candidates; the \nExclInconclusive{} runs set aside by the activation rule of \S\ref{sec:screening} are being replayed, and counting them as silent gives a median of \medianRateAll\% and incidence \nIncidenceAll{} of \nReposThreeAll{}.}
+\caption{The census. Rates are per repository over repositories with at least three candidates; the \nExclInconclusive{} runs set aside by the activation rule of \S\ref{sec:screening} were replayed and the block never announced itself in them; counting them as silent gives a median of \medianRateAll\% and incidence \nIncidenceAll{} of \nReposThreeAll{}.}
 \label{tab:census}
 \end{table}
 
 \paragraph{The census.}
 Table~\ref{tab:census} accounts for every candidate.
-The activation rule removes \nExclInconclusive{} silent runs, all from three repositories whose workflows never demonstrably loaded the block; they are reported as inconclusive, not as blindness, and the figures with them counted are given in the caption as a sensitivity check.
+The activation rule removes \nExclInconclusive{} silent runs from seven repositories whose replayed runs carry no announcement from the block, because the suite runs outside pytest, from a subdirectory, or inside a tox environment the injected files do not reach; they are reported as inconclusive, not as blindness, and the figures with them counted are given in the caption as a sensitivity check.
 Of the \nSilent{} silent cases, \nOverDecl{} name the package nowhere in the repository: the declaration was unneeded, and deleting it is correct.
 \nNoImport{} are used without an import, \nOptional{} are written to run without the package, and \nStrict{} import it on a path no test reaches.
 The last are the oracle's blindness, over \nStrictRepos{} repositories.
@@ -695,8 +695,8 @@ A held-out set, and mutation analysis of the observable references, are the meas
 Recordings exist for \nTracedPairs{} of \nPairs{} pairs, and \nRefsInconclusive{} of \nRefsEvaluable{} references are inconclusive because the suite never calls the library on our machine or uses it only at module level.
 Where the gate cannot see it says so, and the structural gates and the tests carry the grade; coverage is reported with every verdict, and the corrected recorder runs may change it.
 
-\paragraph{Seventeen silent runs are set aside, not resolved.}
-The activation rule excludes \nExclInconclusive{} silent runs from three repositories whose workflows never demonstrably loaded the block; their replay is pending, and the census is reported with and without them.
+\paragraph{Thirteen silent runs are set aside, not resolved.}
+The activation rule excludes \nExclInconclusive{} silent runs from seven repositories; they were replayed with the corrected block and it never announced itself, so whether their suites are blind or merely never loaded the block is unknown, and the census is reported with and without them.
 
 \paragraph{Winnability is demonstrated for a sample.}
 \nRefsPass{} of \nRefs{} hand-written removals pass the workflow under the block, over \nRefsRegular{} regular and \nRefsLarge{} large pairs chosen by the authors, none in the indirect track; for the other pairs admission establishes only that the oracle sees the removal.
@@ -786,18 +786,18 @@ Over the \nReposThree{} repositories with at least three candidates, after the a
 \hline
 Dropped & Repositories & Median & Incidence \\
 \hline
-0 & 50 (51) & 19.4\% (20.0) & 33/50 (35/51) \\
-1 & 49 (50) & 18.8\% (20.0) & 32/49 (34/50) \\
-3 & 47 (48) & 16.7\% (19.4) & 30/47 (32/48) \\
-5 & 45 (46) & 14.3\% (17.7) & 28/45 (30/46) \\
-10 & 40 (41) & 12.5\% (14.3) & 23/40 (25/41) \\
+0 & 49 (51) & 18.8\% (20.0) & 33/49 (35/51) \\
+1 & 48 (50) & 17.7\% (20.0) & 32/48 (34/50) \\
+3 & 46 (48) & 15.5\% (19.4) & 30/46 (32/48) \\
+5 & 44 (46) & 14.3\% (17.7) & 28/44 (30/46) \\
+10 & 39 (41) & 12.5\% (14.3) & 23/39 (25/41) \\
 \hline
 \end{tabular}
 \end{center}
 
-Distribution of the rate: 0\%: 17; 1--10\%: 1; 10--25\%: 13; 25--50\%: 14; over 50\%: 5.
-Correlation of the rate with the share of files that are tests, $-0.34$; with the share reachable from tests, $-0.31$; with the number of candidates, $+0.34$.
-Repositories maintained by large organisations with at least one silent candidate: NVFlare 5 of 18, localstack 6 of 15, nncf 6 of 17, chalice 3 of 10, tweepy 2 of 3, docker-py 1 of 3, dm-haiku 1 of 4, mobly 1 of 3, jupyter-console 1 of 8; speakeasy 0 of 6.
+Distribution of the rate: 0\%: 16; 1--10\%: 1; 10--25\%: 14; 25--50\%: 13; over 50\%: 5.
+Correlation of the rate with the share of files that are tests, $-0.30$; with the share reachable from tests, $-0.36$; with the number of candidates, $+0.37$.
+Repositories maintained by large organisations with at least one silent candidate: cowrie 8 of 10, NVFlare 5 of 18, localstack 6 of 15, nncf 6 of 17, chalice 3 of 10, docker-py 1 of 3, dm-haiku 1 of 4, mobly 1 of 3, jupyter-console 1 of 8; speakeasy 0 of 6, and tweepy 0 of 1 once its two silent candidates are set aside by the activation rule.
 
 \section{Oracle Overlap}
 \label{app:overlap}

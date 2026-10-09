@@ -13,24 +13,26 @@ repository (`scripts/gh/attribute.py`, `scripts/gh/flakiness.py`,
 |---|---|---|
 | candidates screened | 622 over 80 gold-passing repositories | `data/instances*.jsonl` |
 | verified pairs | 330 over 73 repositories (narrow 196, medium 41, wide 65, indirect 28) | `data/instances.jsonl` |
-| silent | 239 | `data/instances.blind.jsonl` |
-| excluded with reason | 53 | `data/instances.excluded.jsonl` |
-| silent, attributed: over-declared / used without importing / optional by design / strict | **173 / 14 / 5 / 47** | `results/attribution.json` (BLIND_SPOT_ANATOMY.md had 172 / 13 / 5 / 49 from an uncommitted pass) |
-| strict cases, repositories | 47 over 28 repositories | same |
-| per-repository silent rate, repositories with ≥3 candidates | median **20.0%**, incidence **35 of 51** | `results/robustness.json` |
-| pooled | 239 / 622 | same |
-| drop the k most-silent repositories, k = 1, 3, 5, 10 | median 20.0 / 19.4 / 17.7 / **14.3**%; incidence 34/50, 32/48, 30/46, 25/41 | same |
-| rate distribution over the 51 | 0%: 16; 1–10%: 1; 10–25%: 13; 25–50%: 15; >50%: 6 | same |
-| correlation of rate with test-file share / test-reachable share / candidate count | **−0.34 / −0.31 / +0.34** | same |
-| major-organisation repositories with ≥1 silent candidate | 11 of 12 (mandiant/speakeasy 0 of 6 is the exception) | same |
-| silent cases in repositories where the block demonstrably attributed a repository frame | **222 of 239**; unconfirmed 17 (cowrie 11, sail 5, semchunk 1) | `results/trace_states.json` + pool evidence |
-| rates excluding the 17 unconfirmed | median 19.4%, incidence 33 of 50, drop-10 median 12.5% | `results/robustness.json` (`rates_confirmed`) |
+| silent, before the activation rule / counted | 239 / **226** (13 excluded: inconclusive, block not observed; `results/activation.json`) | `data/instances.blind.jsonl`, `results/activation.json` |
+| excluded with reason | 53 by construction + 13 by the activation rule = 66 | `data/instances.excluded.jsonl`, `results/activation.json` |
+| silent, attributed: over-declared / used without importing / optional by design / strict | **173 / 14 / 5 / 34** after the rule (before it 173 / 14 / 5 / 47; every one of the 13 excluded is strict) | `results/attribution.json`, `results/activation.json` |
+| strict cases, repositories | 34 over 21 repositories (was 47 over 28) | same |
+| per-repository silent rate, repositories with ≥3 candidates | median **18.8%**, incidence **33 of 49** (counting the 13: 20.0%, 35 of 51) | `results/robustness.json` (`confirmed`; `all_candidates` keeps the unexcluded figures) |
+| pooled | 226 / 609 (239 / 622 before the rule) | same |
+| drop the k most-silent repositories, k = 1, 3, 5, 10 | median 17.7 / 15.5 / 14.3 / **12.5**%; incidence 32/48, 30/46, 28/44, 23/39 (before the rule 20.0 / 19.4 / 17.7 / 14.3; 34/50, 32/48, 30/46, 25/41) | same |
+| rate distribution over the 49 | 0%: 16; 1–10%: 1; 10–25%: 14; 25–50%: 13; >50%: 5 (over the 51 before the rule: 16 / 1 / 13 / 15 / 6) | same |
+| correlation of rate with test-file share / test-reachable share / candidate count | **−0.30 / −0.36 / +0.37** (before the rule −0.34 / −0.31 / +0.34) | same |
+| major-organisation repositories with ≥1 silent candidate | 10 of 12: tweepy's two silent cases are both excluded by the rule, so it joins mandiant/speakeasy at zero; cowrie keeps 8 of 11 (its other 3 excluded). The list of 12 is the authors' (ROBUSTNESS.md names 9); confirm against it | `results/activation.json` |
+| activation, from the corrected reruns (every one of the 239 silent pairs replayed, all 239 pass again) | block announced in **217 of 239** logs (install line on stderr 56, pytest hook line 208); 9 more never import the package; **13 excluded**: cowrie 3, sail 4, tweepy 2, tournesol 1, cgen 1, django-revproxy 1, semchunk 1. The repository-level cross-check (another pair of the same repository detected by the block raising in a repository frame) also covers exactly 217; it does not count | `results/activation.json` |
+| why the 13 show no announcement | sail runs `python -m unittest`, django-revproxy and cowrie run under tox, tournesol and cgen run pytest from a subdirectory, tweepy runs its own runner: the root `sitecustomize.py`/`conftest.py` are never imported. semchunk runs pytest 8.4 from the root and announces locally with the same patch; its harness silence is unexplained | the rerun logs under `res_repeat_blind*` (scratch) |
 | gold rot | 51 of 96 regular; 29 of 45 large (in both runs) | `results/flakiness/gold_*.json` |
-| verdict stability | verified 330/330 same; blind 226/226 same (13 are re-screens, not flips); gold 96/96 and 45/45 same | `results/flakiness/*.json`, `docs/FLAKINESS.md` |
+| verdict stability (corrected reruns, `--ignore-injected`) | blind regular 53: 42 pass/pass, 11 fail→pass, the 11 being the re-screened pairs whose first screening crashed in the pre-fix blocker; blind large 186: 184 pass/pass, 2 fail→pass (NVFlare six, sqlalchemy: re-screened). **0 flips** among pairs whose first verdict was already pass; verified 330/330 and gold 96/96, 45/45 unchanged | `results/flakiness/blind_*.json`, `docs/FLAKINESS.md` |
 
 ## RQ2  Does the blindness belong to the oracle or to one benchmark
 
-Per candidate, over the 569 screened candidates (622 − 53 excluded), from `results/oracle_overlap.json`:
+Per candidate, over the 556 screened candidates (622 − 53 excluded by construction − 13 by
+the activation rule), from `results/oracle_overlap.json` (recomputed by `oracle_overlap.py`;
+the pre-rule table over 569 had 223 / 75 / 24 / 8 / 47 / 192):
 
 | CI | static import check | collection-only | n |
 |---|---|---|---|
@@ -38,11 +40,11 @@ Per candidate, over the 569 screened candidates (622 − 53 excluded), from `res
 | detects | detects | silent | 75 |
 | detects | silent | detects | 24 |
 | detects | silent | silent | 8 |
-| silent | detects | silent | **47** |
+| silent | detects | silent | **34** |
 | silent | silent | silent | 192 |
 
-Silent counts: CI 239, import check 224, collection-only 322. The import check
-detects exactly the 47 strict cases CI misses and misses 32 that CI detects
+Silent counts: CI 226, import check 224, collection-only 309. The import check
+detects exactly the 34 strict cases CI misses and misses 32 that CI detects
 (reached without an import). Derived, not observed: the import-check verdict is
 "an unguarded import exists" (`attribution.json`), the collection-only verdict
 is "the screening log shows a collection-stage error" (`results/collection_stage.json`).
