@@ -57,6 +57,8 @@ _OUT = {out!r}
 _MAXREPR = 300
 _MAXCALLS = {maxcalls}
 _SITE_EXCLUDE = {site_exclude!r}   # files whose calls are internal to the replacement
+_USAGE = {usage!r}                 # repo-relative file -> project functions recorded at the usage site
+_USAGE_MODULES = {usage_modules!r} # importable module name -> repo-relative files it may be loaded from
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 _REAL_ROOT = os.path.realpath(_ROOT)
@@ -66,7 +68,9 @@ _VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "
 _STDLIB = os.path.dirname(os.__file__)
 _lock = threading.Lock()
 _count = [0]
+_ucount = [0]
 _depth = threading.local()
+_busy = threading.local()      # set while a record is being summarised; calls made then are not recorded
 _fcache = {{}}
 
 
@@ -264,11 +268,12 @@ def _bounded(rec):
     return json.dumps(rec, default=str)
 
 
-def _emit(rec):
+def _emit(rec, counter=None):
+    counter = _count if counter is None else counter
     with _lock:
-        if _count[0] >= _MAXCALLS:
+        if counter[0] >= _MAXCALLS:
             return
-        _count[0] += 1
+        counter[0] += 1
         try:
             with open(_OUT, "a") as fh:
                 fh.write(_bounded(rec) + "\\n")
@@ -284,9 +289,35 @@ def _emit(rec):
                 pass
 
 
+def _record_call(qual, site, args, kwargs, out=None, exc=None, level=None,
+                 method=False, counter=None):
+    """Summarise one call and write it. Calls the summariser itself provokes
+    (a project __repr__ that reaches a wrapped function) are not recorded."""
+    if getattr(_busy, "on", False):
+        return
+    _busy.on = True
+    try:
+        rec = {{"q": qual, "site": site, "pid": os.getpid()}}
+        if level:
+            rec["level"] = level
+            rec["m"] = method
+        rec["args"] = [_summary(a) for a in args[:8]]
+        rec["kwargs"] = {{k: _summary(v) for k, v in list(kwargs.items())[:8]}}
+        if exc is not None:
+            rec["raised"] = type(exc).__name__
+            rec["msg"] = str(exc)[:200]
+        else:
+            rec["ret"] = _summary(out)
+        _emit(rec, counter)
+    except Exception:
+        pass
+    finally:
+        _busy.on = False
+
+
 def _wrap(fn, qual):
     def wrapper(*args, **kwargs):
-        if getattr(_depth, "n", 0):          # ignore D calling itself
+        if getattr(_depth, "n", 0) or getattr(_busy, "on", False):   # D calling itself; summariser
             return fn(*args, **kwargs)
         is_repo, site = _caller()
         if not is_repo:
@@ -298,15 +329,9 @@ def _wrap(fn, qual):
             try:
                 out = fn(*args, **kwargs)
             except BaseException as e:
-                _emit({{"q": qual, "site": site, "pid": os.getpid(),
-                       "args": [_summary(a) for a in args[:8]],
-                       "kwargs": {{k: _summary(v) for k, v in list(kwargs.items())[:8]}},
-                       "raised": type(e).__name__, "msg": str(e)[:200]}})
+                _record_call(qual, site, args, kwargs, exc=e)
                 raise
-            _emit({{"q": qual, "site": site, "pid": os.getpid(),
-                   "args": [_summary(a) for a in args[:8]],
-                   "kwargs": {{k: _summary(v) for k, v in list(kwargs.items())[:8]}},
-                   "ret": _summary(out)}})
+            _record_call(qual, site, args, kwargs, out=out)
             return out
         finally:
             _depth.n -= 1
@@ -318,6 +343,90 @@ def _wrap(fn, qual):
     except Exception:
         pass
     return wrapper
+
+
+# --- usage-site recording ---------------------------------------------------
+# A replacement that lives inside a modified module, or is inlined at the call
+# site, is not a callable the library-boundary hook can wrap: naming the
+# modified module records the project's own API, and an inlined rewrite makes
+# no call at all. The project's functions that USE the library keep their
+# names across the change, so they are wrapped instead, in both phases, and
+# their arguments and results are recorded under the function's qualified
+# name. G4a pairs those records by function and order.
+def _uwrap(fn, key, method):
+    import functools
+    import inspect
+    if inspect.iscoroutinefunction(fn):
+        async def wrapper(*args, **kwargs):
+            if getattr(_busy, "on", False):
+                return await fn(*args, **kwargs)
+            try:
+                out = await fn(*args, **kwargs)
+            except BaseException as e:
+                _record_call(key, key, args, kwargs, exc=e, level="usage", method=method, counter=_ucount)
+                raise
+            _record_call(key, key, args, kwargs, out=out, level="usage", method=method, counter=_ucount)
+            return out
+    else:
+        def wrapper(*args, **kwargs):
+            if getattr(_busy, "on", False):
+                return fn(*args, **kwargs)
+            try:
+                out = fn(*args, **kwargs)
+            except BaseException as e:
+                _record_call(key, key, args, kwargs, exc=e, level="usage", method=method, counter=_ucount)
+                raise
+            _record_call(key, key, args, kwargs, out=out, level="usage", method=method, counter=_ucount)
+            return out
+    try:
+        functools.update_wrapper(wrapper, fn)
+    except Exception:
+        pass
+    return wrapper
+
+
+def _wrap_usage(module, rel):
+    """Wrap the usage-site functions of `module` if it really is the file `rel`."""
+    import inspect
+    try:
+        f = getattr(module, "__file__", None) or ""
+        if os.path.relpath(os.path.realpath(f), _REAL_ROOT) != rel:
+            return
+    except Exception:
+        return
+    if getattr(module, "_unpinbench_usage_wrapped", None) == rel:
+        return
+    try:
+        setattr(module, "_unpinbench_usage_wrapped", rel)
+    except Exception:
+        pass
+    for qual in _USAGE.get(rel, []):
+        parts = qual.split(".")
+        owner = module
+        for p in parts[:-1]:
+            owner = getattr(owner, p, None)
+            if owner is None:
+                break
+        if owner is None:
+            continue
+        name = parts[-1]
+        try:
+            raw = inspect.getattr_static(owner, name)
+        except Exception:
+            continue
+        key = rel + "::" + qual
+        try:
+            if isinstance(raw, staticmethod):
+                setattr(owner, name, staticmethod(_uwrap(raw.__func__, key, False)))
+            elif isinstance(raw, classmethod):
+                setattr(owner, name, classmethod(_uwrap(raw.__func__, key, True)))
+            elif (inspect.isfunction(raw) and not inspect.isgeneratorfunction(raw)
+                  and not inspect.isasyncgenfunction(raw)):
+                # a generator's value is only seen when consumed, which the
+                # recorder cannot attribute; such functions are left alone
+                setattr(owner, name, _uwrap(raw, key, inspect.isclass(owner)))
+        except Exception:
+            continue
 
 
 def _instrument(mod, prefix, depth=0):
@@ -370,7 +479,9 @@ class _Hook:
         # lives inside the repository's own package.
         if fullname in self._seen:
             return None
-        if fullname.split(".")[0] not in _TARGETS and fullname not in _TARGETS:
+        is_target = fullname.split(".")[0] in _TARGETS or fullname in _TARGETS
+        is_usage = fullname in _USAGE_MODULES
+        if not (is_target or is_usage):
             return None
         for finder in sys.meta_path:
             if finder is self or not hasattr(finder, "find_spec"):
@@ -387,10 +498,17 @@ class _Hook:
                 def exec_module(self, module):
                     inner.exec_module(module)
                     hook._seen.add(module.__name__)
-                    try:
-                        _instrument(module, module.__name__)
-                    except Exception:
-                        pass
+                    if is_target:
+                        try:
+                            _instrument(module, module.__name__)
+                        except Exception:
+                            pass
+                    if is_usage:
+                        for rel in _USAGE_MODULES.get(module.__name__, []):
+                            try:
+                                _wrap_usage(module, rel)
+                            except Exception:
+                                pass
 
                 def __getattr__(self, k):
                     return getattr(inner, k)
@@ -415,6 +533,13 @@ def _install():
     for name in list(sys.modules):          # force re-import so the hook sees it
         if name.split(".")[0] in _TARGETS:
             del sys.modules[name]
+    for name in list(sys.modules):          # a usage module loaded before us is wrapped in place
+        if name in _USAGE_MODULES:
+            for rel in _USAGE_MODULES[name]:
+                try:
+                    _wrap_usage(sys.modules[name], rel)
+                except Exception:
+                    pass
     try:
         sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
                          % (_TARGETS, _OUT, os.getpid()) + chr(10))
@@ -427,9 +552,27 @@ _install()
 '''
 
 
+def module_names_for(rel: str) -> set[str]:
+    """Names under which the repository file `rel` may be imported.
+
+    Generous on purpose: the recorder verifies a candidate by the loaded
+    module's __file__ before wrapping anything, so a wrong guess costs nothing.
+    """
+    p = rel[:-3] if rel.endswith(".py") else rel
+    parts = p.split("/")
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    if not parts:
+        return set()
+    names = {".".join(parts), parts[-1]}
+    if len(parts) > 1:
+        names.add(".".join(parts[1:]))          # src/ layouts, or a package directory on sys.path
+    return {n for n in names if n and not n[0].isdigit()}
+
+
 def write_recorder(root: pathlib.Path, dep: str, names, own=None,
                    out: str = "usage.jsonl", maxcalls: int = 20000,
-                   site_exclude=()) -> list[str]:
+                   site_exclude=(), usage=None) -> list[str]:
     """Install the recorder as sitecustomize.py + conftest.py in `root`.
 
     `names` may contain top-level package names (the library being removed) and
@@ -440,16 +583,28 @@ def write_recorder(root: pathlib.Path, dep: str, names, own=None,
     `site_exclude` lists repository files whose calls into a target are
     internal to the replacement rather than uses by the project, so they are
     not recorded.
+
+    `usage` maps a repository-relative file to the qualified names of the
+    project functions in it that use the library (see `usage_functions`);
+    those are wrapped too, and their calls recorded with ``"level": "usage"``.
     """
+    usage = {rel: sorted(set(fns)) for rel, fns in (usage or {}).items() if fns}
+    usage_modules: dict[str, list[str]] = {}
+    for rel in usage:
+        for m in module_names_for(rel):
+            usage_modules.setdefault(m, []).append(rel)
     body = RECORDER.format(dep=dep, names=sorted(set(names)), own=sorted(set(own or [])),
                            out=str(out), maxcalls=maxcalls,
-                           site_exclude=sorted(set(site_exclude)))
+                           site_exclude=sorted(set(site_exclude)),
+                           usage=dict(sorted(usage.items())),
+                           usage_modules={k: sorted(v) for k, v in sorted(usage_modules.items())})
     return inject.install(root, body)
 
 
 def _summary_namespace() -> dict:
     """Execute the recorder's summary functions in isolation."""
-    src = RECORDER.format(dep="", names=[], own=[], out="", maxcalls=0, site_exclude=[])
+    src = RECORDER.format(dep="", names=[], own=[], out="", maxcalls=0, site_exclude=[],
+                          usage={}, usage_modules={})
     start = src.index("def _summary(")
     end = src.index("def _emit(")
     ns: dict = {}
@@ -471,6 +626,179 @@ def summarize(v):
     if _NS is None:
         _NS = _summary_namespace()
     return _NS["_summary"](v)
+
+
+# --------------------------------------------------------------------------
+# usage sites: which project functions use the library
+# --------------------------------------------------------------------------
+import ast as _ast
+import os as _os
+import re as _re
+
+_TEST_PATH = _re.compile(
+    r"(^|/)(tests?|testing|unittests?|integration_tests)/|"
+    r"(^|/)test_[^/]*\.py$|_test\.py$|(^|/)conftest\.py$|(^|/)tests\.py$")
+_SKIP_DIRS = {".git", ".axon", "node_modules", "venv", ".venv", "build", "dist",
+              "site-packages", "__pycache__", ".tox", ".nox", ".eggs", "docs", "doc",
+              "examples", "example"}
+
+
+def is_test_path(rel: str) -> bool:
+    return bool(_TEST_PATH.search(rel))
+
+
+def _py_files(repo: pathlib.Path):
+    for dp, dns, fns in _os.walk(repo):
+        dns[:] = [d for d in dns if d not in _SKIP_DIRS and not d.startswith(".")]
+        for f in fns:
+            if f.endswith(".py"):
+                yield pathlib.Path(dp) / f
+
+
+def defs_index(tree) -> list[tuple[int, int, str, bool]]:
+    """(first line, last line, qualified name, wrappable) for every def.
+
+    A def is wrappable when it can be reached by attribute access from the
+    module: a module-level function, or a method of a class at any nesting
+    of classes. A function nested inside another function cannot be wrapped
+    from outside, so a site inside it is attributed to the nearest wrappable
+    ancestor instead.
+    """
+    out = []
+
+    def visit(node, stack, in_func):
+        for child in _ast.iter_child_nodes(node):
+            if isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                qual = ".".join(stack + [child.name])
+                out.append((child.lineno, getattr(child, "end_lineno", child.lineno) or child.lineno,
+                            qual, not in_func))
+                visit(child, stack + [child.name], True)
+            elif isinstance(child, _ast.ClassDef):
+                visit(child, stack + [child.name], in_func)
+            else:
+                visit(child, stack, in_func)
+    visit(tree, [], False)
+    return out
+
+
+def enclosing_function(defs, line: int) -> str | None:
+    """Innermost wrappable def containing `line`, or None for module-level code."""
+    best = None
+    for lo, hi, qual, ok in defs:
+        if ok and lo <= line <= hi and (best is None or lo > best[0]):
+            best = (lo, hi, qual)
+    return best[2] if best else None
+
+
+def static_use_sites(repo: pathlib.Path, names) -> dict[str, set[int]]:
+    """repo-relative file -> lines on which a name bound from the library is used.
+
+    Any use counts, not only a call: an attribute read such as ``Fore.RED`` is
+    a use of the library whose effect shows in what the enclosing function
+    returns, and the library-boundary recorder never sees it. ``import *``
+    binds names the scan cannot resolve, so such a file contributes nothing.
+    """
+    names = set(names)
+    out: dict[str, set[int]] = {}
+    for f in _py_files(repo):
+        rel = str(f.relative_to(repo))
+        if is_test_path(rel):
+            continue
+        try:
+            tree = _ast.parse(f.read_bytes())
+        except Exception:
+            continue
+        aliases = set()
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Import):
+                for a in node.names:
+                    if a.name.split(".")[0] in names:
+                        aliases.add((a.asname or a.name).split(".")[0])
+            elif isinstance(node, _ast.ImportFrom) and node.module and not node.level:
+                if node.module.split(".")[0] in names:
+                    for a in node.names:
+                        if a.name != "*":
+                            aliases.add(a.asname or a.name)
+        if not aliases:
+            continue
+        lines = set()
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Name) and node.id in aliases:
+                lines.add(node.lineno)
+            # A library decorator (`@memoize_method`) is a use whose effect
+            # shows in the decorated function's results; the decorator line
+            # sits above the def, so attribute it to the def's own line.
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                for dec in node.decorator_list:
+                    if any(isinstance(n, _ast.Name) and n.id in aliases for n in _ast.walk(dec)):
+                        lines.add(node.lineno)
+        if lines:
+            out[rel] = lines
+    return out
+
+
+def parse_site(site) -> tuple[str, int] | None:
+    """('rel/path.py', line) from a recorded site, whatever checkout recorded it."""
+    if not isinstance(site, str) or ":" not in site:
+        return None
+    path, _, line = site.rpartition(":")
+    if not line.isdigit():
+        return None
+    path = _re.sub(r"^(?:\.\./)+", "", path)
+    path = _re.sub(r"^.*?/(?:ref|cand)/", "", path)
+    return path, int(line)
+
+
+def usage_functions(repo: pathlib.Path, names, records=()) -> dict[str, list[str]]:
+    """repo-relative file -> qualified names of the project functions that use the library.
+
+    The static scan supplies the candidates; recorded call sites (library-boundary
+    records from a reference run) are added so that a use the scan could not
+    resolve is still covered. Test files are never usage sites: a test
+    function returns nothing, so comparing it would verify nothing.
+    """
+    sites = {rel: set(ls) for rel, ls in static_use_sites(repo, names).items()}
+    for r in records:
+        if r.get("level") == "usage":
+            continue
+        ps = parse_site(r.get("site"))
+        if ps and not is_test_path(ps[0]) and (repo / ps[0]).exists():
+            sites.setdefault(ps[0], set()).add(ps[1])
+    out: dict[str, list[str]] = {}
+    for rel, lines in sorted(sites.items()):
+        try:
+            tree = _ast.parse((repo / rel).read_bytes())
+        except Exception:
+            continue
+        defs = defs_index(tree)
+        fns = {enclosing_function(defs, ln) for ln in lines}
+        fns.discard(None)
+        if fns:
+            out[rel] = sorted(fns)
+    return out
+
+
+def site_functions(repo: pathlib.Path, records) -> dict[str, str]:
+    """recorded site -> 'rel::qualname' of its enclosing wrappable function, where one exists."""
+    cache: dict[str, list] = {}
+    out: dict[str, str] = {}
+    for r in records:
+        if r.get("level") == "usage":
+            continue
+        site = r.get("site")
+        ps = parse_site(site)
+        if not ps or is_test_path(ps[0]):
+            continue
+        rel, line = ps
+        if rel not in cache:
+            try:
+                cache[rel] = defs_index(_ast.parse((repo / rel).read_bytes()))
+            except Exception:
+                cache[rel] = []
+        fn = enclosing_function(cache[rel], line)
+        if fn:
+            out[site] = rel + "::" + fn
+    return out
 
 
 # --------------------------------------------------------------------------

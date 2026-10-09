@@ -15,11 +15,16 @@ ones, which is the step G4a cannot take: a replacement that is wrong only off
 the suite's input set is invisible to G4a by construction. The fixture in
 tests/g4 demonstrates exactly that, which is why both layers exist.
 
-Where the replacement lives decides what to instrument. The constructed `stub`
-family shadows the package name (it writes `wcwidth/__init__.py`), so the
-import name is unchanged and the recorder needs no extra target. A replacement
-written into the repository's own modules needs its dotted name passing as an
-extra target; `--replacement-module` does that.
+Where the replacement lives decides what the LIBRARY-BOUNDARY recorder can
+see. The constructed `stub` family shadows the package name (it writes
+`wcwidth/__init__.py`), so the import name is unchanged and the recorder needs
+no extra target. A replacement written as a new module of the repository needs
+its dotted name passing as an extra target for the candidate phase;
+`--replacement-module` does that. A replacement inside a modified module, or
+inlined at the call site, is not a callable the boundary recorder can wrap at
+all; for those the USAGE-SITE level is what observes it: the project's own
+functions that use the library (static scan plus the sites the reference run
+recorded) are wrapped in both phases and compared by function and inputs.
 
 usage:
   run_g4.py --patches DIR --dataset D --repo-data R --out results.json
@@ -42,7 +47,7 @@ import gate_behaviour  # noqa: E402
 import manifests as M  # noqa: E402
 from make_blocked import apply_patch as apply_manifest_patch  # noqa: E402
 from make_blocked import import_names, own_packages  # noqa: E402
-from record_usage import write_recorder  # noqa: E402
+from record_usage import site_functions, usage_functions, write_recorder  # noqa: E402
 
 
 def test_command(row: dict, python: str | None = None,
@@ -143,6 +148,9 @@ def _test_extras(repo: pathlib.Path) -> list[str]:
     return sorted(want)
 
 
+BASE_PYTHON = sys.executable
+
+
 def make_venv(where: pathlib.Path, timeout: int = 300) -> str | None:
     """A fresh interpreter for one instance. Returns its python, or None.
 
@@ -155,7 +163,7 @@ def make_venv(where: pathlib.Path, timeout: int = 300) -> str | None:
     it -- which the gate would have recorded as a behavioural result.
     """
     try:
-        subprocess.run([sys.executable, "-m", "venv", str(where)],
+        subprocess.run([BASE_PYTHON, "-m", "venv", str(where)],
                        capture_output=True, text=True, timeout=timeout)
     except subprocess.SubprocessError:
         return None
@@ -215,11 +223,12 @@ KEEP = None
 
 
 def run_phase(repo: pathlib.Path, dep: str, out: pathlib.Path, own: list[str],
-              extra_targets: tuple[str, ...], cmd: list[str], timeout: int) -> dict:
+              extra_targets: tuple[str, ...], cmd: list[str], timeout: int,
+              usage: dict | None = None) -> dict:
     names = tuple(import_names(dep)) + extra_targets
     if out.exists():
         out.unlink()
-    write_recorder(repo, dep, names, own, out=str(out))
+    write_recorder(repo, dep, names, own, out=str(out), usage=usage)
     env = dict(os.environ, PYTHONPATH=str(repo), PYTHONDONTWRITEBYTECODE="1")
     try:
         r = subprocess.run(cmd, cwd=repo, env=env, capture_output=True,
@@ -245,6 +254,8 @@ def run_phase(repo: pathlib.Path, dep: str, out: pathlib.Path, own: list[str],
         shutil.copy(out, KEEP / out.name)
     return dict(returncode=rc, tests_passed=rc == 0,
                 last_line=(tail[-1][:120] if tail else ""), calls=len(recs),
+                library_calls=sum(1 for r in recs if r.get("level") != "usage"),
+                usage_calls=sum(1 for r in recs if r.get("level") == "usage"),
                 records=recs)
 
 
@@ -277,10 +288,19 @@ def main():
     ap.add_argument("--keep", default=None,
                     help="directory to keep each phase's trace and console output in, for diagnosis")
     ap.add_argument("--replacement-module", default=None,
-                    help="dotted module of the replacement, when it is not a package shadow")
+                    help="dotted module of a NEW replacement module, instrumented in the "
+                         "candidate phase only (a modified module is observed at its usage sites)")
+    ap.add_argument("--python", default=None,
+                    help="interpreter to build the per-instance environments from "
+                         "(default: this one); use the version the repository's CI runs")
+    ap.add_argument("--test-command", default=None,
+                    help="override the test command; '{py}' is the phase's interpreter, "
+                         "e.g. '{py} -m pytest -q -p no:cacheprovider tests/unit_test'")
     a = ap.parse_args()
-    global KEEP
+    global KEEP, BASE_PYTHON
     KEEP = pathlib.Path(a.keep) if a.keep else None
+    if a.python:
+        BASE_PYTHON = a.python
 
     rows = {json.loads(l)["instance_id"]: json.loads(l)
             for l in open(a.dataset) if l.strip()}
@@ -332,11 +352,34 @@ def main():
                             else install_gold_env(ref_repo, row, ref_py, a.timeout))
                 rec["env"] = {k: v for k, v in env_info.items() if k != "deps"}
                 rec["env"]["n_deps"] = len(env_info.get("deps", []))
+                # Usage sites: the project functions that use the library,
+                # from a static scan of the reference checkout. They are
+                # wrapped in this run so one reference run records both
+                # levels; if the recorded boundary sites then name a function
+                # the scan missed (a dynamic import, an alias it could not
+                # resolve), the reference is run once more with the union.
+                names = import_names(dep)
+                usage = usage_functions(ref_repo, names)
+                ref_cmd = (a.test_command.format(py=ref_py).split() if a.test_command
+                           else test_command(row, ref_py, ref_repo))
                 ref = run_phase(ref_repo, dep, pathlib.Path(td) / "ref.jsonl", own,
-                                extra, test_command(row, ref_py, ref_repo), a.timeout)
+                                (), ref_cmd, a.timeout, usage=usage)
+                fuller = usage_functions(ref_repo, names, ref["records"])
+                if any(set(fuller.get(k, [])) - set(usage.get(k, [])) for k in fuller):
+                    usage = {k: sorted(set(usage.get(k, [])) | set(fuller.get(k, [])))
+                             for k in set(usage) | set(fuller)}
+                    ref = run_phase(ref_repo, dep, pathlib.Path(td) / "ref.jsonl", own,
+                                    (), ref_cmd, a.timeout, usage=usage)
+                    ref["reran_for_usage"] = True
+                ref["_usage"] = usage
+                ref["_site_function"] = site_functions(ref_repo, ref["records"])
                 ref["_from"] = mid
                 ref["_deps"] = env_info.get("deps", [])
                 ref_cache[ck] = ref
+                if KEEP:
+                    KEEP.mkdir(parents=True, exist_ok=True)
+                    (KEEP / f"{mid}.usage.json").write_text(json.dumps(
+                        dict(usage=usage, site_function=ref["_site_function"]), indent=1))
             if not apply_patch(cand_repo, patch):
                 rec.update(status="skipped", why="patch did not apply")
                 results.append(rec)
@@ -353,10 +396,12 @@ def main():
             if subprocess.run([str(cand_py), "-c", "import pytest"], capture_output=True).returncode != 0:
                 subprocess.run([str(cand_py), "-m", "pip", "install", "-q", "pytest"],
                                capture_output=True, timeout=a.timeout)
+            cand_cmd = (a.test_command.format(py=cand_py).split() if a.test_command
+                        else test_command(row, cand_py, cand_repo))
             cand = run_phase(cand_repo, dep, pathlib.Path(td) / "cand.jsonl", own,
-                             extra, test_command(row, cand_py, cand_repo), a.timeout)
+                             extra, cand_cmd, a.timeout, usage=ref.get("_usage"))
 
-        g4a = gate_behaviour.compare(ref["records"], cand["records"])
+        g4a = gate_behaviour.compare(ref["records"], cand["records"], ref.get("_site_function"))
         rec.update(
             status="ok",
             # A failing reference run here means THIS RUNNER could not execute
@@ -366,17 +411,25 @@ def main():
             # limitation into a property of the instance.
             reference_runnable_locally=ref["tests_passed"],
             reference_tests_passed=ref["tests_passed"], reference_calls=ref["calls"],
+            reference_library_calls=ref.get("library_calls"),
+            reference_usage_calls=ref.get("usage_calls"),
             reference_last_line=ref.get("last_line", ""),
+            usage_functions=sum(len(v) for v in (ref.get("_usage") or {}).values()),
+            reran_for_usage=bool(ref.get("reran_for_usage")),
+            replacement_module=a.replacement_module,
             candidate_tests_passed=cand["tests_passed"], candidate_calls=cand["calls"],
+            candidate_library_calls=cand.get("library_calls"),
+            candidate_usage_calls=cand.get("usage_calls"),
             ci_verdict="pass" if cand["tests_passed"] else "fail",
             g4a={k: v for k, v in g4a.items() if k not in ("divergences", "missing_calls")},
             g4a_evidence=dict(divergences=g4a["divergences"][:5],
-                              missing=g4a["missing_calls"][:5]),
+                              not_observable=g4a["missing_calls"][:5]),
         )
         results.append(rec)
         print(f"  {mid}: ref_tests={'pass' if ref['tests_passed'] else 'FAIL'}"
-              f" ({ref['calls']} calls) | cand_tests="
-              f"{'pass' if cand['tests_passed'] else 'FAIL'} | G4a={g4a['verdict']}")
+              f" ({ref.get('library_calls')} lib + {ref.get('usage_calls')} usage calls) | cand_tests="
+              f"{'pass' if cand['tests_passed'] else 'FAIL'} ({cand.get('library_calls')} lib + "
+              f"{cand.get('usage_calls')} usage) | G4a={g4a['verdict']} [{g4a['decided_at']}]")
 
     pathlib.Path(a.out).write_text(json.dumps(results, indent=1, default=str))
     ok = [r for r in results if r.get("status") == "ok"]
@@ -393,9 +446,11 @@ def main():
         for k, v in sorted(c.items()):
             print(f"    {k} -> {v}")
         caught = sum(1 for r in usable
-                     if r["ci_verdict"] == "pass" and not r["g4a"]["passed"])
+                     if r["ci_verdict"] == "pass" and r["g4a"]["passed"] is False)
+        inconclusive = sum(1 for r in usable
+                           if r["ci_verdict"] == "pass" and r["g4a"]["passed"] is None)
         cip = sum(1 for r in usable if r["ci_verdict"] == "pass")
-        print(f"  CI-passing candidates rejected by G4a: {caught} of {cip}")
+        print(f"  CI-passing candidates rejected by G4a: {caught} of {cip}; inconclusive: {inconclusive}")
     print(f"-> {a.out}")
 
 

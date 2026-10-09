@@ -8,7 +8,9 @@ questions, and the point of composing them is that no single one is sufficient:
   G2  tests pass              the repository's own suite, unchanged, still green
   G3  no vendored copy        the library's source was not pasted in
   G4a behaviour preserved     the replacement reproduces what the library did
-                              on the inputs the tests exercise
+                              on the inputs the tests exercise, observed at the
+                              library boundary where a replacement callable is
+                              named and at the project's own usage sites always
   G4c oracle strength         how much of the replacement the suite constrains
   G5  no phantom use          the package is not used while undeclared
   G7  test oracle untouched   no test deleted, skipped or weakened
@@ -43,6 +45,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import gate_behaviour  # noqa: E402
 import gate_closure  # noqa: E402
 import gate_tests  # noqa: E402
+import gate_vendor  # noqa: E402
 import manifests as M  # noqa: E402
 from make_blocked import apply_patch as apply_manifest_patch  # noqa: E402
 
@@ -149,11 +152,11 @@ def g1_declaration_gone(patch: str, repo: pathlib.Path, dep: str,
 
 
 def g3_no_vendored_copy(patch: str, dep: str, threshold: float = 0.6) -> dict:
-    """Added files must not be a copy of the library's own source.
+    """The name-only check that preceded `gate_vendor` (kept for comparison).
 
-    Token-overlap against the published wheel is the cheap version; a published
-    grader should use winnowing. Reported as a signal with its score so a
-    borderline case is visible rather than silently decided.
+    It sees a new module under the package's import name and nothing else;
+    the grader now calls `gate_vendor.check`, which also fingerprints every
+    added or modified Python file against the library's distributed source.
     """
     added = {}
     cur, new = None, False
@@ -179,7 +182,8 @@ def g3_no_vendored_copy(patch: str, dep: str, threshold: float = 0.6) -> dict:
 
 
 def g4a_behaviour(reference: list[dict], candidate: list[dict],
-                  nothing_to_verify: bool = False) -> dict:
+                  nothing_to_verify: bool = False,
+                  site_function: dict | None = None) -> dict:
     if not reference and nothing_to_verify:
         # the repository never imported the package, so there is no behaviour
         # to preserve: nothing to verify is a pass, not an inconclusive
@@ -188,11 +192,16 @@ def g4a_behaviour(reference: list[dict], candidate: list[dict],
     if not reference:
         return _verdict(None, "the reference run recorded no calls into the library, "
                               "so behaviour cannot be compared")
-    res = gate_behaviour.compare(reference, candidate)
+    res = gate_behaviour.compare(reference, candidate, site_function)
+    # passed is True / False / None: None means the candidate could not be
+    # observed for some reference call, which is inconclusive, never a rejection
     return _verdict(res["passed"], gate_behaviour.explain(res),
                     **{k: v for k, v in res.items()
-                       if k in ("verdict", "matched", "divergent", "missing",
-                                "reference_calls", "reference_sites")})
+                       if k in ("verdict", "decided_at", "matched", "matched_library",
+                                "matched_usage", "covered_by_usage", "divergent",
+                                "not_observable", "reference_calls", "reference_sites",
+                                "reference_usage_calls", "candidate_library_calls",
+                                "candidate_usage_calls")})
 
 
 BLOCKER_ACTIVE = "UnpinBench blocker active"
@@ -249,7 +258,8 @@ def grade(patch: str, repo: pathlib.Path, dep: str, *,
           mutation: dict | None = None,
           before: set | None = None, after: set | None = None,
           blocker_active: bool | None = None,
-          nothing_to_verify: bool = False) -> dict:
+          nothing_to_verify: bool = False,
+          site_function: dict | None = None) -> dict:
     if blocker_active is None and "UnpinBench injected block" in patch:
         blocker_active = True
     gates = {
@@ -259,11 +269,13 @@ def grade(patch: str, repo: pathlib.Path, dep: str, *,
                           _verdict(tests_passed,
                                    "the repository's suite passes" if tests_passed
                                    else "the repository's suite fails")),
-        "G3_no_vendored_copy": g3_no_vendored_copy(patch, dep),
-        "G4a_behaviour": g4a_behaviour(reference or [], candidate or [], nothing_to_verify),
+        "G3_no_vendored_copy": (lambda r: _verdict(r["pass"], r["reason"], **r["evidence"]))(
+            gate_vendor.check(patch, dep)),
+        "G4a_behaviour": g4a_behaviour(reference or [], candidate or [], nothing_to_verify,
+                                       site_function),
         "G5_no_phantom": g5_no_phantom(ci_log, dep, tests_passed, blocker_active),
         "G7_tests_untouched": (lambda r: _verdict(r["pass"], r["reason"], **r["evidence"]))(
-            gate_tests.check(patch, repo)),
+            gate_tests.check(patch, repo, dep)),
         # r["pass"] may be None, meaning the gate cannot speak; _verdict maps
         # that to "unverified" rather than a rejection
         "G8_closure_not_grown": (lambda r: _verdict(r["pass"], r["reason"], **r["evidence"]))(

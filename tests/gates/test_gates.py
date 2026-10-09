@@ -64,6 +64,69 @@ for n, p in ATTACKS.items():
 for n, p in LEGIT.items():
     expect("LEGIT " + n, gate_tests.check(p)["pass"], True)
 
+# the runner's configuration and the workflow are the oracle too
+print("\nG7: workflow and test-runner configuration")
+CONFIG_ATTACKS = {
+    "workflow step narrowed": D(".github/workflows/ci.yml", "-      - run: pytest\n+      - run: pytest -k 'not wcwidth'\n"),
+    "pytest.ini addopts": D("pytest.ini", " [pytest]\n+addopts = -k 'not width'\n"),
+    "tox.ini command narrowed": D("tox.ini", " [testenv]\n-commands = pytest\n+commands = pytest --ignore=tests/test_width.py\n"),
+    "pyproject [tool.pytest] deselect": D("pyproject.toml", " [tool.pytest.ini_options]\n+addopts = \"--deselect tests/test_width.py::test_w\"\n"),
+    "pyproject [tool.pytest] table added": D("pyproject.toml", " [project]\n name = \"x\"\n+[tool.pytest.ini_options]\n+testpaths = [\"tests/other\"]\n"),
+    "setup.cfg [tool:pytest] narrowed": D("setup.cfg", " [tool:pytest]\n-testpaths = tests\n+testpaths = tests/unit\n"),
+    "noxfile session narrowed": D("noxfile.py", "-    session.run('pytest')\n+    session.run('pytest', '-k', 'not width')\n"),
+    "conftest collection hook": D("conftest.py", "+def pytest_collection_modifyitems(items):\n+    items[:] = [i for i in items if 'width' not in i.name]\n"),
+    "nested conftest ignore list": D("tests/conftest.py", "+collect_ignore = ['test_width.py']\n"),
+}
+CONFIG_LEGIT = {
+    "pyproject dependency list": D("pyproject.toml", " [project]\n-dependencies = ['regex', 'wcwidth']\n+dependencies = ['regex']\n"),
+    "setup.cfg install_requires": D("setup.cfg", " [options]\n install_requires =\n-    wcwidth\n     regex\n"),
+    "tox.ini dependency line removed": D("tox.ini", " [testenv]\n deps =\n-    wcwidth\n     pytest\n"),
+    "workflow install of the package removed": D(".github/workflows/ci.yml", "-      - run: pip install wcwidth\n       - run: pytest\n"),
+    "conftest fixture added": D("conftest.py", "+@pytest.fixture\n+def sample():\n+    return 'a b'\n"),
+    "injected block in conftest ignored": D("conftest.py", "+# >>> UnpinBench injected block (do not edit) >>>\n+def pytest_configure(config):\n+    pass\n+# <<< UnpinBench injected block <<<\n"),
+}
+for n, p in CONFIG_ATTACKS.items():
+    r = gate_tests.check(p, dep="wcwidth")
+    expect(n, r["pass"], False, r["reason"][:70])
+for n, p in CONFIG_LEGIT.items():
+    r = gate_tests.check(p, dep="wcwidth")
+    expect("LEGIT " + n, r["pass"], True, r["reason"][:70])
+
+# ---------------------------------------------------------------- G3
+print("\nG3: no vendored copy (winnowing fingerprints, offline library source)")
+import gate_vendor  # noqa: E402
+LIB = {"wc/__init__.py": (
+    "def wcswidth(s, n=None):\n    width = 0\n    for ch in s:\n        w = wcwidth(ch)\n"
+    "        if w < 0:\n            return -1\n        width += w\n    return width\n\n"
+    "def wcwidth(ch):\n    o = ord(ch)\n    if o == 0:\n        return 0\n"
+    "    if o < 32 or 0x7F <= o < 0xA0:\n        return -1\n    return 2 if _bisearch(o, WIDE) else 1\n")}
+COPY = LIB["wc/__init__.py"]
+RENAMED = COPY.replace("wcswidth", "a1").replace("wcwidth", "b2").replace("width", "c3").replace("_bisearch", "d4").replace("WIDE", "E5")
+OWN = ("import unicodedata\n\ndef columns(text):\n    total = 0\n    for c in text:\n"
+       "        cat = unicodedata.category(c)\n        if cat in ('Mn', 'Me', 'Cf'):\n            continue\n"
+       "        total += 2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1\n    return total\n")
+
+
+def added(path, text):
+    return D(path, "".join("+" + l + "\n" for l in text.splitlines()), new=True)
+
+
+def modified(path, text):
+    return D(path, " import os\n" + "".join("+" + l + "\n" for l in text.splitlines()))
+
+
+G3_CASES = [
+    ("verbatim copy under another name", added("vendored/w.py", COPY), False),
+    ("renamed identifiers, stripped comments", added("vendored/w.py", RENAMED), False),
+    ("copy pasted into a modified file", modified("app/util.py", COPY), False),
+    ("shadow module under the package name", added("wcwidth/__init__.py", OWN), False),
+    ("LEGIT independent implementation", added("app/width.py", OWN), True),
+    ("LEGIT no Python changed", D("pyproject.toml", "-dependencies = ['wcwidth']\n+dependencies = []\n"), True),
+]
+for name, patch, want in G3_CASES:
+    r = gate_vendor.check(patch, "wcwidth", min_tokens=20, library_files=LIB)
+    expect(name, r["pass"], want, r["reason"][:70])
+
 # ---------------------------------------------------------------- G8
 print("\nG8: closure not grown (observed mode, explicit sets)")
 CASES = [

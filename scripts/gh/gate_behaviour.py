@@ -26,14 +26,22 @@ reports how much of a trace falls in each class (see `record_usage.values_equal`
 for the rules). So this gate reports *divergences with evidence*, and the grade
 distinguishes
 
-  identical    every reference call has a matching candidate call, same value
-  divergent    a call site returns a different value, or raises differently
-  missing      a call site the reference exercised is never reached
-  unverified   no reference call was recorded, so the gate cannot speak
+  identical    every reference call has a matching candidate call, same value,
+               or its enclosing project function is observed to agree
+  divergent    a paired call returns a different value, or raises differently
+  unverified   the gate cannot speak: no reference call was recorded, or the
+               candidate could not be observed for some reference call (it
+               recorded nothing at either level, a site is module-level with
+               no function to observe, a function was renamed). The reason
+               says which. A gate that cannot see does not reject.
 
-`missing` is the stub-catcher. A hollow replacement that satisfies the
-assertions typically never performs the work at all, so the sites the library
-served simply vanish from the trace.
+Two levels are compared. At the LIBRARY BOUNDARY the recorder wraps the
+library's callables and, for a candidate, a replacement module named as a
+target; calls pair by site and order. At the USAGE SITE the recorder wraps
+the project's own functions that use the library, in both phases; calls pair
+by function and inputs. The second level is what observes a rewrite inside a
+modified module or inlined at the site, which the first cannot (see
+`record_usage.usage_functions`).
 
 usage:
   gate_behaviour.py reference.jsonl candidate.jsonl [--json out.json]
@@ -49,6 +57,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from record_usage import values_equal  # noqa: E402
+from record_usage import parse_site  # noqa: E402,F401
 
 
 def _norm_site(site):
@@ -97,7 +106,7 @@ def _norm_value(v):
 
 
 def _pair_key(rec: dict) -> tuple:
-    """Identity of a call for reference-to-candidate pairing: the call site.
+    """Identity of a library-boundary call for pairing: the call site.
 
     Deliberately NOT the qualified name, and NOT the arguments either. A
     removal renames the callee by construction, and it also changes what is
@@ -145,87 +154,255 @@ def _same_outcome(a: dict, b: dict) -> bool:
     return values_equal(va, vb)
 
 
-def compare(reference: list[dict], candidate: list[dict]) -> dict:
-    reference = [_norm_value(r) for r in reference]
-    candidate = [_norm_value(c) for c in candidate]
-    """Compare two usage traces call-for-call.
+def _level(rec: dict) -> str:
+    return "usage" if rec.get("level") == "usage" else "library"
 
-    Calls are paired by (call site, arguments) -- see `_pair_key` -- so a
-    replacement is judged on the inputs the library was actually given, without
-    requiring it to keep the library's function names.
-    Repeated identical calls are matched as multisets, in recorded order, which
-    keeps the comparison stable when a suite runs tests in a different order.
-    """
+
+def _usage_inputs(rec: dict):
+    """The inputs that identify a usage-site call: its arguments without `self`."""
+    args = rec.get("args") or []
+    if rec.get("m") and args:
+        args = args[1:]
+    return args, rec.get("kwargs") or {}
+
+
+def _same_inputs(a: dict, b: dict) -> bool:
+    aa, ak = _usage_inputs(a)
+    ba, bk = _usage_inputs(b)
+    if len(aa) != len(ba) or set(ak) != set(bk):
+        return False
+    return (all(values_equal(x, y) for x, y in zip(aa, ba))
+            and all(values_equal(ak[k], bk[k]) for k in ak))
+
+
+def _divergence(r: dict, c: dict, level: str) -> dict:
+    return dict(level=level, call=r.get("q"), candidate_call=c.get("q"),
+                site=r.get("site"), args=r.get("args"), kwargs=r.get("kwargs"),
+                reference=_outcome(r)[1], candidate=_outcome(c)[1])
+
+
+def _pair_library(reference, candidate):
+    """Pair by site and order. Returns (matched, divergences, unreached records)."""
     ref_by: dict[tuple, list[dict]] = collections.defaultdict(list)
     for r in reference:
         ref_by[_pair_key(r)].append(r)
     cand_by: dict[tuple, list[dict]] = collections.defaultdict(list)
     for c in candidate:
         cand_by[_pair_key(c)].append(c)
-
-    divergences, missing = [], []
-    matched = 0
+    matched, divergences, unreached = 0, [], []
     for key, refs in ref_by.items():
         cands = cand_by.get(key, [])
         for i, r in enumerate(refs):
             if i >= len(cands):
-                missing.append(dict(call=r.get("q"), site=r.get("site"),
-                                    args=r.get("args"), kwargs=r.get("kwargs"),
-                                    reference=_outcome(r)[1],
-                                    why="call site never reached by the candidate"))
-                continue
-            c = cands[i]
-            if _same_outcome(r, c):
+                unreached.append(r)
+            elif _same_outcome(r, cands[i]):
                 matched += 1
             else:
-                divergences.append(dict(call=r.get("q"), candidate_call=c.get("q"),
-                                        site=r.get("site"),
-                                        args=r.get("args"), kwargs=r.get("kwargs"),
-                                        reference=_outcome(r)[1],
-                                        candidate=_outcome(c)[1]))
-    # calls the candidate makes that the reference never did: not a failure on
-    # its own (a replacement may call its own helpers), recorded for context
+                divergences.append(_divergence(r, cands[i], "library"))
     extra = sum(max(0, len(v) - len(ref_by.get(k, []))) for k, v in cand_by.items())
+    return matched, divergences, unreached, extra
 
-    if not reference:
-        verdict = "unverified"
+
+def _nondeterministic(refs: list[dict]) -> bool:
+    """Did the reference itself return different values for equal inputs?
+
+    A function whose output is not a function of its inputs (a git hash, a
+    timestamp, a temporary name) cannot be compared across two runs; a
+    difference there is not evidence about the replacement. The reference
+    run supplies the test: two of its own calls with equal inputs and
+    different outcomes.
+    """
+    seen: list[tuple[dict, tuple]] = []
+    for r in refs:
+        out = _outcome(r)
+        for other, o2 in seen:
+            if _same_inputs(r, other):
+                if not (out[0] == o2[0] and (out[1] == o2[1] if out[0] == "raised"
+                                               else values_equal(out[1], o2[1]))):
+                    return True
+                break
+        else:
+            seen.append((r, out))
+    return False
+
+
+def _pair_usage(reference, candidate):
+    """Pair by function, then align in order on equal inputs.
+
+    The inputs of a project function come from the tests, so they are the
+    same in both phases; a candidate that adds tests of its own inserts
+    calls, and aligning on inputs rather than on position alone keeps those
+    insertions from shifting every later pair. A reference call whose inputs
+    never recur in the candidate is unreached, not divergent. A function the
+    reference shows to be nondeterministic is paired and reported, but its
+    divergences are not evidence.
+    """
+    ref_by: dict[str, list[dict]] = collections.defaultdict(list)
+    for r in reference:
+        ref_by[r.get("q")].append(r)
+    cand_by: dict[str, list[dict]] = collections.defaultdict(list)
+    for c in candidate:
+        cand_by[c.get("q")].append(c)
+    matched, divergences, unreached, discarded = 0, [], [], []
+    per_fn: dict[str, dict] = {}
+    for q, refs in ref_by.items():
+        cands = cand_by.get(q, [])
+        nondet = _nondeterministic(refs)
+        j = 0
+        m = d = u = 0
+        for r in refs:
+            k = j
+            while k < len(cands) and not _same_inputs(r, cands[k]):
+                k += 1
+            if k >= len(cands):
+                unreached.append(r)
+                u += 1
+                continue
+            if _same_outcome(r, cands[k]):
+                matched += 1
+                m += 1
+            elif nondet:
+                discarded.append(_divergence(r, cands[k], "usage"))
+                d += 1
+            else:
+                divergences.append(_divergence(r, cands[k], "usage"))
+                d += 1
+            j = k + 1
+        per_fn[q] = dict(reference=len(refs), candidate=len(cands), matched=m,
+                         divergent=0 if nondet else d, unreached=u,
+                         nondeterministic=nondet, discarded=d if nondet else 0)
+    extra = sum(max(0, len(v) - len(ref_by.get(k, []))) for k, v in cand_by.items())
+    return matched, divergences, unreached, extra, per_fn, discarded
+
+
+def compare(reference: list[dict], candidate: list[dict],
+            site_function: dict | None = None) -> dict:
+    """Compare two traces at both levels and return one verdict.
+
+    Library-boundary records (calls into the library, or into a replacement
+    module named as a target) pair by call site and order. Usage-site records
+    (calls of the project's own functions that use the library) pair by
+    function and inputs. `site_function` maps a recorded library site to the
+    'rel::qualname' of its enclosing function, so that a site the candidate
+    never reaches at the boundary can be credited to the usage level when
+    that function is observed there.
+
+    The verdict:
+
+      divergent    a paired call, at either level, produced a different value
+      identical    every reference call was matched, or its enclosing function
+                   was observed at the usage level without divergence
+      unverified   nothing to compare (no reference call), or the candidate
+                   could not be observed for some reference call: it recorded
+                   nothing at either level, a site has no enclosing function
+                   the candidate reaches, or a function was renamed. The
+                   reason names which. This is never reported as a failure.
+    """
+    reference = [_norm_value(r) for r in reference]
+    candidate = [_norm_value(c) for c in candidate]
+    site_function = {_norm_site(k): v for k, v in (site_function or {}).items()}
+    ref_lib = [r for r in reference if _level(r) == "library"]
+    ref_use = [r for r in reference if _level(r) == "usage"]
+    cand_lib = [c for c in candidate if _level(c) == "library"]
+    cand_use = [c for c in candidate if _level(c) == "usage"]
+
+    lib_m, lib_d, lib_u, lib_x = _pair_library(ref_lib, cand_lib)
+    use_m, use_d, use_u, use_x, per_fn, use_discarded = _pair_usage(ref_use, cand_use)
+    lib_observable = bool(cand_lib)
+    observed_fns = {q for q, v in per_fn.items() if v["candidate"] > 0 and v["divergent"] == 0}
+
+    divergences = (lib_d if lib_observable else []) + use_d
+    covered = 0                      # library calls credited to the usage level
+    not_observable = []              # (what, why)
+    lib_unpaired = lib_u if lib_observable else ref_lib
+    for r in lib_unpaired:
+        fn = site_function.get(_norm_site(r.get("site")))
+        if fn and fn in observed_fns:
+            covered += 1
+        elif fn and fn in per_fn:
+            not_observable.append(dict(level="library", site=r.get("site"), call=r.get("q"),
+                                       why=f"site not reached; its function {fn} is not observed in the candidate"))
+        elif fn:
+            not_observable.append(dict(level="library", site=r.get("site"), call=r.get("q"),
+                                       why=f"site not reached; its function {fn} recorded nothing in the reference"))
+        else:
+            not_observable.append(dict(level="library", site=r.get("site"), call=r.get("q"),
+                                       why=("no replacement callable observable" if not lib_observable
+                                            else "site not reached") + "; module-level or test-file site has no function to observe"))
+    for r in use_u:
+        q = r.get("q")
+        v = per_fn.get(q, {})
+        why = ("function not observed in the candidate (renamed, removed, or not wrappable)"
+               if not v.get("candidate") else
+               f"fewer calls with these inputs than the reference ({v.get('candidate')} of {v.get('reference')})")
+        not_observable.append(dict(level="usage", site=q, call=q, why=why))
+
+    n_ref = len(reference)
+    if n_ref == 0:
+        verdict, passed = "unverified", None
+        reason = "the reference run recorded no calls into the library"
     elif divergences:
-        verdict = "divergent"
-    elif missing:
-        verdict = "missing"
+        verdict, passed = "divergent", False
+        reason = (f"{len(divergences)} paired call(s) return a different value than the library "
+                  f"({lib_m + use_m} agree)")
+    elif not cand_lib and not cand_use:
+        verdict, passed = "unverified", None
+        reason = "replacement not observable: the candidate recorded no call at either level"
+    elif not_observable:
+        verdict, passed = "unverified", None
+        whys = collections.Counter(x["why"].split(";")[0] for x in not_observable)
+        reason = (f"identical on {lib_m + use_m + covered} of {n_ref} reference calls; "
+                  f"{len(not_observable)} not observable: "
+                  + "; ".join(f"{n} {w}" for w, n in whys.most_common(3)))
     else:
-        verdict = "identical"
+        verdict, passed = "identical", True
+        reason = (f"{lib_m + use_m} paired calls reproduce the library's values"
+                  + (f", {covered} boundary call(s) verified through the enclosing function" if covered else "")
+                  + (f"; {len(use_discarded)} usage-level difference(s) in nondeterministic function(s) not counted"
+                     if use_discarded else ""))
 
-    sites = {r.get("site") for r in reference}
+    decided = ("both" if (lib_observable and ref_use and cand_use) else
+               "usage" if (ref_use and cand_use) else
+               "library" if lib_observable else "none")
     return dict(
         verdict=verdict,
-        passed=verdict == "identical",
-        reference_calls=len(reference),
+        passed=passed,
+        reason=reason,
+        decided_at=decided,
+        reference_calls=n_ref,
         candidate_calls=len(candidate),
-        reference_sites=len(sites),
-        matched=matched,
+        reference_sites=len({r.get("site") for r in ref_lib}),
+        reference_library_calls=len(ref_lib),
+        reference_usage_calls=len(ref_use),
+        candidate_library_calls=len(cand_lib),
+        candidate_usage_calls=len(cand_use),
+        matched=lib_m + use_m,
+        matched_library=lib_m,
+        matched_usage=use_m,
+        covered_by_usage=covered,
         divergent=len(divergences),
-        missing=len(missing),
-        extra_candidate_calls=extra,
+        missing=len(not_observable),
+        not_observable=len(not_observable),
+        discarded_nondeterministic=len(use_discarded),
+        extra_candidate_calls=lib_x + use_x,
+        usage_functions={q: v for q, v in per_fn.items()},
         divergences=divergences[:20],
-        missing_calls=missing[:20],
+        discarded=use_discarded[:5],
+        missing_calls=not_observable[:20],
     )
 
 
 def explain(result: dict) -> str:
     v = result["verdict"]
     if v == "unverified":
-        return ("G4a unverified: the reference run recorded no calls into the library, "
-                "so behaviour cannot be checked. Grade on the other gates and flag it.")
+        return "G4a unverified: " + result.get("reason", "") + ". Grade on the other gates and flag it."
     if v == "identical":
-        return (f"G4a pass: {result['matched']} of {result['reference_calls']} recorded calls "
-                f"across {result['reference_sites']} call sites reproduce the library's "
-                "values exactly.")
-    if v == "missing":
-        return (f"G4a fail: {result['missing']} call sites the library served are never "
-                "reached by the replacement. The work is not being done.")
-    return (f"G4a fail: {result['divergent']} call sites return a different value than the "
-            f"library did on the same arguments ({result['matched']} reproduce correctly).")
+        return (f"G4a pass: {result['matched']} paired calls ({result['matched_library']} at the library "
+                f"boundary, {result['matched_usage']} at usage sites) reproduce the library's values"
+                + (f"; {result['covered_by_usage']} boundary call(s) verified through the enclosing function"
+                   if result.get("covered_by_usage") else "") + ".")
+    return (f"G4a fail: {result['divergent']} paired call(s) return a different value than the "
+            f"library did on the same inputs ({result['matched']} agree).")
 
 
 def main():
@@ -233,18 +410,23 @@ def main():
     ap.add_argument("reference")
     ap.add_argument("candidate")
     ap.add_argument("--json", default=None)
+    ap.add_argument("--repo", default=None,
+                    help="reference checkout, to map each recorded site to its enclosing function")
     a = ap.parse_args()
-    res = compare(load(a.reference), load(a.candidate))
+    ref = load(a.reference)
+    from record_usage import site_functions
+    sf = site_functions(pathlib.Path(a.repo), ref) if a.repo else None
+    res = compare(ref, load(a.candidate), sf)
     print(explain(res))
     for d in res["divergences"][:5]:
         print(f"  {d['site']}  {d['call']}")
         print(f"    library  -> {json.dumps(d['reference'], default=str)[:150]}")
         print(f"    candidate-> {json.dumps(d['candidate'], default=str)[:150]}")
     for m in res["missing_calls"][:5]:
-        print(f"  {m['site']}  {m['call']}  never called")
+        print(f"  {m['site']}  {m['call']}  not observable: {m['why']}")
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(res, indent=1, default=str))
-    sys.exit(0 if res["passed"] else 1)
+    sys.exit(0 if res["passed"] else (2 if res["passed"] is None else 1))
 
 
 if __name__ == "__main__":

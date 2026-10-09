@@ -1,0 +1,38 @@
+# Reference removals: where the replacement lives, and how the local behavioural run drives each suite.
+# set	id	replacement module	kind	ci python	test arguments (after "-m pytest -q -p no:cacheprovider")
+# kind: new = the replacement is a new repository module, named as a library-boundary target in the
+# candidate phase; modified = the replacement lives inside a module that already existed (or is inlined)
+# and is observed at the usage sites only. Module names from the 9 Oct run (ledger RQ5); interpreter and
+# test arguments from each reference's NOTES.md.
+references	5j9_wikitextparser__ref__wcwidth	wikitextparser._wcwidth	new	3.8	tests
+references	JeroenDelcour_tplot__ref__colorama	tplot.figure	modified	3.8	tests/
+references	RhinoSecurityLabs_IAMActionHunter__ref__pandas	IAMActionHunter.lib.create_csv	modified	3.9	
+references	codypiersall_pynng__ref__sniffio	pynng._aio	modified	3.11	
+references	humanlayer_humanlayer__ref__click	humanlayer.cli.main	modified	3.10	humanlayer
+references	humanlayer_humanlayer__ref__python_dotenv	humanlayer.cli.env_file	new	3.10	humanlayer
+references	humanlayer_humanlayer__ref__python_slugify	humanlayer.core.slug	new	3.10	humanlayer
+references	inducer_cgen__ref__pytools	cgen	modified	3.8	
+references	jazzband_django-cookie-consent__ref__django_appconf	cookie_consent.conf	modified	3.11	
+references	odashi_davinci-functions__ref__dill	davinci_functions._explain	modified	3.11	
+references	odashi_davinci-functions__ref__openai	davinci_functions._completion	new	3.11	
+references	weblyzard_inscriptis__ref__requests	inscriptis.cli.inscript	modified	3.8	tests
+references	your-tools_tbump__ref__cli_ui	tbump.ui	new	3.8	tbump/test
+references	your-tools_tbump__ref__docopt	tbump.cli_args	new	3.8	tbump/test
+references_large	AppDaemon_appdaemon__ref__astral	appdaemon.sun	new	3.10	
+references_large	AppDaemon_appdaemon__ref__feedparser	appdaemon.rss	new	3.10	
+references_large	AppDaemon_appdaemon__ref__iso8601	appdaemon.utils	modified	3.10	
+references_large	AppDaemon_appdaemon__ref__python_dateutil	appdaemon.utils	modified	3.10	
+references_large	AppDaemon_appdaemon__ref__pytz	appdaemon.timezone	new	3.10	
+references_large	AppDaemon_appdaemon__ref__tomli_w	appdaemon.toml_writer	new	3.10	
+references_large	NVIDIA_NVFlare__ref__flask_sqlalchemy	nvflare.dashboard.application.database	new	3.11	tests/unit_test
+references_large	NVIDIA_NVFlare__ref__werkzeug	nvflare.dashboard.application.password	new	3.11	tests/unit_test
+references_large	alexgolec_tda-api__ref__autopep8	tda.contrib.orders	modified	3.11	
+references_large	alexgolec_tda-api__ref__prompt_toolkit	setup	modified	3.11	
+references_large	alexgolec_tda-api__ref__python_dateutil	setup	modified	3.11	
+references_large	google_mobly__ref__portpicker	mobly.utils	modified	3.11	
+references_large	itamarst_eliot__ref__boltons	setup	modified	3.9	
+references_large	miguelgrinberg_python-socketio__ref__bidict	socketio.base_manager	modified	3.11	
+references_large	pystorm_streamparse__ref__simplejson	streamparse.cli.submit	modified	3.11	
+references_large	pystorm_streamparse__ref__texttable	streamparse.util	modified	3.11	
+references_large	python-adaptive_adaptive__ref__sortedcontainers	adaptive._sorted	new	3.11	
+references_large	python-adaptive_adaptive__ref__typing_extensions	adaptive.learner.balancing_learner	modified	3.11	

@@ -23,6 +23,9 @@
 \newcommand{\bench}{\textsc{UnpinBench}}
 \newcommand{\dibench}{DI-Bench}
 \newcommand{\code}[1]{\texttt{\small #1}}
+\input{numbers}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 
 \title{Remove This Dependency: Why Passing Tests Cannot Tell You\\
 a Dependency Is Gone}
@@ -53,46 +56,70 @@ That family motivates a behavioural gate, which is possible here and nowhere els
 \end{abstract}
 
 \section{Introduction}
+\label{sec:intro}
 
-A program's dependencies are a property of its code, not of its manifest file.
-The manifest is a claim about that property, and claims drift.
-\citet{drosos2024bloat} found that over half of declared dependencies in the PyPI ecosystem are bloated, and that the single largest cause---34\% of cases---is refactoring that removed the last use of a library without removing its declaration.
-Code and build configuration co-evolve, and they co-evolve imperfectly: \citet{mcintosh2011build} reported that up to a quarter of source changes and nearly half of test changes require a matching build change.
+Every software project depends on libraries it does not maintain.
+The packages a project declares change as code is written, refactored, and retired.
+Keeping those declarations accurate, by adding what the code needs and removing what it no longer uses, is a recurring maintenance cost \citep{mcintosh2011build}, and the declared packages determine a project's install size and its exposure to vulnerabilities \citep{drosos2024bloat}.
+Language-model agents are increasingly assigned this work, and benchmarks measure their progress.
+A benchmark can do so only if its tasks are real and solvable and its grader returns a verdict that can be trusted.
 
-Benchmarks that evaluate automated systems on dependency tasks resolve this by execution.
-\dibench{} \citep{dibench2025} masks a repository's dependency declarations, asks a model to restore them, and scores the result by whether the project's continuous-integration (CI) suite passes.
-This is an appealing oracle: it is objective, it is automatic, and it measures something users care about.
+Benchmarks for dependency tasks follow the pattern established by SWE-bench \citep{jimenez2024swebench}: a real repository, a task, and a grader that executes the project's own code.
+\dibench{} \citep{dibench2025} masks a repository's declarations and asks a model to restore them.
+EnvBench \citep{envbench2025} and Repo2Run \citep{repo2run2025} ask an agent to make a repository build and run.
+Their tasks differ, but their graders differ only in what they check: the full CI workflow, a type checker's import resolution, or test collection alone.
+All of them treat a passing check as evidence that the dependency set is correct.
 
-This paper argues that it is also substantially blind, and quantifies how blind.
-The argument is simple.
-A test suite can only notice a missing dependency if some test reaches the code that imports it.
-A test suite can only notice an \emph{extra} dependency if that dependency fails to install.
-Neither condition holds often enough for the oracle to be trusted on its own.
+However, execution-based grading is not self-validating.
+An audit of ten widely used agentic benchmarks found outcome-validity flaws in seven \citep{abc2025}, and on SWE-bench, 29.6\% of patches that pass the tests behave differently from the developer's fix \citep{patchdiff2026}.
+For dependency tasks the oracle can fail in two distinct ways.
+The first is blindness. A test suite can detect that a package is absent only if some test executes the code that imports it, and only if the import fails when executed.
+Benchmark authors acknowledge that coverage is incomplete, but how often this assumption fails has not been measured.
+The second is the counterfeit removal, which arises exactly where the tests are not blind.
+Where the suite would catch a naive removal, passing it still does not show that a removal happened: moving the declaration to another section, vendoring the library, stubbing it with well-formed but incorrect values, or weakening a test can all pass.
+Blindness has to be measured, so that tasks are built only where the oracle can see.
+Counterfeits have to be caught, which needs a check the test suite does not provide.
+
+One dependency task is absent from this landscape, and it is the task for which a better oracle exists.
+Inference benchmarks restore declarations, debloating tools \citep{pytrim2025,soto2021longitudinal} remove declarations the code no longer uses, and migration benchmarks \citep{pymigbench2023} replace one library with another.
+No benchmark evaluates removing a dependency that the code actually uses, which requires rewriting the code so that the library is no longer needed.
+Maintainers do this when a library is abandoned, vulnerable, or far larger than the function it provides.
+The task has a property that migration tasks share but no benchmark has used.
+A test suite is an oracle by sampling: it checks the behaviours its authors thought to check.
+The library being removed is an oracle by construction: it is a correct implementation of exactly the behaviour a replacement must preserve, and it is present and recordable before it is taken away.
+Program repair must compare a candidate patch against a human patch that may itself be wrong \citep{ye2021rgt,patchdiff2026}, and test-strengthening methods must synthesise tests whose intent is uncertain \citep{sting2026}.
+A removal task supplies its own reference, and our grader is built on it.
+The reference is not complete: the library supplies the expected outputs, but the tests still supply the inputs, so we extend the recorded inputs with generated neighbours.
+
+We measure the blindness, build a benchmark where the oracle can see, and build a grader on the library.
+We screen \nCand{} candidates: every dependency declared by the \nRepos{} \dibench{} Python repositories whose published solution still passes.
+For each, we delete the declaration, make the package unimportable from the repository's own code, and rerun its CI workflow.
+The tests pass without the package for \nSilent{} candidates, and a further \nExclInconclusive{} pass in runs where the block cannot be shown to have loaded, which we set aside.
+Most of the \nSilent{} are declarations the code never uses; in \nStrict, the code imports the package on a path no test reaches, which is oracle blindness in the strict sense.
+In the median repository among the \nReposThree{} with at least three candidates, the tests are indifferent to one declared dependency in five: keeping it and omitting it both pass.
+\nIncidence{} of the \nReposThree{} have at least one such dependency.
+An inference grader therefore cannot tell whether these declarations were restored, and for the \nStrict{} it accepts an omission that breaks code no test runs.
+The \nPairs{} candidates whose removal fails CI because of the repository's own use of the package form \bench, over \nPoolRepos{} repositories, of which \nTierIndirect{} form an indirect track reached through a tool or plugin rather than an import; the disposition of every candidate is published.
+\nRefsPass{} of \nRefs{} hand-written removals pass the workflow with the package blocked, so the task is solvable where it was tried.
+
+We then construct \nVariants{} variants, \nCounterfeit{} counterfeit removals of seven kinds and \nHonest{} honest deletions that must pass, and grade them with seven checks, which we call gates, one of which is the test suite itself.
+The structural gates alone reject 72\% to 100\% of each of six kinds and none of the seventh: a replacement with the form of a genuine rewrite that returns incorrect values.
+The behavioural gate records the library during the project's own tests and compares the replacement against the record.
+It can speak only where a recording exists, which is currently \nTracedPairs{} of the \nPairs{} pairs.
+Only \nPseudoTraced{} of the \nPseudo{} counterfeit rewrites fall on such a pair; the gate could evaluate four of them, five functions in all, and it rejects every one.
+Where it cannot speak, the grader does not return a pass: it reports the structural verdict and marks the behavioural one as inconclusive.
+Of \nOverDeclGraded{} removals that are correct by construction, the candidates the code never uses, the grader accepts \nFRAccepted, cannot resolve the dependency closure of \nFRInconclusive, and flags \nFRFlagged{} that was not in fact a removal.
+On the hand-written rewrites the behavioural gate accepts every rewrite it can observe, \nRefsObservableAccepted{} of \nRefsObservable, and wrongly rejects \nRefsUnobservableAccepted{} of \nRefsUnobservable{} it cannot: a boundary we measure rather than hide.
+In a pilot of \nAgents{} coding agents on \nAgentTasks{} tasks, \nAgentPass{} of \nAgentAttempts{} attempts pass the test suite, the number a conventional benchmark would report.
+Of those \nAgentPass, the grader rejects \todo{r} and leaves the behavioural verdict inconclusive for \todo{w}.
 
 \paragraph{Contributions.}
 \begin{itemize}
-\item \textbf{A census, not a sample} (\S\ref{sec:blindness}).
-Every dependency of every gold-passing repository is screened by one mechanism: 622 candidates, all accounted for as verified (348), oracle-silent (226), or excluded with a stated reason (48).
-Removal is enforced by an origin-scoped import block, so a package that another dependency still installs cannot masquerade as unused.
-
-\item \textbf{A decomposition of what the oracle misses} (\S\ref{sec:blindness}).
-The 226 silent cases are four distinct phenomena, only one of which is an oracle failure.
-Reporting them as a single rate would overstate the finding by a factor of five, and we say so.
-
-\item \textbf{\bench} (\S\ref{sec:benchmark}).
-348 verified pairs over 74 repositories: removing a dependency the code actually uses, with behaviour preserved.
-Every candidate's disposition is published, including the pairs we rejected and why.
-
-\item \textbf{A gate stack validated on 617 constructed cheats} (\S\ref{sec:gates}).
-Eight families, each caught by the gate it was designed to exercise, with two controls: an honest deletion is left alone 79 times in 80, and pseudo-genuine replacements survive all 80 structural checks.
-
-\item \textbf{A behavioural gate built on the removed library} (\S\ref{sec:behaviour}).
-Recording what the library did before removing it turns the question from ``do the tests still pass'' into ``does the replacement do what the library did''.
-We show on a controlled fixture that comparison on recorded inputs is necessary but not sufficient, and that fuzzing from the recorded distribution separates an honest rewrite from a plausible stub.
-\end{itemize}\paragraph{Scope.}
-All experiments are on Python.
-\S\ref{sec:limitations} discusses what this costs us.
-The harness, the mutants, the cheat generator, and the agent scaffold are released; the harness runs on free GitHub Actions runners, so every result here is reproducible without dedicated hardware.
+\item A census of the test oracle on dependency removal, with every silent case attributed to one of four causes (\S\ref{sec:rq1}).
+\item \bench: \nPairs{} removal pairs over \nPoolRepos{} repositories, published with the disposition of every screened candidate and with hand-written reference removals for \nRefs{} of them (\S\ref{sec:construction}).
+\item A seven-gate grader that retains the tests as one gate, validated on \nCounterfeit{} counterfeit removals of seven kinds and \nHonest{} honest deletions as a control (\S\ref{sec:gates}).
+\item The grader's behavioural gate, which uses the removed library as the oracle: the only gate that rejects a well-formed but incorrect rewrite, with its coverage and the boundary of its false rejection measured (\S\ref{sec:behaviour}).
+\end{itemize}
 
 \section{Background and Related Work}
 \label{sec:related}
@@ -130,271 +157,513 @@ That agents exploit weak verifiers is well documented.
 We do not claim to measure reward hacking in general.
 We claim something narrower and testable: on one concrete task, we enumerate the ways a change can pass the test oracle without doing the work, and we measure which gates catch which.
 
-\section{How Blind Is the Test Oracle?}
-\label{sec:blindness}
+\section{Screening the Oracle and Building the Benchmark}
+\label{sec:method-bench}
 
-\subsection{Setup}
+Figure~\ref{fig:pipeline} shows the method in two halves.
+The first takes every declared dependency of a population of repositories, perturbs it, and records what the test oracle does: the dependencies the oracle detects become the benchmark, and those it misses become the census of its blindness.
+The second records the library before it is removed and grades a submission against that record.
+Five terms are used throughout: a \emph{candidate} is one declared dependency of one repository under screening; a \emph{pair}, a repository and one of its dependencies, is a candidate admitted as a task; a \emph{submission} is a change that claims to remove a pair's dependency; a \emph{removal} is the act of making a repository no longer need a library, or the change that does so; and a \emph{variant} is a submission we construct ourselves, counterfeit or honest.
 
-We use the Python subset of \dibench{} (98 repositories).
-Each instance carries a masked manifest, a ground-truth (``gold'') patch restoring the declarations, and an \code{act} command that replays the repository's own GitHub Actions workflow inside a container.
-We re-implemented the execution harness to run on free GitHub Actions runners under the \code{sysbox} runtime.\footnote{The published harness requires \code{sysbox}, which is unavailable on standard CI runners; we install it in the job. Plain privileged Docker-in-Docker fails because the inner daemon cannot stack overlay filesystems.}
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize, >=Stealth,
+  box/.style={draw, rounded corners=1pt, align=center, inner sep=3pt, text width=2.7cm, minimum height=8mm},
+  data/.style={box, fill=black!6},
+  proc/.style={box, fill=white}]
+% ---- screening half
+\node[data] (cand) at (0,0) {\nCand{} candidates: every declared dependency of \nRepos{} gold-passing repositories};
+\node[proc] (screen) at (3.6,0) {remove the declaration, block the import in repository frames, replay CI};
+\node[data] (det) at (7.2,1.5) {detected};
+\node[data] (sil) at (7.2,0) {silent};
+\node[data] (uns) at (7.2,-1.5) {unscreenable};
+\node[proc] (admit) at (10.8,1.5) {admission rule: first error from the repository's own use};
+\node[proc] (attr) at (10.8,0) {attribution: import footprint, guard check, configuration search};
+\node[data] (pool) at (14.4,1.5) {\nPairs{} pairs (\bench)};
+\node[data] (causes) at (14.4,0) {\nSilent{} silent cases in four causes};
+\node[data] (excl) at (14.4,-1.5) {\nExcl{} excluded, with the reason recorded};
+\draw[->] (cand) -- (screen);
+\draw[->] (screen) -- (det); \draw[->] (screen) -- (sil); \draw[->] (screen) -- (uns);
+\draw[->] (det) -- (admit); \draw[->] (sil) -- (attr);
+\draw[->] (admit) -- (pool); \draw[->] (attr) -- (causes);
+\draw[->] (admit.south east) -- (excl.north west); \draw[->] (uns) -- (excl);
+% ---- grading half
+\node[data] (pair) at (0,-3.3) {one pair, library present};
+\node[proc] (rec) at (3.6,-3.3) {run the repository's tests; record every call into the library};
+\node[data] (trace) at (7.2,-3.3) {recording: call site, inputs, outputs};
+\node[data] (sub) at (7.2,-4.6) {submission (agent or variant)};
+\node[proc] (gates) at (10.8,-3.95) {gates: tests, structural checks, behavioural replay and generated neighbours};
+\node[data] (verdict) at (14.4,-3.95) {verdict: accepted, rejected, or inconclusive};
+\draw[->] (pair) -- (rec); \draw[->] (rec) -- (trace);
+\draw[->] (trace) -- (gates); \draw[->] (sub) -- (gates);
+\draw[->] (gates) -- (verdict);
+\end{tikzpicture}
+\caption{Method overview. Top: every candidate is perturbed once and ends as a pair, a silent case attributed to one of four causes, or an exclusion with a stated reason (\S\ref{sec:method-bench}). Bottom: for each pair the library is recorded during the repository's own tests before it is removed, and a submission is graded against the tests, the structural gates, and that recording (\S\ref{sec:method-grade}).}
+\label{fig:pipeline}
+\end{figure*}
 
-\paragraph{Benchmark decay.}
-Of 98 gold patches, only 51 of 96 still pass CI at the time of writing, roughly 21 months after release.\footnote{Two instances are excluded: their \code{act} job never started, because an action they use requires a newer Node runtime than \code{act} supports. \code{act} prints \emph{Job succeeded} in this situation, so an evaluator that trusts its output alone records a false pass.}
-The failures are environmental drift: an installer that dropped support for old Python versions, a discontinued distribution download, and unpinned libraries whose newer releases break the projects' own assertions.
-This is a measurement problem for anyone using the benchmark today, and it is the same drift the paper is about, appearing inside the benchmark itself.
-All execution numbers below are therefore conditioned on gold-passing instances.
+\subsection{Population and Harness}
+\label{sec:setup}
 
-\subsection{Dependency Mutation Analysis}
+\paragraph{Population.}
+We use the two Python subsets of \dibench{}.
+Each instance supplies a repository at a fixed commit, its dependency manifests, a published solution that we call the \emph{gold} manifest, and a command that replays the repository's own GitHub Actions workflow.
+A repository enters the population only if its gold manifest passes that workflow in our harness.
+The rule removes repositories whose suites fail for reasons unrelated to any dependency, so that a failure after a perturbation is attributable to the perturbation.
+The population is \nRepos{} repositories, which together declare \nCand{} candidates.
 
-For every declared dependency $d$ of every instance, we construct a mutant: the gold manifest with $d$'s declaration removed and nothing else changed.
-We verify syntactically that the resulting dependency set equals the gold set minus $d$.
-Each mutant is then scored by the real harness.
-This yields 531 mutants, of which 233 belong to gold-passing instances.
+\paragraph{Harness.}
+Each replay runs inside a container on hosted GitHub Actions runners (Appendix~\ref{app:harness}).
+The workflow is the repository's own, run as written: package installation has network access, and repository secrets are absent, so a step that needs one fails in the gold run and the repository does not enter the population.
+Package versions are not pinned by us; they resolve at run time, so each run records its date and its resolved environment, and a verdict is a statement about the ecosystem on that date.
+A job that never starts is counted as a failure rather than a pass, because the replay tool reports success for such a job, and under perturbation this is conservative for the census.
+Such a candidate carries no attributable evidence and is excluded (\S\ref{sec:construction}).
+The harness is otherwise \dibench's, and the changes we made to it are released.
 
-We call the fraction of deletions that still pass CI the \emph{dependency mutation score}.
-It bounds what execution pass rate can ever detect: a dependency whose deletion goes unnoticed cannot be scored correctly by an execution oracle, whether the system under test omits it or invents it.
+\paragraph{Stability of a verdict.}
+A verdict is the outcome of one replay, pass or fail.
+To measure whether a verdict is stable we replay every candidate a second time with an identical manifest change and count the candidates whose verdict differs.
+A pair that flips is not attributable to the dependency and leaves the pool; a silent case that flips is not blindness and leaves the census; a gold run that flips marks the repository as unstable, and all of its candidates leave with it.
+\S\ref{sec:results} reports the counts.
 
-\begin{table}[t]
-  \centering
-  \begin{tabular}{lr}
-    \hline
-    \textbf{Measure} & \textbf{Value} \\
-    \hline
-    Candidates screened & 622 \\
-    \quad verified removal pairs & 348 \\
-    \quad oracle silent & 226 \\
-    \quad excluded, with reason & 48 \\
-    \hline
-    \textbf{Of the 226 silent cases} & \\
-    \quad over-declared (no trace in repo) & 149 \\
-    \quad used without importing & 23 \\
-    \quad \textbf{imported, unguarded, untested} & \textbf{46} \\
-    \quad optional by design & 8 \\
-    \hline
-    Median per-repository rate & 18.8\% \\
-    Repositories with $\geq$1 silent dep. & 35 of 51 \\
-    \hline
-  \end{tabular}
-  \caption{The complete candidate census on \dibench{} Python. Every dependency of every gold-passing repository is screened once, under an origin-scoped import block. Only the 46 \emph{imported, unguarded, untested} cases are oracle blindness in the strict sense; the pooled rate is reported per repository because one repository declaring 172 dependencies supplies 126 of the 226.}
-  \label{tab:mutation}
-\end{table}
+\paragraph{Running example.}
+\code{wikitextparser}, a parser for MediaWiki markup, declares \code{wcwidth}, a library that reports how many terminal columns a string occupies.
+The repository imports it in one source file and calls it at two sites, and no test file imports it.
+It belongs to the narrow tier (\S\ref{sec:construction}), which holds most pairs; the example is chosen for legibility, not for difficulty, and it is followed through each step below.
 
-\subsection{Two Mechanisms, Two Remedies}
+\subsection{Screening the Oracle}
+\label{sec:screening}
 
-Table~\ref{tab:mutation} separates the result by mechanism, determined by parsing the CI installation log for each mutant.
+\paragraph{Perturbation.}
+For each candidate we edit the gold manifest so that the dependency is no longer declared, change nothing else, and replay the workflow.
+Deleting the declaration alone does not remove the package from the environment, because another dependency may install it, so the perturbation also blocks the import.
+The block is a module finder injected into the repository at its root, which refuses to import the removed package when the importing frame belongs to the repository's own code or tests and lets every other package import it freely (Appendix~\ref{app:harness}).
+The scope matters: a third-party package that imports the removed library proves nothing about the repository, and a block that fired for every frame would blame repositories for failures that are not theirs.
+What the block cannot see is a repository that runs from an installed copy of itself: frames are attributed by file path, so if the workflow installs the package non-editably and imports it from the environment, every frame reads as foreign and the block never fires.
+The activation rule below exists for this case.
 
-\paragraph{Phantom installation (91 cases).}
-The declaration is removed, but the package is installed regardless, pulled in transitively by another declared dependency or by a test-runner configuration.
-The code's imports resolve and the suite passes.
-These declarations are redundant: this is the ``transitive dependency listed unnecessarily'' category that \citet{drosos2024bloat} measure at 30\% of bloat causes, here sitting inside a benchmark's ground truth.
-\dibench's curation verified that removing \emph{all} dependencies fails; it never verified that removing \emph{one} does.
+\paragraph{Outcomes.}
+A candidate ends in one of three states.
+It is \emph{detected} if the workflow fails.
+It is \emph{silent} if the workflow passes.
+It is \emph{unscreenable} if the distribution's import name is also the name of a standard-library module, because blocking that name would sever the standard library, and such candidates are excluded with that reason.
+The block announces itself in the log when it loads, at interpreter start or inside the test runner, and a detected pair whose first error the block raised from a repository frame shows that the workflow attributes frames to the working tree.
+A silent verdict is counted only when its log carries the announcement and the same repository has such a detected pair, or the package is never imported by the repository, in which case nothing could have triggered the block and its activation is immaterial.
+A silent run that meets neither condition is replayed, and excluded as inconclusive if it still meets neither.
+For the running example the block raises at the import of \code{wcwidth}, from a frame in the repository's source file, and the workflow fails: the candidate is detected.
 
-\paragraph{Test blind spot (24 cases, 10.3\% of mutants).}
-The package is genuinely absent from the environment, the import would fail, and the suite still passes, because no test reaches the importing code.
-These are real coverage gaps, present in 15 of 51 instances.
+\paragraph{Attribution of silent cases.}
+A silent verdict means the oracle did not notice the removal; it does not by itself mean the oracle was blind, because the declaration may have been wrong to begin with.
+We attribute every silent case to one of four causes from three signals.
+The \emph{import footprint} lists the repository's source files that import the package, from its abstract syntax trees.
+The \emph{guard check} marks each such import that sits inside a handler for \code{ImportError} or \code{ModuleNotFoundError}.
+The \emph{configuration search} looks for the package name, and its spelling variants, in packaging configuration, test-runner configuration, and workflow files.
+The mapping is mechanical.
+No footprint and no configuration mention: \emph{over-declared}, the declaration was unneeded.
+No footprint but a configuration mention: \emph{used without importing}, a plugin, an entry point, a build backend, or a tool the workflow invokes.
+A footprint in which every import is guarded: \emph{optional by design}, the code is written to run without the package.
+A footprint with at least one unguarded import: \emph{oracle blindness in the strict sense}, the code needs the package on some path and no test reaches it.
+The syntactic guard check does not test that a fallback works, which makes strict blindness a lower bound; the generous configuration search makes over-declaration a lower bound and use without importing an upper bound.
+An unguarded import on an unreached path may sit in code that no user runs either; we do not distinguish such code from live code, and \S\ref{sec:limitations} returns to this.
 
-The remedies differ.
-Phantoms are a ground-truth quality problem, fixable by curation.
-Blind spots are intrinsic to the projects' test suites and can only be addressed by adding an oracle that does not depend on tests.
+\paragraph{Reporting rule.}
+Candidates are not spread evenly across repositories; one repository declares \nSwirlCand{} of them.
+A pooled rate would therefore measure that repository rather than the population.
+We report the \emph{silent rate}: the share of a repository's candidates that are silent for any cause.
+Over repositories with at least three candidates we give its median and its \emph{incidence}, the share with at least one silent candidate; the pooled rate is given only alongside these.
+\emph{Blindness} is reserved for the strict cause.
 
-\section{Predicting Blindness Without Execution}
-\label{sec:predictor}
+\subsection{Constructing the Benchmark}
+\label{sec:construction}
 
-If an execution oracle is blind in a predictable way, the prediction is itself useful: for curating instances, for flagging unreliable scores, and for building the non-test gates of \S\ref{sec:gates}.
-We test whether two static signals suffice.
+\paragraph{Admission.}
+A detected candidate becomes a pair only if the failure arises from the repository's own use of the package.
+The first error in the log must be one of four kinds: the block raised from a frame in the repository's code or tests; a missing-module error for the package raised from such a frame; a test failure with no import error anywhere, in a suite that passed with the package present; or a linter step that names the package.
+The third and fourth kinds exist because a removal can surface without an import error, when the package was reached through a plugin or a tool rather than an import.
+The third kind is the weakest, because a third-party package can change behaviour when its own optional dependency disappears; \nStepOnly{} pairs rest on it alone, \nStepOnlyDirect{} of them outside the indirect track, and each was read by hand before admission. % CONFIRM: hand check of all 36 under the current pool
+A detected candidate whose first error is none of the four is excluded.
+For the running example the evidence is the first kind, the block raised at the import in the repository's source file.
 
-\paragraph{Dependency layer.}
-Package $d$ is predicted phantom if it lies in the transitive requirement closure of the \emph{other} declared dependencies, computed from PyPI metadata (\code{requires\_dist}, ignoring extras-conditioned requirements, depth 6).
+\paragraph{Exclusion.}
+Scoping the block does not make every detected candidate admissible, because the perturbation changes two things: the block controls what an import does, and the deletion also changes what is installed.
+A third-party package that silently relied on the repository's declaration fails on its own when the package is gone, and that failure is not the repository's.
+Each exclusion carries one reason:
+\begin{itemize}\setlength{\itemsep}{0pt}
+\item the first error is raised inside another package, or from a frame that cannot be attributed, so the failure is not the repository's;
+\item the removal exposed a second, undeclared package that the removed one had been supplying, so the failure concerns a different package;
+\item every import of the dependency is guarded and the first error is not the repository's, so there is no removal to perform (\todo{n} candidates); % CONFIRM: the 7 optional-by-design exclusions have a non-repository first error; any with a repository test failure is a broken fallback and belongs in the pool
+\item the workflow installs from a second source that also declares the package, so editing the manifest removes nothing;
+\item the install step itself fails, so no test ran.
+\end{itemize}
+The excluded candidates are released with their reasons, alongside the pairs.
 
-\paragraph{Code layer.}
-Package $d$ is predicted unreachable if no test file reaches, directly or transitively through project modules, a file that imports it.
+\paragraph{Tiers.}
+Pairs are tiered by footprint, the number of source files that import the package.
+\emph{Narrow} is one or two files, \emph{medium} three or four, and \emph{wide} five or more.
+The tier describes how much of the repository a removal must touch; it is not a measured difficulty.
+Pairs with no importing file, where the package is reached through a plugin, an entry point, or a tool the workflow invokes, form a separate \emph{indirect} track of \nTierIndirect{} pairs, counted within the \nPairs{}.
+They are admitted on the third and fourth kinds of evidence, their removal eliminates the tool's use rather than rewriting call sites, and the solvability and false-rejection claims below do not cover them. % DECIDE: whether any reference covers the indirect track
 
-\begin{table}[t]
-  \centering
-  \begin{tabular}{lrrr}
-    \hline
-    \textbf{Predictor} & \textbf{Pred.} & \textbf{Prec.} & \textbf{Rec.} \\
-    \hline
-    Dependency layer & 76 & 0.34 & 0.49 \\
-    Code layer & 63 & 0.65 & 0.77 \\
-    Both (disjunction) & 113 & 0.42 & 0.89 \\
-    \hline
-  \end{tabular}
-  \caption{Static prediction of CI-invisible deletions, evaluated against the canonical screening on the 214 pairs where both are available, of which 53 are invisible. The dependency layer predicts \emph{phantoms}, a mechanism the import block eliminates, and collapses accordingly; test reachability alone remains informative.}
-  \label{tab:predictor}
-\end{table}
+\paragraph{Reference removals.}
+Admission establishes that the oracle sees the removal; it does not establish that the removal can be done.
+For \nRefs{} pairs we wrote the removal by hand: the declaration deleted, the code rewritten so that the library is no longer needed, and no new package added.
+\todo{How the pairs were chosen (stratified by tier, or hand-picked, and on what basis); who wrote them; that they were written without access to the gate implementations, or before the gates existed; how many were rejected on first grading and why.}
+A reference is correct by authorial intent and review by a second author, not by passing tests; all \nRefs{} pass the workflow under the block, and the grader is evaluated on them in \S\ref{sec:validation}.
+The references are released with the pairs and are the only submissions in this paper that are correct rewrites of a library the code uses.
 
-Table~\ref{tab:predictor} reports the result.
-The dependency layer is almost never wrong, which matches its mechanism: if the package is in the closure it \emph{will} be installed.
-The code layer is noisier, because static import reachability under-approximates dynamic imports.
-Test reachability alone recovers three in four invisible deletions at roughly two in three precision, from import statements alone. The dependency layer, which predicts packages installed transitively, no longer helps: of the 76 pairs it flags, CI notices 50 anyway, because blocking the import removes the mechanism it detects. That collapse is a direct measurement of what the block changes rather than a failure of the signal.
+\subsection{Derived Oracles and Static Prediction}
+\label{sec:derived}
 
-\paragraph{Symbol-level reachability.}
-We also evaluated a symbol-level variant using PyCG \citep{pycg2021} call graphs.
-PyCG completed on 18 of 51 repositories within a four-minute budget and timed out on the rest; on those it covered, symbol-level reachability performed \emph{worse} than the file-level signal (precision 0.47, recall 0.64), because missed dynamic calls cause it to report reachable dependencies as unreachable.
-We therefore use the file-level signal and leave a scalable symbol-level layer to future work.
+\paragraph{Other oracles on the same candidates.}
+The screening measures one oracle, CI replay.
+Two other graders used for dependency work check something different.
+EnvBench accepts an environment when a type checker reports no unresolved imports; Repo2Run accepts one when the test suite collects and runs, whether or not it passes.
+Each is defined by what it inspects, so for every screened candidate we derive the verdict each would give from the artifacts the screening already produced: the import check from the footprint and guard check, collection-only grading from the stage at which the replayed workflow failed.
+The derivation assumes the package is absent from the environment; where a transitive dependency still installs it, the type checker would resolve the import and the projection errs toward silence.
+The three verdicts are reported per candidate, and the overlap between the oracles is a result (\S\ref{sec:results}), not an assumption.
+The derived verdicts are projections onto our population, checked against each tool's published implementation, not measurements on their own benchmarks.
 
-\section{\bench: Removing a Dependency That Is Used}
-\label{sec:benchmark}
+\paragraph{Static prediction of silence.}
+We test whether silence can be predicted without execution from one signal, \emph{test reachability}: a candidate is predicted silent if no test file reaches, directly or through the repository's own modules along import edges, any file that imports the package.
+A candidate with no importing file satisfies this vacuously, so the signal predicts silence rather than blindness; it misses dynamic imports, which makes it over-predict silence.
+As a baseline we use membership of the package in the transitive requirement closure of the other declared dependencies, computed from package metadata to a depth of six, beyond which no closure in the population grows. % CONFIRM: depth
+The baseline predicts that the package remains installed after deletion, which is the condition the block removes.
 
-\subsection{Task Definition}
+\section{Grading}
+\label{sec:method-grade}
 
-An instance is a triple $(R, d, T)$: a repository $R$ at a fixed commit, a target package $d$ that $R$'s code imports, and $R$'s own test suite $T$.
-The task is to produce a change to $R$ such that $R$ no longer requires $d$, with behaviour preserved.
-The agent must rewrite the code that uses $d$, remove $d$'s declaration, and leave $T$ passing.
+A pair tells an agent which library to remove; the grader decides whether the submission removed it.
+The tests cannot decide this alone, because a counterfeit of every kind in \S\ref{sec:intro} can pass them.
+What the task offers instead is the library itself.
+Before the submission is made, the library is installed and the repository's tests call it; every call, with its arguments and its result, can be recorded.
+That recording is a specification the agent never sees, written by the implementation the repository was built and tested against.
+The grader is seven gates composed around it: five structural checks and the tests, which decide what a submission changed, and one behavioural gate, which decides whether the replacement does what the library did.
+The verdict has three values with a fixed precedence, as in conformance testing, where an inconclusive verdict never overrides a failure \citep{etsi2023ttcn3}: if any gate fails the submission is \emph{rejected}; otherwise if any gate cannot speak it is \emph{inconclusive}; otherwise it is \emph{accepted}.\footnote{The released grader labels the inconclusive verdict \code{unverified}.}
 
-This is deliberately the \emph{hard} case.
-Removing an unused declaration is solved by static tools \citep{pytrim2025,soto2021longitudinal}.
-Migrating from $A$ to $B$ is covered by existing benchmarks \citep{pymigbench2023,migrationbench2025}.
-Removing a library that is in use, by writing the replacement, is neither, and it is what developers do when a dependency is abandoned, vulnerable, or disproportionate to what it provides.
+For the running example the counterfeit is a new module in the repository with a function named \code{wcswidth} that builds a dictionary from the lengths of its arguments and returns it.
+The declaration is gone, nothing is copied, no module shadows the package, no test is touched, and the closure shrinks.
+The library returns \code{1} for the string \code{'b'}; the counterfeit returns \code{\{'0': 1\}}.
+No structural gate distinguishes them; the recording does.
 
-\subsection{Instance Verification}
-
-The defining property of a \bench{} instance is that deleting $d$'s declaration provably fails CI.
-This is the mutation result of \S\ref{sec:blindness} used constructively: we keep only those $(R,d)$ pairs whose deletion mutant \emph{failed}.
-Without this filter, an instance would be unscoreable, since an agent could delete the declaration, change nothing, and pass.
-
-This verification step is what distinguishes \bench{} from mined removal datasets \citep{jaisri2024dataset,he2021migration}.
-Those record that a removal occurred; they cannot tell whether a candidate removal is correct, because they carry no executable environment.
-
-\subsection{Instance Pool and Difficulty}
-
-From the gold-passing \dibench{} Python instances we derive 348 verified pairs over 74 repositories, in four tiers by the number of non-test files importing the package.
-\textbf{Strong} (197 pairs): one or two importing files.
-\textbf{Medium} (42): three or four.
-\textbf{Hard} (68): five or more.
-\textbf{Indirect} (41): the package is reached without a direct import, through a plugin, entry point, or tool invocation.
-The split is even across the two \dibench{} subsets, 174 pairs each.
-
-Pairs are admitted only when the failure is attributable to the repository's own use of the package: the import block is scoped by frame origin, so a failure raised inside a third-party package that happens to need the library does not count, and a pair whose dependency is explicitly optional---every import guarded by a handler that recovers---is excluded, because the code already runs without it.
-
-We label each instance by \emph{used API surface}: the number of distinct symbols of $d$ that $R$ calls, plus call sites.
-In the strong tier this ranges from 1 to 22 (median 1).
-We hypothesise, and \S\ref{sec:agents} begins to test, that success falls and cheating rises with surface size.
-
-\todo{full run: extend the pool by mining removal commits (repositories cloned with full history) for human reference solutions, and extend to \dibench's \emph{large} subset (50 further Python repositories).}
-
-\section{A Gate Stack, and What Tests Miss}
+\subsection{Structural Gates}
 \label{sec:gates}
 
-\subsection{Six Gates}
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{p{2.0cm}p{5.2cm}p{4.2cm}p{3.6cm}}
+\hline
+\textbf{Gate} & \textbf{Passes when} & \textbf{Cannot see} & \textbf{Precedent} \\
+\hline
+G1 declaration gone & the package is declared in no section the build reads, including extras and groups & a declaration in a file the build reads but the task does not name & multi-format declarations \citep{pytrim2025} \\
+G2 tests pass & the repository's own suite passes under the block & any path no test executes & execution grading \citep{jimenez2024swebench} \\
+G3 no copy of the library & no added module takes the package's import name, and no added or modified Python file has \gThreeThreshold\% or more of its winnowed fingerprints in the library's distributed source & a borrowed function inside a file that is mostly original; a copy rewritten rather than renamed & copy-based reuse \citep{jahanshahi2024copyreuse}; winnowing \citep{schleimer2003winnowing} \\
+G4 behaviour (\S\ref{sec:behaviour}) & the replacement returns what the library returned, on recorded and generated inputs & paths no test executes; pairs with no recording; non-call uses of the interface & carving \citep{elbaum2009carving}; differential testing \citep{mckeeman1998differential}; seed mutation \citep{liu2023evalplus} \\
+G5 no phantom use & under the block, the suite passes, so no repository frame imported the package; without the block, the package is absent from the install log & an import through the two reflection escapes & used-but-undeclared smell \citep{jafari2021smells} \\
+G7 oracle untouched & in test files, no test is deleted, skipped, emptied, or narrowed, and assertions do not decrease; no edit to a workflow file, to pytest, tox, or nox configuration, or a collection hook added to a \code{conftest} & a weakened fixture or helper; a runner invoked through a Makefile or script & test-edit discarding \citep{jimenez2024swebench}; test exploitation \citep{zhong2025impossiblebench} \\
+G8 closure not grown & the dependency set after the change is a subset of the set before, minus the package & more use of a package already declared, which is allowed & migration as a distinct task \citep{islam2023characterizing} \\
+\hline
+\end{tabular}
+\caption{The seven gates, numbered as in the released grader, which reserves G6 for a quality gate that is specified but not instantiated. A submission must pass all of them. The last column names the documented route each gate closes; the frame-scoped block behind G2 and G5, and the closure comparison behind G8, have no direct precedent.}
+\label{tab:gates}
+\end{table*}
 
-Tests are one oracle among several.
-We define six gates; a change is accepted only if it passes all of them.
-\textbf{G1 Declaration gone}: $d$ is absent from the manifest and from the resolved environment.
-\textbf{G2 Tests pass}: $R$'s own CI suite passes in a container.
-\textbf{G3 No vendored copy}: no file added by the change is token-similar to $d$'s own distributed source.
-\textbf{G4 Behaviour preserved beyond the tests}: the replacement is not a stub, meaning added functions have non-trivial bodies and no added package shadows $d$'s import name.
-\textbf{G5 No phantom use}: no import is now served by a transitively installed package.
-\textbf{G6 Quality not worse}: the replacement does not degrade structural quality.
+Each gate closes a route by which a submission can pass a test-based grader without doing the task, and each route is documented.
+Tests are a weak proxy for correctness: most patches accepted by early repair systems were incorrect and equivalent to deleting functionality \citep{qi2015kali}, and a patch that passes the tests used to produce it overfits them \citep{smith2015cure}; the stub is that deletion applied to a dependency.
+Coding agents edit tests and scoring code, hard-code expected outputs, and overload comparison operators \citep{metr2025rewardhacking,zhong2025impossiblebench}.
+Python projects declare dependencies across many configuration formats \citep{pytrim2025}, which is what makes hiding a declaration possible, and a package used while undeclared is a recognised dependency smell in interpreted ecosystems \citep{jafari2021smells}; G1 and G5 answer each.
+Replacing one library with another is migration, a distinct and studied task \citep{islam2023characterizing}, which G8 excludes; copying a library into the repository is copy-based reuse, which carries the library's defects without its maintenance \citep{jahanshahi2024copyreuse}, which G3 excludes in the named case.
+Where precedent is thin we say so: the frame-scoped block, the closure comparison, and the hide counterfeit are ours, built on the import mechanism, dependency-hygiene practice, and the multi-format problem respectively.
 
-G1 and G2 are what an execution benchmark already does.
-G3 through G6 are the contribution.
-\todo{full run: G6 is specified but not yet instantiated; we plan to use a learned pairwise refactoring-quality metric.}
+Table~\ref{tab:gates} lists the gates, what each requires, and what each cannot see.
+Four need a sentence beyond the table.
+G1 reads every place a declaration can hide, because the simplest counterfeit moves the package to an optional extra or a development group that the workflow installs anyway.
+G5 is the run-time half of the screening: when the block is active, a green suite means no repository frame imported the package, and the package remaining installed through another dependency is not a fault, since a correct removal cannot uninstall what something else requires.
+G7 departs from the practice of discarding test edits before grading \citep{jimenez2024swebench}, because a test that imports the library must legitimately change in a removal; it reads the diff of test files and \code{conftest.py} instead, and counts assertions and parametrisations removed against those added, so a test that imported the library to compute an expected value may be rewritten as long as it asserts no less.
+G8 compares resolved package sets when two real installs are available and declared names otherwise, ignoring build and test tooling; it rejects a library traded for another and a package declared only so that the removed one arrives transitively.
+The block and the recorder are injected after the submission is applied, so a submission cannot pre-empt them.
+G3 reads the library's own source, downloaded as the wheel or sdist, because a copy of it under another name passes every other gate: G4 accepts it since its behaviour is the library's.
+Every added Python file, and the lines added to a modified one, is tokenised with identifiers, strings, and numbers replaced by placeholders, so that renaming defeats nothing, hashed over windows of \gThreeK{} tokens and winnowed \citep{schleimer2003winnowing}; the share of a file's fingerprints that occur in the library is its containment, and a file of at least \gThreeMinTokens{} tokens at or above \gThreeThreshold\% is a copy.
+The threshold was chosen on the \nVendorNamed{} named copies of \S\ref{sec:validation} and the sets that must pass, and validated on \nVendorRenamed{} of those copies with every identifier renamed and every comment removed (\S\ref{sec:results}); what the check cannot see is a borrowed function inside a file that is mostly original, since containment is measured per file.
+G7 also rejects any edit under \code{.github/workflows/}, to \code{pytest.ini}, \code{tox.ini}, \code{noxfile.py}, the pytest and tox tables of \code{pyproject.toml} and \code{setup.cfg}, and any collection hook added to a \code{conftest.py}, because the machinery that selects and runs the tests is the oracle as much as the tests are; the one exception is a removed line that names the removed package, which is part of the removal.
+Two routes are known to be open: the reflection escapes of Appendix~\ref{app:harness}, which defeat the block and therefore G5, and a test runner invoked through a Makefile or a script of the repository's own, which G7 does not read.
 
-\subsection{Validating the Gates Against Constructed Cheats}
+\subsection{The Removed Library as Oracle}
+\label{sec:behaviour}
 
-A gate stack is only as good as the attacks it is tested against.
-For each of the 62 strong-tier instances we generate three cheats automatically.
-\textbf{Hide} moves $d$ from the main dependency list to an optional extra or development group, which CI installs anyway.
-\textbf{Vendor} copies $d$'s own distributed source into the repository and deletes the declaration.
-\textbf{Stub} creates a local package shadowing $d$'s import name, whose imported symbols are no-ops, and deletes the declaration.
+\paragraph{Recording.}
+Once per pair, before any submission, we run the repository's tests with the library present under a recorder injected the same way as the block.
+The recorder wraps the library's public callables; for every call that a repository frame makes to one of them, it writes the qualified name called, the call site as file and line, the arguments, and the return value, or the class name and message of the exception raised.
+Methods of objects the library returns are not wrapped, so a call such as \code{compile(p).match(s)} records the first call only.
+Values are written as summaries: primitives and small containers exactly, anything past a size cap with a hash of the whole, arrays by shape and content, and other objects by type name, representation, length, and public attributes to depth two (Appendix~\ref{app:grader}).
+This is test carving \citep{elbaum2009carving,saff2005factoring} turned toward the environment: the component recorded is the library, and the replacement is held to it.
+Comparison is over summaries the grader computes, never over the equality the submission's own objects define, because an object that overloads comparison can make every check succeed \citep{zhong2025impossiblebench}.
+The recording is made at benchmark construction, is never shown to the agent, and is the only artifact the behavioural gate needs.
+For the running example it holds every call to \code{wcswidth} at the two sites, each a short string in and an integer out.
 
-Each variant is a patch against the masked repository, scored by the same harness as any other candidate.
-Of 186 possible variants, 176 were generated; 10 vendor variants were skipped because the package ships compiled extensions and cannot be vendored as source.
+\paragraph{Replay on recorded inputs.}
+After a submission, the same recorder runs the same tests and records at two levels.
+At the library boundary it wraps, in place of the library, a replacement module the submission adds; what is observed there is a call to a replacement callable, paired with the reference by call site and order, the $i$-th call at a site with the $i$-th, never by the name of the callee or by the arguments: a removal renames the callee by construction, and it hands its own objects where the library's were handed before.
+A rewrite inside a module that already existed, or inlined as an expression at the site, is not a callable the boundary can wrap, so the recorder also wraps, in both runs, the repository's own functions that use the library, found by a static scan of its uses and the sites the reference run recorded, and records their arguments and results under the function's name; those pair by function and inputs, so a test the submission adds inserts calls without shifting the rest.
+Sites are matched by repository-relative file and line as recorded; replay that depends on calls recurring in the same place and order is a known fragility of test factoring \citep{saff2005factoring}, and the references measure its cost here.
+A paired call whose results differ under the summary's equality, at either level, is a divergence, with one exception: a function whose two reference calls with equal inputs already returned different values is not a function of its inputs, and a difference there is not evidence.
+A recorded site the replacement never reaches is not a failure but a gap: it is credited to the usage level when the function around it is observed to agree, and otherwise the gate cannot speak for it and says so.
+Equality ignores a differing type name when both values are containers or objects of equal structure, since a replacement that returns its own class is not a behavioural difference, and it normalises checkout and temporary-directory paths, which differ between any two runs.
+A divergence is evidence that the replacement does not do what the library did on an input the tests exercised; it is not proof the repository cared about the part that differed, and the gate reports the input with every divergence so that the claim can be checked by hand.
+
+\paragraph{Generated neighbours.}
+Agreement on the recorded inputs is necessary and not sufficient, since a replacement can be correct on exactly the inputs it was shown.
+For each library function the recording shows the repository calling, the gate looks for a function of the same name in the replacement module; where none exists the gate cannot speak for that function.
+Both the library and the replacement are then run on \nFuzzInputs{} inputs per function derived from the recorded arguments, mutations that keep each argument's type and type-directed values for breadth, from a fixed seed, and compared under the same equality (Appendix~\ref{app:grader}).
+The library runs in a separate environment where it is still installed.
+This is differential testing \citep{mckeeman1998differential} with inputs extended by type-aware mutation of seeds, as EvalPlus does for generated code \citep{liu2023evalplus}, and random testing with ground truth as program repair uses it \citep{ye2021rgt}, with one difference that is the point: their ground truth is a static human patch, from which tests must be generated, and ours is the running library, which is simply called.
+
+\paragraph{Verdict and coverage.}
+The gate distinguishes nothing to verify from cannot verify.
+If the repository never imported the package, as for the over-declared candidates of \S\ref{sec:screening}, there is no behaviour to preserve and the gate passes vacuously.
+If the repository did use the package but the tests never call it, or the recorder did not load under the repository's test runner, there is no recording and the gate returns inconclusive rather than a pass.
+One case it does not yet recognise: a replacement written into an existing module, or inlined at the call site, is not a callable the recorder can be pointed at, so its calls go unobserved and the recorded sites are reported as missing, which is a rejection; \S\ref{sec:results} measures what that costs on correct rewrites.
+It observes nothing on a path no test executes, so a replacement wrong only there passes.
+It cannot compare what the summary does not capture, and the share of a recording decided on the whole value is reported with every verdict.
+It records calls, and an interface is more than calls: classes, attributes, and exception types are used without a call, and migration studies find such non-function elements in a large share of library interfaces \citep{islam2023characterizing}.
+Where the library did input and output, held connections, or managed external state, replay does not apply.
+
+\subsection{Validation Design}
+\label{sec:validation}
+
+Three sets of submissions test the grader, and each answers a different question.
+
+\paragraph{Counterfeit removals.}
+We construct submissions of seven kinds, each a way of passing the tests without removing the library.
+\emph{Hide} moves the declaration to an optional extra or a development group.
+\emph{Vendor} copies the library's own source into the repository under its own name and deletes the declaration.
+\emph{Stub} adds a local package that shadows the import name with functions that return nothing.
+\emph{Smart stub} does the same with filler logic that produces plausible values.
+\emph{Pseudo-genuine} adds an internal module with filler logic under its own name, with every call site repointed to it, so that nothing shadows, nothing is copied, and the shape is that of a real rewrite.
+\emph{Weaken tests} removes, skips, or empties the tests that exercise the library.
+\emph{Trade} replaces the library with another package.
+Each kind targets one gate, and every gate runs on every variant, so the corpus measures both whether the targeted gate fires and whether any other does.
+The suite itself was not run over this corpus; the question it answers is what the gates other than G2 see, and CI verdicts for the kinds that have them come from the replication corpus below.
+Because the vendored copies keep the library's name, their detection by G3 measures the named case only.
+The corpus is not adversarially complete: the open routes named in \S\ref{sec:gates} are not in it.
+\todo{Which pairs the corpus covers, how they were chosen, and whether it excludes the indirect track; who constructed it, with which generator, and whether that author worked on any gate (the corpus author also wrote G7 and G8 unless told otherwise, and that must be stated).}
+A smaller corpus of three kinds with CI verdicts, written independently by another author, overlaps this one and is used only as a replication check, never summed with it (Appendix~\ref{app:grader}).
+
+\paragraph{Honest deletions.}
+The corpus also contains one honest variant per pair: the declaration deleted and nothing else changed.
+For a pair this is an incomplete removal, so G2 and G5 are expected to fail; G1, G3, G7, and G8 must pass every one, because a grader that rejects what it should accept scores well on every counterfeit for the wrong reason.
+The control says nothing about the behavioural gate, since no code changed.
+
+\paragraph{False rejection.}
+Two sets measure how often the grader rejects a correct removal.
+The first is correct by construction: the \nOverDecl{} over-declared candidates of \S\ref{sec:screening}, for which deleting the declaration alone is the right removal, run through every gate.
+These exercise G1, G2, G5, G7, and G8 and leave the behavioural gate with nothing to verify, so their rate can only underestimate false rejection.
+The second is the hand-written references of \S\ref{sec:construction}, the only submissions on which the behavioural gate can wrongly reject a correct replacement; the gate's acceptance of them is a result, not a premise.
+
+\paragraph{Agent pilot.}
+Four coding agents attempt the same \nAgentTasks{} pairs under our own scaffold, which follows the SWE-agent interface \citep{sweagent2024}, with one attempt per pair at temperature zero where the model exposes it.
+The prompt states the goal and the procedure and names no prohibition, so a submission that trades or vendors is not disobedience; rejections that rest on a constraint the prompt did not state are reported separately from rejections that rest on the tests or on behaviour.
+Every attempt is graded by the tests and by every gate, so that the number a conventional benchmark would report can be set beside the grader's verdict.
+The pilot is sized to establish that the task is neither trivial nor impossible and does not support rate estimates.
+
+\section{Results}
+\label{sec:results}
 
 \begin{table}[t]
-  \centering
-  \begin{tabular}{lrrr}
-    \hline
-    \textbf{Cheat} & \textbf{$n$} & \textbf{Pass G2} & \textbf{Caught} \\
-    \hline
-    Hide & 62 & 35 & 35 of 35 \\
-    Vendor & 52 & 18 & 18 of 18 \\
-    Stub & 62 & 8 & 0 of 8 \\
-    \hline
-    Total & 176 & 61 & 53 of 61 \\
-    \hline
-  \end{tabular}
-  \caption{Constructed cheats through the real CI harness. ``Caught'' counts variants that pass G2 but fail another gate: hiding is caught by G1 and G5, vendoring by G3, and stubbing by none of the install-level gates.}
-  \label{tab:cheats}
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{3.1cm}rp{3.0cm}}
+\hline
+\textbf{Submission} & \textbf{Tests pass} & \textbf{Screening or grader} \\
+\hline
+Delete one declaration (\nCand{} candidates) & \nSilent{} & \nStrict{} are blindness; \nOverDecl{} were never used \\
+Counterfeit removal (\nCounterfeit{} variants) & see Tab.~\ref{tab:matrix} & every kind rejected but one; that one caught behaviourally where observable \\
+Agent attempt (\nAgentAttempts{} on \nAgentTasks{} pairs) & \nAgentPass{} & \todo{r} rejected, \todo{w} inconclusive \\
+\hline
+\end{tabular}
+\caption{What a test-based grader reports, and what screening and grading find.}
+\label{tab:headline}
 \end{table}
 
-Table~\ref{tab:cheats} gives the result, and it is the central justification for the gate stack.
-Across 617 constructed variants spanning eight families, each family is rejected by the gate it was designed to exercise: hiding by G1 (77 of 77), trading by G8 (73 of 73), test weakening by G7 (78 of 80), and stubbing or vendoring by G3 (65 of 80, 65 of 80, and 48 of 67 respectively).
-Install-level gates close hiding and vendoring completely: every cheat of those families that passes the tests fails G1, G5, or G3.
+Table~\ref{tab:headline} states the thesis in counts.
+Each research question below opens with its answer and rests on one exhibit; every number is computed from a released result file, and derived figures are labelled as such.
 
-Stubbing is different.
-Eight stub variants pass CI, and no install-level gate sees them, because nothing is installed and nothing is copied.
-Their replacement code is between 4 and 27 lines of functions returning nothing.
-They are detectable only structurally: our trivial-body and shadow-package signals flag 61 of 62 stub variants.
-This is why G4 is necessary rather than decorative, and it is the sharpest statement we can make about what an execution oracle cannot do.
+\subsection{RQ1: How often is the CI oracle silent, and why?}
+\label{sec:rq1}
 
-\section{Agent Pilot}
-\label{sec:agents}
+\textbf{In the median repository, one declared dependency in five can be removed without the tests failing; \nStrict{} candidates over \nStrictRepos{} repositories are blindness in the strict sense, and the rest are declarations the code never used.}
 
-This section reports a pilot sized to a \$3 budget.
-It establishes feasibility and direction; it does not support rate estimates.
-\todo{full run: frontier models, all 62 strong instances, three seeds, and the strict-prompt condition as an ablation.}
-
-\subsection{Setup}
-
-We evaluate two open-weight coding models through an OpenRouter endpoint: \code{deepseek-v3.2} and \code{qwen3-coder}, chosen as the strongest models within budget.
-The scaffold follows SWE-agent's interface (\S\ref{sec:related}) with a 32-step budget.
-The task prompt is deliberately \emph{neutral}: it states the goal and an expected procedure but names no prohibition, so that any cheat observed is unprompted.
-Sixteen strong-tier instances were selected, nine with the largest used API surface and seven with the smallest; both models stopped at a per-model budget guard, yielding 15 and 13 runs respectively.
-
-\subsection{Results}
+\paragraph{Controls.}
+The gold manifests of the population pass CI twice, \nGoldPass{} of \nGold{} in the regular subset and 29 of 45 in the large, with no verdict changing between runs; the \nGold{} is itself a finding, since 45 published solutions no longer pass their own suites.
+Every verified pair is red on a second replay (\nPairs{} of \nPairs), every silent case is green on a second replay (226 of 226 whose first verdict was green), and no gold run flips.
+Silence is therefore a property of the pair, not of the run.
 
 \begin{table}[t]
-  \centering
-  \begin{tabular}{lrrrr}
-    \hline
-    \textbf{Model} & \textbf{Runs} & \textbf{G2} & \textbf{Genuine} & \textbf{Cheats} \\
-    \hline
-    \code{deepseek-v3.2} & 15 & 5 & 3 & 0 \\
-    \code{qwen3-coder} & 13 & 0 & 0 & 0 \\
-    \hline
-    Total & 28 & 5 & 3 & 0 \\
-    \hline
-  \end{tabular}
-  \caption{Agent pilot over 28 runs. ``G2'' counts runs whose CI suite passes; ``Genuine'' counts removals that pass every gate.}
-  \label{tab:agents}
+\centering
+\small
+\begin{tabular}{lr}
+\hline
+Candidates screened & \nCand{} \\
+\quad verified pairs (\bench) & \nPairs{} \\
+\quad silent & \nSilent{} \\
+\quad excluded with a construction reason & \nExclReason{} \\
+\quad excluded: block not observed loading & \nExclInconclusive{} \\
+\hline
+\textbf{Silent, by cause} & \\
+\quad over-declared & \nOverDecl{} \\
+\quad used without importing & \nNoImport{} \\
+\quad optional by design & \nOptional{} \\
+\quad \textbf{imported, unguarded, untested} & \textbf{\nStrict{}} \\
+\hline
+Silent rate, median over \nReposThree{} repositories & \medianRate\% \\
+Incidence & \nIncidence{} of \nReposThree{} \\
+Median after dropping the ten most silent & \dropTenMedian\% \\
+\hline
+\end{tabular}
+\caption{The census. Rates are per repository over repositories with at least three candidates; the \nExclInconclusive{} runs set aside by the activation rule of \S\ref{sec:screening} are being replayed, and counting them as silent gives a median of \medianRateAll\% and incidence \nIncidenceAll{} of \nReposThreeAll{}.}
+\label{tab:census}
 \end{table}
 
-Table~\ref{tab:agents} reports three findings.
+\paragraph{The census.}
+Table~\ref{tab:census} accounts for every candidate.
+The activation rule removes \nExclInconclusive{} silent runs, all from three repositories whose workflows never demonstrably loaded the block; they are reported as inconclusive, not as blindness, and the figures with them counted are given in the caption as a sensitivity check.
+Of the \nSilent{} silent cases, \nOverDecl{} name the package nowhere in the repository: the declaration was unneeded, and deleting it is correct.
+\nNoImport{} are used without an import, \nOptional{} are written to run without the package, and \nStrict{} import it on a path no test reaches.
+The last are the oracle's blindness, over \nStrictRepos{} repositories.
 
-\paragraph{The test oracle overstates success by 67\%.}
-CI reports five passes; three are genuine removals.
-Of the other two, one left the declaration in place while CI passed anyway, and one changed nothing at all, the package remaining installed transitively.
-Both are caught by G1 and G5.
-On a task where the headline number is 5, the correct number is 3.
+\paragraph{Robustness.}
+The effect is not carried by outliers or by neglected projects.
+One repository supplies \nSwirlSilent{} silent cases, and dropping the ten most silent repositories still leaves a median of \dropTenMedian\% with 23 of 40 affected; \nMajorAffected{} of \nMajor{} repositories maintained by large organisations have at least one silent candidate; and the silent rate correlates at $-0.34$ with the share of a repository's files that are tests, which is what the mechanism predicts and the opposite of what an artifact would produce.
+Appendix~\ref{app:robustness} gives the full table.
 
-\paragraph{No spontaneous cheating was observed.}
-Across 28 runs there is no vendoring, no stubbing, and no weakened test suite.
-The constructed cheats of \S\ref{sec:gates} are therefore not an observation about these models; they are a statement about what the oracle would accept.
-The closest case is an agent that replaced \code{wcwidth} with a self-described ``simplified replacement'' for a Unicode width function, which passes CI and is plausibly a silent behaviour change.
+\subsection{RQ2: Can a cheaper oracle substitute for CI execution?}
+\label{sec:rq2}
 
-\paragraph{The task is hard.}
-Three clean successes in 28 runs.
-Failures are mechanical as often as semantic: four agents left the manifest syntactically invalid, others produced import errors or undefined names.
+\textbf{No: the two other graders used for dependency work and a static predictor each miss cases CI catches, and the predictor's precision is bounded by how often the code never used the package at all.}
 
-\paragraph{Interpretation.}
-The honest reading is that these models fail this task far more often than they fake it.
-This does not weaken the case for the gate stack, since \S\ref{sec:gates} shows the gates are necessary against attacks the oracle admits, but it does bound what the pilot shows.
-Whether more capable models, which succeed more often, also cheat more often is the question the full study must answer.
+\paragraph{Other oracles.}
+Derived per candidate from the screening artifacts (\S\ref{sec:derived}), over the \nScreenedRule{} candidates not excluded: a static import check is silent on \nImportSilent{} and collection-only grading on \nCollectionSilent{}, against \nSilent{} for CI.
+The import check catches the \nImportCatchesCIMisses{} strict cases CI misses, which follows from the definitions, since strict blindness is an unguarded import and the check looks for one.
+Its empirical content is the other direction: \nCIcatchesImportMisses{} candidates that CI catches and no import analysis can, because the package is reached through a plugin, an entry point, or a tool the workflow invokes.
+The projection favours the import check, since a real type checker resolves a package that another dependency still installs.
+Collection-only grading detects \nCollectionCatches{} of the \nPairs{} pairs, those whose failure surfaces before any test runs.
+No oracle in the family contains another; Appendix~\ref{app:overlap} gives the overlap.
+
+\paragraph{Static prediction.}
+On the \nPredSubset{} candidates with a closure prediction, of which \nPredSubsetSilent{} are silent, test reachability predicts silence at precision 0.62 and recall 0.79, against a base rate of 0.25 for predicting silence everywhere; the closure baseline reaches 0.34 and 0.49, and of the 76 candidates it flags, CI notices 50, because the block removes the mechanism it detects.
+Over all \nScreened{} screened candidates the predictor reaches 0.80 and 0.88, inflated by the candidates with no importing file, which it predicts silent vacuously and correctly.
+
+\subsection{RQ3: What do the structural gates catch, and what do they wrongly reject?}
+\label{sec:rq3}
+
+\textbf{Each counterfeit kind is caught by the gate built for it, one kind survives every structural gate, and the controls are left alone.}
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lrrrrrrr}
+\hline
+\textbf{Kind} & $n$ & G1 & G3 & G7 & G8 & \textbf{Rej.} & Tests \\
+\hline
+Hide & 77 & \textbf{77} & 0 & 0 & 0 & 77 & 35/62 \\
+Trade & 73 & 0 & 0 & 0 & \textbf{73} & 73 & -- \\
+Weaken tests & 80 & 0 & 0 & \textbf{78} & 0 & 78 & -- \\
+Stub & 80 & 1 & \textbf{65} & 0 & 8 & 65 & 8/62 \\
+Smart stub & 80 & 1 & \textbf{65} & 0 & 8 & 65 & -- \\
+Vendor (named) & 67 & 1 & \textbf{46} & 0 & 14 & 48 & 18/52 \\
+Pseudo-genuine & 80 & 0 & 0 & 0 & 0 & \textbf{0} & -- \\
+\hline
+Honest deletion & \nHonest{} & 1 & 0 & 0 & 1 & 1 & -- \\
+Over-declared removal & \nOverDeclGraded{} & 1 & 0 & 0 & 0 & 1 & \nOverDeclGraded{} \\
+\hline
+\end{tabular}
+\caption{Structural gates over the constructed variants. Cells count variants the gate rejects; bold marks the gate each kind targets; ``Rej.'' counts variants any gate rejects. ``Tests'' is the share passing CI, available from the replication corpus for three kinds (its $n$ differs) and by construction for the over-declared removals; the main corpus was not run through CI. Rows below the rule are controls that must pass.}
+\label{tab:matrix}
+\end{table}
+
+Table~\ref{tab:matrix} is the exhibit.
+Hiding and trading are caught completely, test weakening 78 times in 80, and stubs 65 times in 80, with the closure gate catching eight more that the shadow check misses.
+Vendored copies keep the library's name in this corpus, so their 48 of 67 measures the named case only; a renamed copy is an open route (\S\ref{sec:gates}).
+The pseudo-genuine kind passes every structural gate 80 times in 80.
+The honest-deletion control is rejected once, on a variant whose declaration was in fact still present, which is the correct verdict.
+On the \nOverDeclGraded{} over-declared removals, the grader accepts \nFRAccepted, returns inconclusive on \nFRInconclusive{} whose dependency closure it could not resolve, and flags \nFRFlagged: a package moved to an extras group rather than removed.
+That flag is correct, and it also means one candidate the attribution called over-declared was not; the attribution's precision is therefore at least that one case short of perfect, and we report it as such.
+
+\subsection{RQ4: Where can the removed library act as the oracle?}
+\label{sec:rq4}
+
+\textbf{Where the recorder can observe the replacement, the behavioural gate catches every counterfeit rewrite and accepts every correct one; where it cannot, it rejects correct rewrites, and that boundary, not the detection rate, is the result.}
+
+\paragraph{Coverage.}
+Recordings exist for \nTracedPairs{} of the \nPairs{} pairs, \nTraceCalls{} calls in all, re-recorded with the current recorder; \fidelityWhole\% of recorded values are compared on the whole value rather than on a representation.
+For the remaining pairs the recorder loaded but recorded no call (77), was not observed loading (168), or the suite was not green under it (62).
+\todo{Replace with the figures from the corrected recorder runs when they land; if coverage stays below half the pool, this paragraph moves into the abstract as the headline caveat.}
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{1.75cm}p{2.3cm}p{2.3cm}}
+\hline
+ & \textbf{Replacement observable} & \textbf{Not observable} \\
+\hline
+Counterfeit (pseudo-genuine) & \nPseudoEvaluable{} of \nPseudoEvaluable{} rejected, each on \nFuzzInputs{} of \nFuzzInputs{} inputs & 76 of \nPseudo{} outside coverage \\
+Correct (reference) & \nRefsObservableAccepted{} of \nRefsObservable{} accepted & \nRefsUnobservableAccepted{} of \nRefsUnobservable{} accepted, 4 wrongly rejected \\
+\hline
+\end{tabular}
+\caption{The behavioural gate's boundary. ``Observable'' means the replacement is a callable in a module of its own that the recorder can be pointed at; ``not observable'' means it is written into an existing module or inlined. Counts are rewrites; the four pseudo-genuine rewrites expose five library functions, all five diverging.}
+\label{tab:boundary}
+\end{table}
+
+\paragraph{The boundary.}
+Table~\ref{tab:boundary} crosses correct against counterfeit with observable against not.
+Of the \nPseudo{} pseudo-genuine rewrites, \nPseudoTraced{} fall on a recorded pair and \nPseudoEvaluable{} expose a function the recording shows the repository calling; all \nPseudoEvaluable{} are rejected, each on every one of \nFuzzInputs{} generated inputs, including the running example.
+Of the \nRefs{} references, \nRefsEvaluable{} recorded library calls in the local run.
+Where the replacement is a new module, \nRefsObservableAccepted{} of \nRefsObservable{} reproduce every recorded call.
+Where it is written into an existing module or inlined, the recorder sees the project's own functions or nothing, and 4 of \nRefsUnobservable{} correct rewrites are reported as missing and rejected.
+The gate does not yet recognise that case, so those are false rejections, and recording at the enclosing project function rather than the library boundary, which the design anticipates, is the remedy.
+A further reference could not be evaluated because its candidate suite does not run on our machine, and one reference is reproduced only after temporary-directory paths are normalised.
+
+\paragraph{A development result.}
+The \nRefsObservableAccepted{} of \nRefsObservable{} were reached after three changes to the gate made while grading these same references: pairing by site and order rather than by arguments, equality that ignores a differing type name when the structure is equal, and path normalisation.
+Before them the gate rejected 7 of \nRefsEvaluable.
+No reference was held out, so the acceptance figure is a development result, not an evaluation; it shows the gate can accept correct rewrites of this kind, and a held-out set is needed to estimate how often.
+
+\subsection{RQ5: What is in the benchmark, and how do agents do?}
+\label{sec:rq5}
+
+\textbf{The pool is \nPairs{} pairs over \nPoolRepos{} repositories, mostly narrow; the task is neither trivial nor impossible, and the grader's verdict on the few CI passes is \todo{pending}.}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrl}
+\hline
+\textbf{Tier} & \textbf{Pairs} & \textbf{References} & \\
+\hline
+Narrow (1--2 files) & \nTierNarrow{} & \todo{n} & \\
+Medium (3--4) & \nTierMedium{} & \todo{n} & \\
+Wide (5+) & \nTierWide{} & \todo{n} & \\
+Indirect track & \nTierIndirect{} & 0 & tool or plugin, no import \\
+\hline
+Total & \nPairs{} & \nRefs{} & \nRefsPass{} pass under the block \\
+\hline
+\end{tabular}
+\caption{Pool composition and reference coverage.}
+\label{tab:pool}
+\end{table}
+
+Table~\ref{tab:pool} gives the composition.
+Of \nRefs{} hand-written references, \nRefsPass{} pass the workflow with the package blocked and every structural gate; the two that fail do so on the workflow's lint step, on the reference's own code.
+In the pilot, \nAgents{} agents made \nAgentAttempts{} attempts on \nAgentTasks{} pairs and \nAgentPass{} passed the suite, the number a conventional benchmark would report.
+\todo{Grader verdicts on the \nAgentPass: rejected by tests or behaviour; rejected on a constraint the prompt did not state (trade, vendor); inconclusive because the pair has no recording. With coverage at \nTracedPairs{} of \nPairs, inconclusive is the likely majority, and the paragraph should say what that means: the grader withholds a verdict it cannot support rather than inheriting the suite's.}
 
 \section{Conclusion}
-
-Execution-based benchmarks are trusted because running code seems objective.
-We show that for dependency tasks this trust is misplaced in a measurable way: in \dibench's Python subset, half of all declared dependencies can be deleted with no test noticing.
-We give a static predictor of that blindness, an executable benchmark for the removal task whose instances are verified so the oracle is meaningful, and a gate stack validated against constructed attacks, where tests alone accept a third of cheats and stubbing defeats every install-level check.
-A pilot of two open-weight agents finds execution pass rate reporting five successes against three genuine removals.
-
-The broader point is that an oracle should be measured, not assumed.
-Mutation analysis of the ground truth is cheap, mechanical, and applicable to any execution-based benchmark.
-We suspect many would not survive it.
+\todo{Conclusion, to be written after the pending results land.}
 
 \section*{Limitations}
 \label{sec:limitations}
@@ -454,5 +723,74 @@ The mechanisms, transitive installation and uneven test coverage, are not Python
 
 % Custom bibliography entries only
 \bibliography{custom}
+
+\appendix
+\section{Harness Details}
+\label{app:harness}
+The published \dibench{} harness requires the \code{sysbox} container runtime, which hosted GitHub Actions runners do not provide; we install it in the job, because plain privileged Docker-in-Docker fails when the inner daemon cannot stack overlay filesystems.
+In the stability measurement, two replays count as a repeat only if their manifest changes are identical byte for byte; the injected block file is compared separately, because its generator changed between screening generations.
+The block is installed through \code{sitecustomize.py} and the root \code{conftest.py}, so it loads in every interpreter the workflow starts in the repository, including subprocesses and multiprocessing workers.
+A module that a foreign frame has already loaded is replaced in \code{sys.modules} by a guard that forwards attribute access for foreign callers and raises for repository callers, so import order cannot defeat the block.
+Fifteen constructed bypasses were tried against it; thirteen are blocked, including dynamic imports by computed name, \code{exec} strings, subprocess interpreters, re-import after deleting the module entry, and reload.
+Two escapes remain open, and a submission could use either on purpose: reaching the real module through \code{object.\_\_getattribute\_\_} on the guard, and listing the module through \code{pkgutil.iter\_modules}.
+Neither is reachable by accident; both are recorded because the grader faces an adaptive submitter, and \S\ref{sec:method-grade} states how the grader treats them.
+
+
+
+
+\section{Grader Details}
+\label{app:grader}
+\paragraph{Summaries and equality.}
+Primitives are recorded exactly, strings and bytes past 300 characters with a hash of the whole; containers to depth three with up to 20 elements, beyond which a hash decides; arrays by shape and dtype, with content inlined up to 64 elements and hashed beyond; callables and classes by type and qualified name; other objects by type name, address-stripped representation, length, and public non-callable attributes to depth two.
+Floats compare within a relative tolerance of $10^{-9}$ and NaN equals NaN.
+A record is bounded at 32\,KB, with expanded structure replaced by its hash beyond that.
+\paragraph{Generated inputs.}
+A neighbour of a recorded string applies one to a third as many edits as it has characters, each an insertion, deletion, substitution, duplication, or case change; numbers, booleans, and containers are perturbed by type-specific rules, and type-directed values are drawn for breadth.
+Inputs are generated from a fixed seed and the first 200 recorded calls per function.
+\paragraph{Replication corpus.}
+A second corpus of hide, vendor, and stub variants was generated by a separate generator over narrow-tier pairs and run through the CI harness, so it carries G2 verdicts the main corpus lacks.
+It overlaps the main corpus on 57 identical (repository, kind, dependency) triples and is never summed with it.
+
+
+\section{Robustness of the Silent Rate}
+\label{app:robustness}
+Over the \nReposThree{} repositories with at least three candidates, after the activation rule; figures with the \nExclInconclusive{} set-aside runs counted in parentheses.
+
+\begin{center}\small
+\begin{tabular}{lrrr}
+\hline
+Dropped & Repositories & Median & Incidence \\
+\hline
+0 & 50 (51) & 19.4\% (20.0) & 33/50 (35/51) \\
+1 & 49 (50) & 18.8\% (20.0) & 32/49 (34/50) \\
+3 & 47 (48) & 16.7\% (19.4) & 30/47 (32/48) \\
+5 & 45 (46) & 14.3\% (17.7) & 28/45 (30/46) \\
+10 & 40 (41) & 12.5\% (14.3) & 23/40 (25/41) \\
+\hline
+\end{tabular}
+\end{center}
+
+Distribution of the rate: 0\%: 17; 1--10\%: 1; 10--25\%: 13; 25--50\%: 14; over 50\%: 5.
+Correlation of the rate with the share of files that are tests, $-0.34$; with the share reachable from tests, $-0.31$; with the number of candidates, $+0.34$.
+Repositories maintained by large organisations with at least one silent candidate: NVFlare 5 of 18, localstack 6 of 15, nncf 6 of 17, chalice 3 of 10, tweepy 2 of 3, docker-py 1 of 3, dm-haiku 1 of 4, mobly 1 of 3, jupyter-console 1 of 8; speakeasy 0 of 6.
+
+\section{Oracle Overlap}
+\label{app:overlap}
+Per candidate, over the \nScreenedRule{} candidates not excluded. CI is measured; the other two are derived (\S\ref{sec:derived}).
+
+\begin{center}\small
+\begin{tabular}{llll r}
+\hline
+CI & Import check & Collection-only & & $n$ \\
+\hline
+detects & detects & detects & & 223 \\
+detects & detects & silent & & 75 \\
+detects & silent & detects & & 24 \\
+detects & silent & silent & & 8 \\
+silent & detects & silent & strict blindness & \nImportCatchesCIMisses{} \\
+silent & silent & silent & & 183 \\
+\hline
+\end{tabular}
+\end{center}
 
 \end{document}

@@ -1,0 +1,99 @@
+% ---- every count in the paper is defined once, here --------------------
+% screening population
+\newcommand{\nCand}{622}        % candidates screened
+\newcommand{\nRepos}{80}        % gold-passing repositories in the population
+\newcommand{\nGold}{96}         % published solutions in the regular subset
+\newcommand{\nGoldPass}{51}     % of which still pass
+% dispositions
+\newcommand{\nPairs}{330}       % verified pairs (the benchmark)
+\newcommand{\nPoolRepos}{73}    % repositories with at least one pair
+\newcommand{\nSilent}{222}      % CI passes without the package
+\newcommand{\nExcl}{70}         % excluded with a stated reason
+% decomposition of the silent cases
+\newcommand{\nOverDecl}{170}
+\newcommand{\nNoImport}{8}
+\newcommand{\nStrict}{39}
+\newcommand{\nOptional}{5}
+% per-repository reporting
+\newcommand{\nReposThree}{50}   % repositories with >= 3 candidates
+\newcommand{\nIncidence}{33}    % of which have >= 1 silent candidate
+\newcommand{\medianRate}{19.4}  % per-repository median, percent
+\newcommand{\nSwirlCand}{165}   % the outlier repository's candidates
+\newcommand{\nSwirlSilent}{126}
+% tiers
+\newcommand{\nTierNarrow}{196}
+\newcommand{\nTierMedium}{41}
+\newcommand{\nTierWide}{65}
+\newcommand{\nTierIndirect}{28}
+% grader validation
+\newcommand{\nVariants}{617}    % all constructed variants
+\newcommand{\nCounterfeit}{537} % counterfeit removals (seven kinds)
+\newcommand{\nHonest}{80}       % honest deletions (control)
+\newcommand{\nPseudo}{80}       % well-formed-but-incorrect rewrites
+\newcommand{\nPseudoTraced}{10} % of which fall on a recorded pair
+\newcommand{\nTracedPairs}{85}  % pairs with a recording
+\newcommand{\nTraceInst}{85}    % recordings in total
+\newcommand{\nTraceCalls}{37{,}947}
+\newcommand{\nFuzzInputs}{300}  % generated inputs per function
+% agent pilot
+\newcommand{\nAgents}{4}
+\newcommand{\nAgentTasks}{15}
+\newcommand{\nAgentAttempts}{52}
+\newcommand{\nAgentPass}{7}
+% placeholders, to be filled when the hand-written removals are graded
+\newcommand{\nRefs}{32}
+\newcommand{\nRefsBehav}{\todo{k}}
+\newcommand{\nStepOnly}{36}       % pairs admitted on a failing step with no import error
+\newcommand{\nStepOnlyDirect}{13} % of which outside the indirect tier
+% ---- added 10 Oct: measured in this pass (see docs/RESULTS_LEDGER.md)
+\newcommand{\nStrictRepos}{25}
+\newcommand{\nSilentConfirmed}{222}
+\newcommand{\nSilentUnconfirmed}{17}
+\newcommand{\nRefsPass}{30}
+\newcommand{\nFRAccepted}{166}
+\newcommand{\nFRInconclusive}{5}
+\newcommand{\nCollectionSilent}{322}
+\newcommand{\nImportSilent}{224}
+\newcommand{\nScreened}{569}
+\newcommand{\fidelityWhole}{94.8}
+\newcommand{\nRefsEvaluable}{11}
+\newcommand{\nRefsObservable}{4}
+\newcommand{\nRefsObservableAccepted}{4}
+\newcommand{\nRefsUnobservable}{6}
+\newcommand{\nRefsUnobservableAccepted}{2}
+% ---- activation rule applied (10 Oct): the 17 silent runs without attribution evidence are set aside
+\newcommand{\nSilentAll}{239}        % before the rule
+\newcommand{\nExclReason}{53}        % excluded with a construction reason
+\newcommand{\nExclInconclusive}{17}  % excluded: block not observed loading
+\newcommand{\medianRateAll}{20.0}
+\newcommand{\nIncidenceAll}{35}
+\newcommand{\nReposThreeAll}{51}
+\newcommand{\dropTenMedian}{12.5}
+\newcommand{\dropTenMedianAll}{14.3}
+\newcommand{\nOverDeclGraded}{172}  % the over-declared set as graded (built before the recount)
+\newcommand{\nFRFlagged}{1}
+\newcommand{\nImportCatchesCIMisses}{39}
+\newcommand{\nCIcatchesImportMisses}{32}
+\newcommand{\nCollectionCatches}{247}
+\newcommand{\nScreenedRule}{552}
+\newcommand{\nPredSubset}{214}
+\newcommand{\nPredSubsetSilent}{53}
+\newcommand{\nMajorAffected}{10}
+\newcommand{\nMajor}{11}
+\newcommand{\nPseudoEvaluable}{4}
+\newcommand{\nPseudoFunctions}{5}
+\newcommand{\nRefsRegular}{14}
+\newcommand{\nRefsLarge}{18}
+% ---- added 10 Oct: G3 fingerprint check (results/g3_fingerprint.json) and G7 extension
+\newcommand{\gThreeK}{16}          % tokens per hash
+\newcommand{\gThreeW}{8}           % winnowing window
+\newcommand{\gThreeThreshold}{60}  % containment threshold, percent
+\newcommand{\gThreeMinTokens}{60}
+\newcommand{\nVendorNamed}{67}
+\newcommand{\nVendorNamedCaught}{67}
+\newcommand{\nVendorRenamed}{20}
+\newcommand{\nVendorRenamedCaught}{20}
+\newcommand{\nVendorRepl}{52}      % replication corpus vendor variants
+\newcommand{\nVendorReplCaught}{51} % the 52nd adds no Python file
+\newcommand{\nRefsG3Flagged}{0}
+\newcommand{\nPseudoG3Flagged}{0}

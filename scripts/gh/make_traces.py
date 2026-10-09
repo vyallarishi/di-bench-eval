@@ -56,7 +56,8 @@ MAX_CALLS = 2000
 
 def recorder_body(dep: str, names, own, out: str) -> str:
     body = RECORDER.format(dep=dep, names=sorted(set(names)), own=sorted(set(own or [])),
-                           out=out, maxcalls=MAX_CALLS, site_exclude=[])
+                           out=out, maxcalls=MAX_CALLS, site_exclude=[],
+                           usage={}, usage_modules={})
     old_emit = '''        try:
             with open(_OUT, "a") as fh:
                 fh.write(_bounded(rec) + "\\n")'''

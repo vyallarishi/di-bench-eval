@@ -73,9 +73,13 @@ def main():
         # substitute the measured G4a verdict, which run_g4 computed from traces
         g4a = r.get("g4a") or {}
         if r.get("reference_calls"):
+            passed = g4a.get("passed")
             g["gates"]["G4a_behaviour"] = dict(
-                status="pass" if g4a.get("passed") else "fail",
-                reason=f"G4a verdict {g4a.get('verdict')}", evidence=g4a)
+                status="pass" if passed else ("unverified" if passed is None else "fail"),
+                reason=f"G4a verdict {g4a.get('verdict')}: {g4a.get('reason', '')}", evidence=g4a)
+            g["failed"] = [k for k, v in g["gates"].items() if v["status"] == "fail"]
+            g["unverified"] = [k for k, v in g["gates"].items() if v["status"] == "unverified"]
+            g["accepted"] = not g["failed"] and not g["unverified"]
         records.append(dict(
             id=mid, family=family(mid), state="graded",
             ci_pass=bool(r.get("candidate_tests_passed")),
