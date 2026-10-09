@@ -146,7 +146,7 @@ def declared(text: str) -> set:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", required=True, choices=["gold", "recovered", "mutation", "cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large", "repeat", "repeat_large"])
+    ap.add_argument("--set", required=True, choices=["gold", "recovered", "mutation", "cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large", "repeat", "repeat_large", "repeat_blind", "repeat_blind_large"])
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--repo-data", required=True)
     ap.add_argument("--predictions", default="predictions/qwen2.5-coder-7b")
@@ -166,7 +166,7 @@ def main():
     out_rows = []
     skipped = []
 
-    if a.set in ("cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large", "repeat", "repeat_large"):
+    if a.set in ("cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large", "repeat", "repeat_large", "repeat_blind", "repeat_blind_large"):
         # pre-built variants: pilot/<set>.jsonl rows (mutant-style ids <iid>__<kind>__<dep>) and
         # predictions/<set>/python/<id>/patch.diff; each needs a repo-data symlink to its base instance
         src_rows = [json.loads(l) for l in open(pathlib.Path("pilot") / f"{a.set}.jsonl") if l.strip()]

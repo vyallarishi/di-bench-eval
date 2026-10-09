@@ -56,12 +56,34 @@ def base_id(iid: str) -> str:
     return f"{parts[0]}__{parts[-1]}" if len(parts) >= 3 else iid
 
 
-def patch_hashes(d: pathlib.Path | None) -> dict[str, str]:
+INJECTED = ("sitecustomize.py", "conftest.py")
+
+
+def without_injected(patch: str) -> str:
+    """The patch minus the hunks that create the injected blocker/recorder.
+
+    Two generations of the screener inject different generated code but make
+    the same change to the manifest. With --ignore-injected those count as the
+    same patch; the report says how many pairs were matched this way.
+    """
+    out, keep = [], True
+    for line in patch.splitlines():
+        if line.startswith("diff --git"):
+            keep = not any(name in line for name in INJECTED)
+        if keep:
+            out.append(line)
+    return "\n".join(out)
+
+
+def patch_hashes(d: pathlib.Path | None, ignore_injected: bool = False) -> dict[str, str]:
     if d is None:
         return {}
     out = {}
     for p in d.rglob("patch.diff"):
-        out[base_id(p.parent.name)] = hashlib.sha1(p.read_bytes()).hexdigest()
+        data = p.read_bytes()
+        if ignore_injected:
+            data = without_injected(data.decode("utf-8", "replace")).encode()
+        out[base_id(p.parent.name)] = hashlib.sha1(data).hexdigest()
     return out
 
 
@@ -72,12 +94,17 @@ def main():
     ap.add_argument("--patches-first", default=None)
     ap.add_argument("--patches-second", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--ignore-injected", action="store_true",
+                    help="treat patches as identical when only the injected "
+                         "sitecustomize/conftest hunks differ")
     a = ap.parse_args()
 
     va = {base_id(k): v for k, v in verdicts(pathlib.Path(a.first)).items()}
     vb = {base_id(k): v for k, v in verdicts(pathlib.Path(a.second)).items()}
-    ha = patch_hashes(pathlib.Path(a.patches_first) if a.patches_first else None)
-    hb = patch_hashes(pathlib.Path(a.patches_second) if a.patches_second else None)
+    pa = pathlib.Path(a.patches_first) if a.patches_first else None
+    pb = pathlib.Path(a.patches_second) if a.patches_second else None
+    ha, hb = patch_hashes(pa, a.ignore_injected), patch_hashes(pb, a.ignore_injected)
+    exact_a, exact_b = patch_hashes(pa), patch_hashes(pb)
 
     common = sorted(set(va) & set(vb))
     identical = [k for k in common if not (ha and hb) or ha.get(k) == hb.get(k)]
@@ -87,8 +114,10 @@ def main():
 
     print(f"instances in both runs: {len(common)}")
     if ha and hb:
-        print(f"  with byte-identical patches: {len(identical)}  "
-              f"(excluded, patch differs: {len(differing_patch)})")
+        byte_same = sum(1 for k in identical if exact_a.get(k) == exact_b.get(k))
+        print(f"  counted: {len(identical)}  (byte-identical patches: {byte_same}; "
+              f"same manifest change, injected file differs by generator version: "
+              f"{len(identical) - byte_same}; excluded, change differs: {len(differing_patch)})")
     print(f"  pass/pass {tally[(True, True)]}   fail/fail {tally[(False, False)]}   "
           f"pass->fail {tally[(True, False)]}   fail->pass {tally[(False, True)]}")
     print(f"\nFLIPS: {len(flips)}/{len(identical)} = "
