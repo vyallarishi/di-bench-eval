@@ -37,13 +37,17 @@ def main():
     ap.add_argument("--repo-data", default=".cache/repo-data")
     ap.add_argument("--pool", default="pilot/instances.jsonl")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--split-subsets", action="store_true",
+                    help="write <set> and <set>_large separately; the harness "
+                         "downloads one release subset's checkouts per run, so a "
+                         "set spanning both cannot be dispatched as one")
     a = ap.parse_args()
 
     run = pathlib.Path(a.run)
     repo_data = pathlib.Path(a.repo_data)
-    out = pathlib.Path("predictions") / a.set / "python"
-    pool = {(r["instance_id"], r["dependency"].replace("-", "_").lower())
-            for r in map(json.loads, open(a.pool))}
+    pool_rows = {(r["instance_id"], r["dependency"].replace("-", "_").lower()): r
+                 for r in map(json.loads, open(a.pool))}
+    pool = set(pool_rows)
     # Rows are rebuilt from the release datasets rather than read from the
     # run's own dataset.jsonl, which the runner writes only when it finishes:
     # staging must work on a run that was interrupted, since that is exactly
@@ -91,26 +95,35 @@ def main():
         if chk.returncode != 0:
             skipped.append(f"{mid}: does not apply: {chk.stderr.strip()[:90]}")
             continue
+        subset = pool_rows[(base, dep)].get("subset", "regular")
+        set_name = a.set + ("_large" if (a.split_subsets and subset == "large") else "")
         if not a.dry_run:
-            t = out / mid
+            t = pathlib.Path("predictions") / set_name / "python" / mid
             t.mkdir(parents=True, exist_ok=True)
             (t / "patch.diff").write_text(patch)
             link = repo_data / "python" / mid
             if not link.exists():
                 os.symlink(base, link)
-        staged.append(row)
+        staged.append((set_name, row))
 
+    by_set: dict[str, list] = {}
+    for set_name, row in staged:
+        by_set.setdefault(set_name, []).append(row)
     if not a.dry_run:
-        with open(pathlib.Path("pilot") / f"{a.set}.jsonl", "w") as f:
-            for r in staged:
-                f.write(json.dumps(r) + "\n")
+        for set_name, rows_out in by_set.items():
+            with open(pathlib.Path("pilot") / f"{set_name}.jsonl", "w") as f:
+                for r in rows_out:
+                    f.write(json.dumps(r) + "\n")
 
     print(f"staged {len(staged)}, skipped {len(skipped)}")
-    for s in skipped:
-        print("  skip:", s)
+    for set_name, rows_out in sorted(by_set.items()):
+        print(f"  {set_name}: {len(rows_out)}")
+    for sk in skipped:
+        print("  skip:", sk)
     if not a.dry_run:
-        print(f"\nwrote pilot/{a.set}.jsonl and predictions/{a.set}/")
-        print(f"register '{a.set}' in prepare.py --set and the workflow's choices, then dispatch")
+        for set_name in sorted(by_set):
+            print(f"wrote pilot/{set_name}.jsonl and predictions/{set_name}/")
+        print("register each set in prepare.py --set and the workflow's choices, then dispatch")
 
 
 if __name__ == "__main__":
