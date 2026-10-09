@@ -1,0 +1,36 @@
+diff --git a/eliot/_action.py b/eliot/_action.py
+index 782648c..a19e9fc 100644
+--- a/eliot/_action.py
++++ b/eliot/_action.py
+@@ -8,13 +8,11 @@ top-level actions.
+ import threading
+ from uuid import uuid4
+ from contextlib import contextmanager
+-from functools import partial
++from functools import partial, wraps
+ from inspect import getcallargs
+ from contextvars import ContextVar
+ 
+ from pyrsistent import field, PClass, optional, pmap_field, pvector
+-from boltons.funcutils import wraps
+-
+ from ._message import (
+     WrittenMessage,
+     EXCEPTION_FIELD,
+diff --git a/setup.py b/setup.py
+index 419267a..0e4e7f2 100644
+--- a/setup.py
++++ b/setup.py
+@@ -34,6 +34,12 @@ setup(
+     description="Logging library that tells you why it happened",
+     python_requires=">=3.8.0",
+     install_requires=[
++        # Internal code documentation:
++        "zope.interface",
++        # Persistent objects for Python:
++        "pyrsistent >= 0.11.8",  # version with multi-type pvector/pmap_field
++        # Faster JSON serialization:
++        "orjson; implementation_name=='cpython'",
+     ],
+     extras_require={
+         "journald": [

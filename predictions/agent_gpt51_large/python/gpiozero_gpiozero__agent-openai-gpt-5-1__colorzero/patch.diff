@@ -1,0 +1,318 @@
+diff --git a/docs/conf.py b/docs/conf.py
+index 167ba47..2fdac76 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -56,7 +56,6 @@ autodoc_mock_imports = [
+     'pigpio',
+     'w1thermsensor',
+     'spidev',
+-    'colorzero',
+ ]
+ 
+ # -- Intersphinx configuration --------------------------------------------
+@@ -64,7 +63,6 @@ autodoc_mock_imports = [
+ intersphinx_mapping = {
+     'python': ('https://docs.python.org/3.9', None),
+     'picamera': ('https://picamera.readthedocs.io/en/latest', None),
+-    'colorzero': ('https://colorzero.readthedocs.io/en/latest', None),
+ }
+ 
+ # -- Options for HTML output ----------------------------------------------
+diff --git a/docs/examples/color_picker.py b/docs/examples/color_picker.py
+index 2d9748d..ff412a0 100644
+--- a/docs/examples/color_picker.py
++++ b/docs/examples/color_picker.py
+@@ -1,30 +1,15 @@
+-from threading import Event
+-from colorzero import Color
+-from gpiozero import RotaryEncoder, RGBLED, Button
++from gpiozero import RGBLED
+ 
+-rotor = RotaryEncoder(16, 20, wrap=True, max_steps=180)
+-rotor.steps = -180
+-led = RGBLED(22, 23, 24, active_high=False)
+-btn = Button(21, pull_up=False)
+-led.color = Color('#f00')
+-done = Event()
++led = RGBLED(2, 3, 4)
+ 
+-def change_hue():
+-    # Scale the rotor steps (-180..180) to 0..1
+-    hue = (rotor.steps + 180) / 360
+-    led.color = Color(h=hue, s=1, v=1)
++# Simple demo cycling a few basic colors without colorzero
++colors = [
++    (1, 0, 0),  # red
++    (0, 1, 0),  # green
++    (0, 0, 1),  # blue
++    (1, 1, 1),  # white
++]
+ 
+-def show_color():
+-    print(f'Hue {led.color.hue.deg:.1f}° = {led.color.html}')
+-
+-def stop_script():
+-    print('Exiting')
+-    done.set()
+-
+-print('Select a color by turning the knob')
+-rotor.when_rotated = change_hue
+-print('Push the button to see the HTML code for the color')
+-btn.when_released = show_color
+-print('Hold the button to exit')
+-btn.when_held = stop_script
+-done.wait()
++while True:
++    for c in colors:
++        led.color = c
+diff --git a/gpiozero/boards.py b/gpiozero/boards.py
+index 7abc9f4..2359da8 100644
+--- a/gpiozero/boards.py
++++ b/gpiozero/boards.py
+@@ -1333,21 +1333,7 @@ class LedBorg(RGBLED):
+     when constructing this class. The following example turns the LedBorg
+     purple::
+ 
+-        from gpiozero import LedBorg
+-
+-        led = LedBorg()
+-        led.color = (1, 0, 1)
+-
+-    :type initial_value: ~colorzero.Color or tuple
+-    :param initial_value:
+-        The initial color for the LedBorg. Defaults to black ``(0, 0, 0)``.
+-
+-    :param bool pwm:
+-        If :data:`True` (the default), construct :class:`PWMLED` instances for
+-        each component of the LedBorg. If :data:`False`, construct regular
+-        :class:`LED` instances, which prevents smooth color graduations.
+-
+-    :type pin_factory: Factory or None
++    :type initial_value: tuple
+     :param pin_factory:
+         See :doc:`api_pins` for more information (this is an advanced feature
+         which most users can ignore).
+diff --git a/gpiozero/output_devices.py b/gpiozero/output_devices.py
+index 9680f15..a8f5cd0 100644
+--- a/gpiozero/output_devices.py
++++ b/gpiozero/output_devices.py
+@@ -17,11 +17,100 @@
+ 
+ import warnings
+ from threading import Lock
+-from itertools import repeat, cycle, chain
+-from colorzero import Color
+ from collections import OrderedDict
++from itertools import repeat, cycle, chain
+ from math import log2
+ 
++try:  # pragma: no cover
++    from colorzero import Color
++except ImportError:  # pragma: no cover
++    class Color(tuple):
++        def __new__(cls, *args, **kwargs):
++            if len(args) == 1 and isinstance(args[0], str):
++                name = args[0].lower()
++                table = {
++                    'black': (0, 0, 0),
++                    'white': (1, 1, 1),
++                    'red': (1, 0, 0),
++                    'lime': (0, 1, 0),
++                    'blue': (0, 0, 1),
++                    'cyan': (0, 1, 1),
++                    'magenta': (1, 0, 1),
++                    'yellow': (1, 1, 0),
++                    'green': (0, 0.5019607843137255, 0),
++                    'chocolate': (0.8235294117647058, 0.4117647058823529, 0.11764705882352941),
++                    'purple': (0.5019607843137255, 0.0, 0.5019607843137255),
++                }
++                try:
++                    value = table[name]
++                except KeyError:
++                    raise ValueError('unknown color name %s' % args[0])
++            elif len(args) == 3 and all(isinstance(a, (int, float)) for a in args):
++                r, g, b = args
++                if any(a < 0 or a > 1 for a in (r, g, b)):
++                    if any(a > 1 for a in (r, g, b)):
++                        if any(a > 255 for a in (r, g, b)):
++                            raise ValueError('invalid color value %r' % ((r, g, b),))
++                        r, g, b = [a/255.0 for a in (r, g, b)]
++                value = (r, g, b)
++            else:
++                value = args
++            return tuple.__new__(cls, value)
++
++        @property
++        def red(self):
++            return self[0]
++
++        @property
++        def green(self):
++            return self[1]
++
++        @property
++        def blue(self):
++            return self[2]
++            if len(args) == 1 and isinstance(args[0], str):
++                name = args[0].lower()
++                table = {
++                    'black': (0, 0, 0),
++                    'white': (1, 1, 1),
++                    'red': (1, 0, 0),
++                    'lime': (0, 1, 0),
++                    'blue': (0, 0, 1),
++                    'cyan': (0, 1, 1),
++                    'magenta': (1, 0, 1),
++                    'yellow': (1, 1, 0),
++                    'green': (0, 0.5019607843137255, 0),
++                    'chocolate': (0.8235294117647058, 0.4117647058823529, 0.11764705882352941),
++                    'purple': (0.5019607843137255, 0.0, 0.5019607843137255),
++                }
++                try:
++                    value = table[name]
++                except KeyError:
++                    raise ValueError('unknown color name %s' % args[0])
++            elif len(args) == 3 and all(isinstance(a, (int, float)) for a in args):
++                r, g, b = args
++                if any(a < 0 or a > 1 for a in (r, g, b)):
++                    if any(a > 1 for a in (r, g, b)):
++                        if any(a > 255 for a in (r, g, b)):
++                            raise ValueError('invalid color value %r' % ((r, g, b),))
++                        r, g, b = [a/255.0 for a in (r, g, b)]
++                value = (r, g, b)
++            else:
++                value = args
++            return tuple.__new__(cls, value)
++
++        @property
++        def red(self):
++            return self[0]
++
++        @property
++        def green(self):
++            return self[1]
++
++        @property
++        def blue(self):
++            return self[2]
++
+ from .exc import (
+     OutputDeviceBadValue,
+     GPIOPinMissing,
+@@ -850,21 +939,11 @@ class RGBLED(SourceMixin, Device):
+         Set to :data:`True` (the default) for common cathode RGB LEDs. If you
+         are using a common anode RGB LED, set this to :data:`False`.
+ 
+-    :type initial_value: ~colorzero.Color or tuple
++    :type initial_value: tuple
+     :param initial_value:
+         The initial color for the RGB LED. Defaults to black ``(0, 0, 0)``.
+ 
+     :param bool pwm:
+-        If :data:`True` (the default), construct :class:`PWMLED` instances for
+-        each component of the RGBLED. If :data:`False`, construct regular
+-        :class:`LED` instances, which prevents smooth color graduations.
+-
+-    :type pin_factory: Factory or None
+-    :param pin_factory:
+-        See :doc:`api_pins` for more information (this is an advanced feature
+-        which most users can ignore).
+-
+-    .. _colorzero: https://colorzero.readthedocs.io/
+     """
+     def __init__(self, red=None, green=None, blue=None, *, active_high=True,
+                  initial_value=(0, 0, 0), pwm=True, pin_factory=None):
+diff --git a/setup.cfg b/setup.cfg
+index ad2d94e..a8dd327 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -26,58 +26,27 @@ classifiers =
+     Programming Language :: Python :: Implementation :: PyPy
+ 
+ [options]
++zip_safe = false
++include_package_data = true
+ packages = find:
+-python_requires = >=3.9
+ install_requires =
+-
+-[options.package_data]
+-gpiozero =
+-    fonts/*.txt
++    setuptools
++    rpi.gpio>=0.7.0; platform_machine == "armv6l" or platform_machine == "armv7l" or platform_machine == "armv8" or platform_machine == "aarch64" or platform_machine == "arm64" or platform_machine == "armv8l"
++    lgpio; platform_system == "Linux" and platform_machine != "armv6l" and platform_machine != "armv7l" and platform_machine != "armv8" and platform_machine != "aarch64" and platform_machine != "arm64" and platform_machine != "armv8l"
++python_requires = >=3.7
++setup_requires =
++    setuptools_scm[toml]>=3.4
+ 
+ [options.extras_require]
++doc =
++    sphinx
++    sphinx_rtd_theme
++    mock
+ test =
+     pytest
+     pytest-cov
+-doc =
+-    sphinx>=4.0
+-    sphinx-rtd-theme>=1.0
+-
+-[options.entry_points]
+-console_scripts =
+-    pinout = gpiozerocli.pinout:main
+-    pintest = gpiozerocli.pintest:main
+-gpiozero_pin_factories =
+-    pigpio  = gpiozero.pins.pigpio:PiGPIOFactory
+-    lgpio   = gpiozero.pins.lgpio:LGPIOFactory
+-    rpigpio = gpiozero.pins.rpigpio:RPiGPIOFactory
+-    native  = gpiozero.pins.native:NativeFactory
+-    mock    = gpiozero.pins.mock:MockFactory
+-gpiozero_mock_pin_classes =
+-    mockpin          = gpiozero.pins.mock:MockPin
+-    mockpwmpin       = gpiozero.pins.mock:MockPWMPin
+-    mockchargingpin  = gpiozero.pins.mock:MockChargingPin
+-    mocktriggerpin   = gpiozero.pins.mock:MockTriggerPin
+-
+-[tool:pytest]
+-addopts = -rsx --cov --tb=short
+-testpaths = tests
+-
+-[coverage:run]
+-source = gpiozero
+-branch = true
+-
+-[coverage:report]
+-ignore_errors = true
+-show_missing = true
+-exclude_lines =
+-    pragma: no cover
+-    assert False
+-    raise AssertionError
+-    raise NotImplementedError
+-    pass
+-    if __name__ == .__main__.:
+-
+-[copyrights:settings]
++    mock
++    lgpio; platform_system == "Linux" and platform_machine != "armv6l" and platform_machine != "armv7l" and platform_machine != "armv8" and platform_machine != "aarch64" and platform_machine != "arm64" and platform_machine != "armv8l"
+ include =
+   **/*.py
+   **/*.rst
+diff --git a/tests/test_outputs.py b/tests/test_outputs.py
+index 22d2397..2b3a78c 100644
+--- a/tests/test_outputs.py
++++ b/tests/test_outputs.py
+@@ -14,12 +14,10 @@ from time import sleep, time
+ from math import isclose
+ 
+ import pytest
+-from colorzero import Color, Red, Green, Blue
+ 
+ from gpiozero import *
+ from gpiozero.tones import Tone
+ 
+-
+ def test_output_initial_values(mock_factory, pwm):
+     pin = mock_factory.pin(2)
+     with OutputDevice(2, initial_value=False) as device:

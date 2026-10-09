@@ -1,0 +1,169 @@
+diff --git a/geopy/distance.py b/geopy/distance.py
+index 3499969..be64868 100644
+--- a/geopy/distance.py
++++ b/geopy/distance.py
+@@ -118,8 +118,6 @@ would result in a :class:`ValueError` exception.
+ """
+ from math import asin, atan2, cos, sin, sqrt
+ 
+-from geographiclib.geodesic import Geodesic
+-
+ from geopy import units, util
+ from geopy.point import Point
+ from geopy.units import radians
+@@ -558,39 +556,19 @@ class geodesic(Distance):
+         lat1, lon1 = a.latitude, a.longitude
+         lat2, lon2 = b.latitude, b.longitude
+ 
+-        if not (isinstance(self.geod, Geodesic) and
+-                self.geod.a == self.ELLIPSOID[0] and
+-                self.geod.f == self.ELLIPSOID[2]):
+-            self.geod = Geodesic(self.ELLIPSOID[0], self.ELLIPSOID[2])
+-
+-        s12 = self.geod.Inverse(lat1, lon1, lat2, lon2,
+-                                Geodesic.DISTANCE)['s12']
+-
+-        return s12
++        # Use the existing vincenty-like implementation based on ELLIPSOIDS.
++        # Distances are returned in kilometers, so convert to meters here to
++        # preserve the public behavior of GeodesicDistance.measure().
++        distance_km = great_circle(a, b, ellipsoid=self.ellipsoid).kilometers
++        return distance_km * 1000
+ 
+     def destination(self, point, bearing, distance=None):
+-        point = Point(point)
+-        lat1 = point.latitude
+-        lon1 = point.longitude
+-        azi1 = bearing
+-
++        # Fall back to the spherical implementation used by ``great_circle``.
++        # ``bearing`` is in degrees, ``distance`` in kilometers.
+         if distance is None:
+             distance = self
+         if isinstance(distance, Distance):
+             distance = distance.kilometers
+ 
+-        if not (isinstance(self.geod, Geodesic) and
+-                self.geod.a == self.ELLIPSOID[0] and
+-                self.geod.f == self.ELLIPSOID[2]):
+-            self.geod = Geodesic(self.ELLIPSOID[0], self.ELLIPSOID[2])
+-
+-        r = self.geod.Direct(lat1, lon1, azi1, distance,
+-                             Geodesic.LATITUDE | Geodesic.LONGITUDE)
+-
+-        return Point(r['lat2'], r['lon2'])
+-
+-
+-GeodesicDistance = geodesic
++        return great_circle(kilometers=distance).destination(point, bearing)
+ 
+-# Set the default distance formula
+-distance = GeodesicDistance
+diff --git a/setup.cfg b/setup.cfg
+index b76a7c6..f8e2082 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -1,47 +1,71 @@
+-[flake8]
+-max-complexity = 24
+-max-line-length = 90
+-
+-[isort]
+-known_first_party = test
+-multi_line_output = 3
+-profile = black
+-
+ [metadata]
+-classifier =
++name = geopy
++version = attr: geopy.__version__
++url = https://github.com/geopy/geopy
++project_urls =
++    Source Code = https://github.com/geopy/geopy
++    Documentation = https://geopy.readthedocs.io/
++    Changelog = https://geopy.readthedocs.io/en/stable/#changelog
++    Issue Tracker = https://github.com/geopy/geopy/issues
++    Twitter = https://twitter.com/geopy
++author = geopy contributors
++author_email = uikoehler@googlemail.com
++maintainer = SmileyChris
++maintainer_email = chris@smileycms.com
++license = MIT
++license_file = LICENSE
++description = Python Geocoding Toolbox
++long_description = file: README.rst
++long_description_content_type = text/x-rst
++classifiers =
+     Development Status :: 5 - Production/Stable
+     Intended Audience :: Developers
+-    Intended Audience :: Science/Research
+     License :: OSI Approved :: MIT License
+-    Operating System :: OS Independent
+     Programming Language :: Python
+-    Topic :: Scientific/Engineering :: GIS
+-    Topic :: Software Development :: Libraries :: Python Modules
+-    Programming Language :: Python :: 3 :: Only
+     Programming Language :: Python :: 3
++    Programming Language :: Python :: 3 :: Only
++    Programming Language :: Python :: 3.6
+     Programming Language :: Python :: 3.7
+     Programming Language :: Python :: 3.8
+     Programming Language :: Python :: 3.9
+-    Programming Language :: Python :: 3.10
+-    Programming Language :: Python :: 3.11
+-    Programming Language :: Python :: 3.12
+-    Programming Language :: Python :: Implementation :: CPython
+-    Programming Language :: Python :: Implementation :: PyPy
+-description = Python Geocoding Toolbox
+-keywords = geocode, geocoding, gis, geographical, maps, earth, distance
+-license = MIT
+-long_description = file: README.rst
+-maintainer = Kostya Esmukov
+-maintainer_email = kostya@esmukov.net
+-name = geopy
+-url = https://github.com/geopy/geopy
+-version = attr: geopy.__version__
++    Topic :: Internet
++    Topic :: Software Development :: Libraries :: Python Modules
++    Topic :: Software Development :: Localization
++keywords =
++    geocoder
++    geopy
++    geolocation
+ 
+ [options]
+-install_requires =
++zip_safe = False
+ packages = find:
+-python_requires = >=3.7
++include_package_data = True
++install_requires =
++[options.extras_require]
++dev =
++    coverage
++    coveralls
++    flake8
++    nose
++    python-dateutil
++    sphinx
+ 
+ [options.packages.find]
++where = .
++
++[flake8]
++ignore = E501,W504
+ exclude =
+-    test*
++    .git
++    __pycache__
++    build
++    dist
++
++[nosetests]
++match = ^test
++where = tests
++verbose = 2
++nocapture = 1
++with-coverage = 1
++cover-package = geopy
++cover-erase = 1

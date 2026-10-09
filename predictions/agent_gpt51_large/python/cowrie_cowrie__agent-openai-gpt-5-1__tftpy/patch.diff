@@ -1,0 +1,178 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..634a618 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,12 @@
++appdirs==1.4.4
++attrs==24.2.0
++bcrypt==4.2.0
++configparser==7.0.0
++cryptography==43.0.1
++packaging==24.1
++pyasn1_modules==0.4.0
++pyparsing==3.1.4
++python-dateutil==2.9.0.post0
++service_identity==24.1.0
++treq==23.11.0
++twisted==24.7.0
+diff --git a/src/cowrie/commands/tftp.py b/src/cowrie/commands/tftp.py
+index 53c6a73..699e2a1 100644
+--- a/src/cowrie/commands/tftp.py
++++ b/src/cowrie/commands/tftp.py
+@@ -1,7 +1,9 @@
+ from __future__ import annotations
+-import tftpy
+-from tftpy.TftpPacketTypes import TftpPacketDAT, TftpPacketOACK
+ 
++from twisted.internet import reactor
++from twisted.internet.defer import Deferred
++from twisted.internet.endpoints import TCP4ClientEndpoint
++from twisted.internet.protocol import Protocol, ClientFactory
+ from twisted.python import log
+ 
+ from cowrie.core.artifact import Artifact
+@@ -12,17 +14,30 @@ from cowrie.shell.customparser import CustomParser
+ commands = {}
+ 
+ 
+-class Progress:
+-    def __init__(self, protocol):
+-        self.progress = 0
+-        self.out = protocol
++class _TFTPDownloadProtocol(Protocol):
++    def __init__(self, finished: Deferred, output):
++        self.finished = finished
++        self.output = output
++        self.bytes_received = 0
+ 
+-    def progresshook(self, pkt):
+-        if isinstance(pkt, TftpPacketDAT):
+-            self.progress += len(pkt.data)
+-            self.out.write(f"Transferred {self.progress} bytes\n")
+-        elif isinstance(pkt, TftpPacketOACK):
+-            self.out.write(f"Received OACK, options are: {pkt.options}\n")
++    def dataReceived(self, data: bytes) -> None:
++        self.bytes_received += len(data)
++        self.output.write(f"Transferred {self.bytes_received} bytes\n")
++
++    def connectionLost(self, reason) -> None:
++        if not self.finished.called:
++            self.finished.callback(self.bytes_received)
++
++
++class _TFTPClientFactory(ClientFactory):
++    protocol = _TFTPDownloadProtocol
++
++    def __init__(self, finished: Deferred, output):
++        self.finished = finished
++        self.output = output
++
++    def buildProtocol(self, addr):
++        return self.protocol(self.finished, self.output)
+ 
+ 
+ class Command_tftp(HoneyPotCommand):
+@@ -32,62 +47,58 @@ class Command_tftp(HoneyPotCommand):
+     limit_size = CowrieConfig.getint("honeypot", "download_limit_size", fallback=0)
+ 
+     def makeTftpRetrieval(self) -> None:
+-        progresshook = Progress(self).progresshook
+-
+         self.artifactFile = Artifact(self.file_to_get)
+ 
+-        tclient = None
+         url = ""
+ 
+-        try:
+-            tclient = tftpy.TftpClient(self.hostname, int(self.port))
+-
+-            # tftpy can't handle unicode string as filename
+-            # so we have to convert unicode type to str type
+-            tclient.download(str(self.file_to_get), self.artifactFile, progresshook)
+-
++        def _on_success(bytes_received: int) -> None:
++            nonlocal url
+             url = "tftp://{}/{}".format(self.hostname, self.file_to_get.strip("/"))
+ 
+             self.file_to_get = self.fs.resolve_path(self.file_to_get, self.protocol.cwd)
+ 
+-            if hasattr(tclient.context, "metrics"):
+-                self.fs.mkfile(
+-                    self.file_to_get, 0, 0, tclient.context.metrics.bytes, 33188
++            self.fs.mkfile(self.file_to_get, 0, 0, bytes_received, 33188)
++
++            self.artifactFile.close()
++
++            if url:
++                # log to cowrie.log
++                log.msg(
++                    format="Downloaded URL (%(url)s) with SHA-256 %(shasum)s to %(outfile)s",
++                    url=url,
++                    outfile=self.artifactFile.shasumFilename,
++                    shasum=self.artifactFile.shasum,
+                 )
+-            else:
+-                self.fs.mkfile(self.file_to_get, 0, 0, 0, 33188)
+-
+-        except tftpy.TftpException:
+-            if tclient and tclient.context and not tclient.context.fileobj.closed:
+-                tclient.context.fileobj.close()
+-
+-        self.artifactFile.close()
+-
+-        if url:
+-            # log to cowrie.log
+-            log.msg(
+-                format="Downloaded URL (%(url)s) with SHA-256 %(shasum)s to %(outfile)s",
+-                url=url,
+-                outfile=self.artifactFile.shasumFilename,
+-                shasum=self.artifactFile.shasum,
+-            )
+ 
+-            self.protocol.logDispatch(
+-                eventid="cowrie.session.file_download",
+-                format="Downloaded URL (%(url)s) with SHA-256 %(shasum)s to %(outfile)s",
+-                url=url,
+-                outfile=self.artifactFile.shasumFilename,
+-                shasum=self.artifactFile.shasum,
+-                destfile=self.file_to_get,
+-            )
++                self.protocol.logDispatch(
++                    eventid="cowrie.session.file_download",
++                    format="Downloaded URL (%(url)s) with SHA-256 %(shasum)s to %(outfile)s",
++                    url=url,
++                    outfile=self.artifactFile.shasumFilename,
++                    shasum=self.artifactFile.shasum,
++                    destfile=self.file_to_get,
++                )
++
++                # Update the honeyfs to point to downloaded file
++                self.fs.update_realfile(
++                    self.fs.getfile(self.file_to_get), self.artifactFile.shasumFilename
++                )
++                self.fs.chown(
++                    self.file_to_get, self.protocol.user.uid, self.protocol.user.gid
++                )
++
++        def _on_failure(failure):
++            log.msg(f"TFTP download failed: {failure}")
++            if not self.artifactFile.closed:
++                self.artifactFile.close()
++
++        point = TCP4ClientEndpoint(reactor, self.hostname, int(self.port))
++        finished = Deferred()
++        finished.addCallbacks(_on_success, _on_failure)
++
++        factory = _TFTPClientFactory(finished, self)
++        point.connect(factory)
+ 
+-            # Update the honeyfs to point to downloaded file
+-            self.fs.update_realfile(
+-                self.fs.getfile(self.file_to_get), self.artifactFile.shasumFilename
+-            )
+-            self.fs.chown(
+-                self.file_to_get, self.protocol.user.uid, self.protocol.user.gid
+-            )
+ 
+     def start(self) -> None:
+         parser = CustomParser(self)

@@ -1,0 +1,59 @@
+diff --git a/chalice/cli/newproj.py b/chalice/cli/newproj.py
+index 69e6baf..e2d13fb 100644
+--- a/chalice/cli/newproj.py
++++ b/chalice/cli/newproj.py
+@@ -35,7 +35,7 @@ import fnmatch
+ from dataclasses import dataclass
+ from typing import Optional, Dict, Any, Iterator, Tuple, Match, List  # noqa
+ 
+-import inquirer
++import click
+ 
+ from chalice.constants import WELCOME_PROMPT
+ from chalice.utils import OSUtils
+@@ -167,13 +167,16 @@ def list_available_projects(
+ def getting_started_prompt() -> Dict[str, Any]:
+     print(WELCOME_PROMPT)
+     projects = list_available_projects(TEMPLATES_DIR, OSUtils())
+-    questions = [
+-        inquirer.Text('project_name', message='Enter the project name'),
+-        inquirer.List(
+-            'project_type',
+-            message='Select your project type',
+-            choices=[(p.description, p.key) for p in projects],
++    project_name = click.prompt('Enter the project name')
++    project_type = click.prompt(
++        'Select your project type',
++        type=click.Choice(
++            [p.key for p in projects],
++            case_sensitive=False,
+         ),
+-    ]
+-    answers = inquirer.prompt(questions)
+-    return answers
++        show_choices=True,
++    )
++    return {
++        'project_name': project_name,
++        'project_type': project_type,
++    }
+diff --git a/setup.py b/setup.py
+index de366e7..eb52fc7 100644
+--- a/setup.py
++++ b/setup.py
+@@ -29,6 +29,15 @@ setup(
+     url='https://github.com/aws/chalice',
+     packages=find_packages(exclude=['tests', 'tests.*']),
+     install_requires=[
++        'click>=7,<9.0',
++        'botocore>=1.14.0,<2.0.0',
++        'typing-extensions>=4.0.0,<5.0.0;python_version<"3.8"',
++        'six>=1.10.0,<2.0.0',
++        'pip>=9,<24.1',
++        'jmespath>=0.9.3,<2.0.0',
++        'pyyaml>=5.3.1,<7.0.0',
++        'wheel',
++        'setuptools'
+     ],
+     extras_require={
+         'event-file-poller': ['watchdog==2.3.1'],

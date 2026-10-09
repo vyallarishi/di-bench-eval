@@ -1,0 +1,391 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1d157a..8914bfb 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -37,6 +37,11 @@ keywords = [
+     "time-series-regression",
+ ]
+ dependencies = [
++    "numpy>=1.20.3",
++    "pandas>=1.5",
++    "scikit-learn>=1.2",
++    "optuna>=2.10",
++    "joblib>=1.1",
+ ]
+ requires-python = ">=3.9"
+ 
+diff --git a/skforecast/model_selection/model_selection.py b/skforecast/model_selection/model_selection.py
+index ebad7d8..7c91705 100644
+--- a/skforecast/model_selection/model_selection.py
++++ b/skforecast/model_selection/model_selection.py
+@@ -14,12 +14,12 @@ import warnings
+ import numpy as np
+ import pandas as pd
+ from joblib import Parallel, delayed, cpu_count
+-from tqdm.auto import tqdm
+ import optuna
+ from optuna.samplers import TPESampler
+ from sklearn.model_selection import ParameterGrid
+ from sklearn.model_selection import ParameterSampler
+ 
++from ..metrics import add_y_train_argument, _get_metric
+ from ..metrics import add_y_train_argument, _get_metric
+ from ..exceptions import LongTrainingWarning
+ from ..exceptions import IgnoredArgumentWarning
+@@ -1171,13 +1171,12 @@ def _evaluate_grid_hyperparameters(
+         )
+ 
+     print(f"Number of models compared: {len(param_grid) * len(lags_grid)}.")
+-
+     if show_progress:
+-        lags_grid_tqdm = tqdm(lags_grid.items(), desc='lags grid', position=0)  # ncols=90
+-        param_grid = tqdm(param_grid, desc='params grid', position=1, leave=False)
++        lags_grid_iter = tqdm(lags_grid.items(), desc='lags grid', position=0)
++        param_grid_iter = tqdm(param_grid, desc='params grid', position=1, leave=False)
+     else:
+-        lags_grid_tqdm = lags_grid.items()
+-    
++        lags_grid_iter = lags_grid.items()
++        param_grid_iter = param_grid
+     if output_file is not None and os.path.isfile(output_file):
+         os.remove(output_file)
+ 
+diff --git a/skforecast/model_selection/tests/test_bayesian_search_optuna.py b/skforecast/model_selection/tests/test_bayesian_search_optuna.py
+index 94e3c1b..1cb62db 100644
+--- a/skforecast/model_selection/tests/test_bayesian_search_optuna.py
++++ b/skforecast/model_selection/tests/test_bayesian_search_optuna.py
+@@ -16,7 +16,12 @@ from skforecast.model_selection import backtesting_forecaster
+ from skforecast.model_selection.model_selection import _bayesian_search_optuna
+ import optuna
+ from optuna.samplers import TPESampler
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection import model_selection
++
++model_selection.tqdm.__init__ = partialmethod(model_selection.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ 
+ # Fixtures
+@@ -789,4 +794,4 @@ def test_bayesian_search_optuna_output_file():
+         )[0]
+ 
+     assert os.path.isfile(output_file)
+-    os.remove(output_file)
+\ No newline at end of file
++    os.remove(output_file)
+diff --git a/skforecast/model_selection/tests/test_evaluate_grid_hyperparameters.py b/skforecast/model_selection/tests/test_evaluate_grid_hyperparameters.py
+index 17053f8..4691c87 100644
+--- a/skforecast/model_selection/tests/test_evaluate_grid_hyperparameters.py
++++ b/skforecast/model_selection/tests/test_evaluate_grid_hyperparameters.py
+@@ -12,7 +12,12 @@ from skforecast.ForecasterAutoreg import ForecasterAutoreg
+ from skforecast.ForecasterAutoregCustom import ForecasterAutoregCustom
+ from skforecast.model_selection.model_selection import _evaluate_grid_hyperparameters
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection import model_selection
++
++model_selection.tqdm.__init__ = partialmethod(model_selection.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)  # hide progress bar
+ 
+@@ -643,4 +648,4 @@ def test_evaluate_grid_hyperparameters_output_file_when_2_metrics_as_list():
+     output_file_content = output_file_content.sort_values(by='mean_squared_error')
+     output_file_content = output_file_content.astype({'lags': str, 'lags_label': str, 'params': str})
+     pd.testing.assert_frame_equal(results, output_file_content)
+-    os.remove(output_file)
+\ No newline at end of file
++    os.remove(output_file)
+diff --git a/skforecast/model_selection/tests/test_grid_search_forecaster.py b/skforecast/model_selection/tests/test_grid_search_forecaster.py
+index b0f99e4..34fa435 100644
+--- a/skforecast/model_selection/tests/test_grid_search_forecaster.py
++++ b/skforecast/model_selection/tests/test_grid_search_forecaster.py
+@@ -7,7 +7,12 @@ from sklearn.linear_model import Ridge
+ from skforecast.ForecasterAutoreg import ForecasterAutoreg
+ from skforecast.model_selection import grid_search_forecaster
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection import model_selection
++
++model_selection.tqdm.__init__ = partialmethod(model_selection.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ tqdm.__init__ = partialmethod(tqdm.__init__, disable=True) # hide progress bar
+ 
+@@ -59,4 +64,4 @@ def test_output_grid_search_forecaster_ForecasterAutoreg_with_mocked():
+         index = pd.RangeIndex(start=0, stop=idx, step=1)
+     )
+ 
+-    pd.testing.assert_frame_equal(results, expected_results)
+\ No newline at end of file
++    pd.testing.assert_frame_equal(results, expected_results)
+diff --git a/skforecast/model_selection/tests/test_random_search_forecaster.py b/skforecast/model_selection/tests/test_random_search_forecaster.py
+index 1fb85b3..c65065a 100644
+--- a/skforecast/model_selection/tests/test_random_search_forecaster.py
++++ b/skforecast/model_selection/tests/test_random_search_forecaster.py
+@@ -7,9 +7,12 @@ from sklearn.linear_model import Ridge
+ from skforecast.ForecasterAutoreg import ForecasterAutoreg
+ from skforecast.model_selection import random_search_forecaster
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
+ from functools import partialmethod
+-tqdm.__init__ = partialmethod(tqdm.__init__, disable=True) # hide progress bar
++
++from skforecast.model_selection import model_selection
++
++model_selection.tqdm.__init__ = partialmethod(model_selection.tqdm.__init__, disable=True) # hide progress bar
+ 
+ # Fixtures
+ from .fixtures_model_selection import y
+@@ -61,4 +64,4 @@ def test_output_random_search_forecaster_ForecasterAutoreg_with_mocked():
+         index = pd.Index([1, 0, 4, 3, 5, 2], dtype='int64')
+     )
+ 
+-    pd.testing.assert_frame_equal(results, expected_results)
+\ No newline at end of file
++    pd.testing.assert_frame_equal(results, expected_results)
+diff --git a/skforecast/model_selection_multiseries/model_selection_multiseries.py b/skforecast/model_selection_multiseries/model_selection_multiseries.py
+index a56defd..f36708a 100644
+--- a/skforecast/model_selection_multiseries/model_selection_multiseries.py
++++ b/skforecast/model_selection_multiseries/model_selection_multiseries.py
+@@ -14,12 +14,10 @@ import warnings
+ import numpy as np
+ import pandas as pd
+ from joblib import Parallel, delayed, cpu_count
+-from tqdm.auto import tqdm
+ from sklearn.model_selection import ParameterGrid
+ from sklearn.model_selection import ParameterSampler
+ import optuna
+ from optuna.samplers import TPESampler
+-
+ from ..exceptions import warn_skforecast_categories
+ from ..exceptions import LongTrainingWarning
+ from ..exceptions import IgnoredArgumentWarning
+@@ -708,8 +706,8 @@ def _backtesting_forecaster_multiseries(
+                 LongTrainingWarning
+             )
+ 
+-    if show_progress:
+-        folds = tqdm(folds)
++        if verbose:
++            folds = tqdm(folds)
+ 
+     data_folds = _extract_data_folds_multiseries(
+                      series             = series,
+@@ -1503,13 +1501,12 @@ def _evaluate_grid_hyperparameters_multiseries(
+         f"{len(param_grid) * len(lags_grid)} models compared for {len(levels)} level(s). "
+         f"Number of iterations: {len(param_grid) * len(lags_grid)}."
+     )
+-
+     if show_progress:
+-        lags_grid_tqdm = tqdm(lags_grid.items(), desc='lags grid', position=0)  # ncols=90
+-        param_grid = tqdm(param_grid, desc='params grid', position=1, leave=False)
++        lags_grid_iter = tqdm(lags_grid.items(), desc='lags grid', position=0)
++        param_grid_iter = tqdm(param_grid, desc='params grid', position=1, leave=False)
+     else:
+-        lags_grid_tqdm = lags_grid.items()
+-    
++        lags_grid_iter = lags_grid.items()
++        param_grid_iter = param_grid
+     if output_file is not None and os.path.isfile(output_file):
+         os.remove(output_file)
+ 
+@@ -2986,4 +2983,4 @@ def bayesian_search_forecaster_multivariate(
+                               kwargs_study_optimize = kwargs_study_optimize
+                           )
+ 
+-    return results, best_trial
+\ No newline at end of file
++    return results, best_trial
+diff --git a/skforecast/model_selection_multiseries/tests/test_bayesian_search_optuna_multiseries.py b/skforecast/model_selection_multiseries/tests/test_bayesian_search_optuna_multiseries.py
+index 692c460..48b58cb 100644
+--- a/skforecast/model_selection_multiseries/tests/test_bayesian_search_optuna_multiseries.py
++++ b/skforecast/model_selection_multiseries/tests/test_bayesian_search_optuna_multiseries.py
+@@ -18,7 +18,12 @@ from skforecast.model_selection_multiseries import backtesting_forecaster_multis
+ from skforecast.model_selection_multiseries.model_selection_multiseries import _bayesian_search_optuna_multiseries
+ import optuna
+ from optuna.samplers import TPESampler
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection_multiseries import model_selection_multiseries
++
++model_selection_multiseries.tqdm.__init__ = partialmethod(model_selection_multiseries.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ 
+ optuna.logging.set_verbosity(optuna.logging.WARNING)
+@@ -1251,4 +1256,4 @@ def test_bayesian_search_optuna_multiseries_ForecasterAutoregMultiVariate_output
+               )[0]
+ 
+     assert os.path.isfile(output_file)
+-    os.remove(output_file)
+\ No newline at end of file
++    os.remove(output_file)
+diff --git a/skforecast/model_selection_multiseries/tests/test_evaluate_grid_hyperparameters_multiseries.py b/skforecast/model_selection_multiseries/tests/test_evaluate_grid_hyperparameters_multiseries.py
+index 47bedb6..212ff26 100644
+--- a/skforecast/model_selection_multiseries/tests/test_evaluate_grid_hyperparameters_multiseries.py
++++ b/skforecast/model_selection_multiseries/tests/test_evaluate_grid_hyperparameters_multiseries.py
+@@ -13,7 +13,12 @@ from skforecast.ForecasterAutoregMultiSeriesCustom import ForecasterAutoregMulti
+ from skforecast.ForecasterAutoregMultiVariate import ForecasterAutoregMultiVariate
+ from skforecast.model_selection_multiseries.model_selection_multiseries import _evaluate_grid_hyperparameters_multiseries
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection_multiseries import model_selection_multiseries
++
++model_selection_multiseries.tqdm.__init__ = partialmethod(model_selection_multiseries.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)  # hide progress bar
+ 
+diff --git a/skforecast/model_selection_multiseries/tests/test_grid_search_forecaster_multiseries.py b/skforecast/model_selection_multiseries/tests/test_grid_search_forecaster_multiseries.py
+index a3aedab..7ba234d 100644
+--- a/skforecast/model_selection_multiseries/tests/test_grid_search_forecaster_multiseries.py
++++ b/skforecast/model_selection_multiseries/tests/test_grid_search_forecaster_multiseries.py
+@@ -9,7 +9,12 @@ from skforecast.ForecasterAutoregMultiVariate import ForecasterAutoregMultiVaria
+ from skforecast.model_selection_multiseries import grid_search_forecaster_multiseries
+ from skforecast.model_selection_multiseries import grid_search_forecaster_multivariate
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection_multiseries import model_selection_multiseries
++
++model_selection_multiseries.tqdm.__init__ = partialmethod(model_selection_multiseries.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)  # hide progress bar
+ 
+@@ -276,4 +281,4 @@ def test_output_grid_search_forecaster_multiseries_ForecasterAutoregMultiVariate
+         index = pd.Index([0, 1, 2, 3, 4, 5], dtype='int64')
+     )
+ 
+-    pd.testing.assert_frame_equal(results, expected_results)
+\ No newline at end of file
++    pd.testing.assert_frame_equal(results, expected_results)
+diff --git a/skforecast/model_selection_multiseries/tests/test_random_search_forecaster_multiseries.py b/skforecast/model_selection_multiseries/tests/test_random_search_forecaster_multiseries.py
+index 706465e..8dd3a2a 100644
+--- a/skforecast/model_selection_multiseries/tests/test_random_search_forecaster_multiseries.py
++++ b/skforecast/model_selection_multiseries/tests/test_random_search_forecaster_multiseries.py
+@@ -10,7 +10,12 @@ from skforecast.ForecasterAutoregMultiVariate import ForecasterAutoregMultiVaria
+ from skforecast.model_selection_multiseries import random_search_forecaster_multiseries
+ from skforecast.model_selection_multiseries import random_search_forecaster_multivariate
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection_multiseries import model_selection_multiseries
++
++model_selection_multiseries.tqdm.__init__ = partialmethod(model_selection_multiseries.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ tqdm.__init__ = partialmethod(tqdm.__init__, disable=True) # hide progress bar
+ 
+@@ -178,4 +183,4 @@ def test_output_random_search_forecaster_multiseries_ForecasterAutoregMultiVaria
+         index=pd.Index([0, 1, 2, 3, 4, 5], dtype='int64')
+     )
+ 
+-    pd.testing.assert_frame_equal(results, expected_results)
+\ No newline at end of file
++    pd.testing.assert_frame_equal(results, expected_results)
+diff --git a/skforecast/model_selection_sarimax/model_selection_sarimax.py b/skforecast/model_selection_sarimax/model_selection_sarimax.py
+index 214f603..89cd242 100644
+--- a/skforecast/model_selection_sarimax/model_selection_sarimax.py
++++ b/skforecast/model_selection_sarimax/model_selection_sarimax.py
+@@ -13,10 +13,8 @@ import warnings
+ import logging
+ from copy import deepcopy
+ from joblib import Parallel, delayed, cpu_count
+-from tqdm.auto import tqdm
+ from sklearn.model_selection import ParameterGrid
+ from sklearn.model_selection import ParameterSampler
+-
+ from ..exceptions import LongTrainingWarning
+ from ..exceptions import IgnoredArgumentWarning
+ from ..metrics import add_y_train_argument, _get_metric
+@@ -207,7 +205,7 @@ def _backtesting_sarimax(
+                 LongTrainingWarning
+             )
+        
+-    folds_tqdm = tqdm(folds) if show_progress else folds
++    folds_tqdm = tqdm(folds) if show_progress and verbose else folds
+ 
+     def _fit_predict_forecaster(y, exog, forecaster, alpha, interval, fold, steps):
+         """
+diff --git a/skforecast/model_selection_sarimax/test/test_evaluate_grid_hyperparameters_sarimax.py b/skforecast/model_selection_sarimax/test/test_evaluate_grid_hyperparameters_sarimax.py
+index 80ebc75..68ac019 100644
+--- a/skforecast/model_selection_sarimax/test/test_evaluate_grid_hyperparameters_sarimax.py
++++ b/skforecast/model_selection_sarimax/test/test_evaluate_grid_hyperparameters_sarimax.py
+@@ -10,7 +10,12 @@ from skforecast.Sarimax import Sarimax
+ from skforecast.ForecasterSarimax import ForecasterSarimax
+ from skforecast.model_selection_sarimax.model_selection_sarimax import _evaluate_grid_hyperparameters_sarimax
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection_sarimax import model_selection_sarimax
++
++model_selection_sarimax.tqdm.__init__ = partialmethod(model_selection_sarimax.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)  # hide progress bar
+ 
+@@ -323,4 +328,4 @@ def test_evaluate_grid_hyperparameters_sarimax_output_file_when_metric_list():
+     output_file_content = output_file_content.sort_values(by='mean_squared_error')
+     output_file_content = output_file_content.astype({'params': str, 'order': str})
+     pd.testing.assert_frame_equal(results, output_file_content)
+-    os.remove(output_file)
+\ No newline at end of file
++    os.remove(output_file)
+diff --git a/skforecast/model_selection_sarimax/test/test_grid_search_sarimax.py b/skforecast/model_selection_sarimax/test/test_grid_search_sarimax.py
+index df1b58e..34ddedd 100644
+--- a/skforecast/model_selection_sarimax/test/test_grid_search_sarimax.py
++++ b/skforecast/model_selection_sarimax/test/test_grid_search_sarimax.py
+@@ -9,7 +9,12 @@ from skforecast.Sarimax import Sarimax
+ from skforecast.ForecasterSarimax import ForecasterSarimax
+ from skforecast.model_selection_sarimax import grid_search_sarimax
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection_sarimax import model_selection_sarimax
++
++model_selection_sarimax.tqdm.__init__ = partialmethod(model_selection_sarimax.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ tqdm.__init__ = partialmethod(tqdm.__init__, disable=True) # hide progress bar
+ 
+@@ -53,4 +58,4 @@ def test_output_grid_search_sarimax_sarimax_with_mocked():
+         index = pd.Index(np.array([2, 3, 1, 0]), dtype='int64')
+     )
+ 
+-    pd.testing.assert_frame_equal(results, expected_results, atol=0.0001)
+\ No newline at end of file
++    pd.testing.assert_frame_equal(results, expected_results, atol=0.0001)
+diff --git a/skforecast/model_selection_sarimax/test/test_random_search_sarimax.py b/skforecast/model_selection_sarimax/test/test_random_search_sarimax.py
+index f61787e..e35e494 100644
+--- a/skforecast/model_selection_sarimax/test/test_random_search_sarimax.py
++++ b/skforecast/model_selection_sarimax/test/test_random_search_sarimax.py
+@@ -9,7 +9,12 @@ from skforecast.Sarimax import Sarimax
+ from skforecast.ForecasterSarimax import ForecasterSarimax
+ from skforecast.model_selection_sarimax import random_search_sarimax
+ 
+-from tqdm import tqdm
++from unittest.mock import patch
++from functools import partialmethod
++
++from skforecast.model_selection_sarimax import model_selection_sarimax
++
++model_selection_sarimax.tqdm.__init__ = partialmethod(model_selection_sarimax.tqdm.__init__, disable=True) # hide progress bar
+ from functools import partialmethod
+ tqdm.__init__ = partialmethod(tqdm.__init__, disable=True) # hide progress bar
+ 

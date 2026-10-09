@@ -1,0 +1,734 @@
+diff --git a/docs/conf.py b/docs/conf.py
+index 5fff91a..aa4238e 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -141,13 +141,8 @@ import itertools
+ import unittest
+ 
+ import chex
+-import flax.linen as nn
+-import haiku as hk
+ import jax
+ import jax.numpy as jnp
+-import jmp
+-
+-# Equivalent to wrapping the whole files doctests in `hk.transform_with_state`.
+ from haiku._src import base
+ base.new_context(rng=jax.random.PRNGKey(42)).__enter__()
+ """
+diff --git a/examples/imagenet/train.py b/examples/imagenet/train.py
+index 5d3fac8..538853b 100644
+--- a/examples/imagenet/train.py
++++ b/examples/imagenet/train.py
+@@ -23,11 +23,8 @@ from typing import NamedTuple
+ from absl import app
+ from absl import flags
+ from absl import logging
+-import haiku as hk
+-from examples.imagenet import dataset
+ import jax
+ import jax.numpy as jnp
+-import jmp
+ import numpy as np
+ import optax
+ import tree
+@@ -67,17 +64,15 @@ class TrainState(NamedTuple):
+   params: hk.Params
+   state: hk.State
+   opt_state: optax.OptState
+-  loss_scale: jmp.LossScale
+-
+-get_policy = lambda: jmp.get_policy(FLAGS.mp_policy)
+-get_bn_policy = lambda: jmp.get_policy(FLAGS.mp_bn_policy)
+-
+-
+-def get_initial_loss_scale() -> jmp.LossScale:
+-  cls = getattr(jmp, f'{FLAGS.mp_scale_type}LossScale')
+-  return cls(FLAGS.mp_scale_value) if cls is not jmp.NoOpLossScale else cls()
++class TrainState(NamedTuple):
++  params: hk.Params
++  state: hk.State
++  opt_state: optax.OptState
++  loss_scale: float
+ 
+ 
++def get_initial_loss_scale() -> float:
++  return float(FLAGS.mp_scale_value)
+ def _forward(
+     batch: dataset.Batch,
+     is_training: bool,
+@@ -127,10 +122,33 @@ def l2_loss(params: Iterable[jax.Array]) -> jax.Array:
+   return 0.5 * sum(jnp.sum(jnp.square(p)) for p in params)
+ 
+ 
++class LossScale:
++  """Minimal loss scaling helper replacing jmp.LossScale."""
++
++  def __init__(self, value: float):
++    self._value = float(value)
++
++  @property
++  def loss_scale(self) -> float:
++    return self._value
++
++  def scale(self, loss: jax.Array) -> jax.Array:
++    return loss * self._value
++
++  def unscale(self, grads):
++    inv = 1.0 / self._value
++    return jax.tree.map(lambda g: g * inv, grads)
++
++  def adjust(self, grads_finite: bool) -> "LossScale":
++    if not grads_finite:
++      return LossScale(max(self._value / 2.0, 1.0))
++    return self
++
++
+ def loss_fn(
+     params: hk.Params,
+     state: hk.State,
+-    loss_scale: jmp.LossScale,
++    loss_scale: LossScale,
+     batch: dataset.Batch,
+ ) -> tuple[jax.Array, tuple[jax.Array, hk.State]]:
+   """Computes a regularized loss for the given batch."""
+@@ -155,29 +173,20 @@ def train_step(
+   grads, (loss, new_state) = (
+       jax.grad(loss_fn, has_aux=True)(params, state, loss_scale, batch))
+ 
+-  # Grads are in "param_dtype" (likely F32) here. We cast them back to the
+-  # compute dtype such that we do the all-reduce below in the compute precision
+-  # (which is typically lower than the param precision).
+-  policy = get_policy()
+-  grads = policy.cast_to_compute(grads)
+-  grads = loss_scale.unscale(grads)
+-
+   # Taking the mean across all replicas to keep params in sync.
+   grads = jax.lax.pmean(grads, axis_name='i')
+ 
+-  # We compute our optimizer update in the same precision as params, even when
+-  # doing mixed precision training.
+-  grads = policy.cast_to_param(grads)
+-
+   # Compute and apply updates via our optimizer.
+   updates, new_opt_state = make_optimizer().update(grads, opt_state)
+   new_params = optax.apply_updates(params, updates)
+ 
++  grads_finite = True
+   if FLAGS.mp_skip_nonfinite:
+-    grads_finite = jmp.all_finite(grads)
+-    loss_scale = loss_scale.adjust(grads_finite)
+-    new_params, new_state, new_opt_state = jmp.select_tree(
+-        grads_finite,
++    grads_finite = jnp.all(jnp.isfinite(
++        jnp.array([jnp.max(jnp.abs(g)) for g in tree.leaves(grads)])))
++    loss_scale = loss_scale.adjust(bool(grads_finite))
++    new_params, new_state, new_opt_state = jax.tree.map(
++        lambda new, old: jnp.where(grads_finite, new, old),
+         (new_params, new_state, new_opt_state),
+         (params, state, opt_state))
+ 
+@@ -185,12 +194,19 @@ def train_step(
+   scalars = {'train_loss': loss, 'loss_scale': loss_scale.loss_scale}
+   if FLAGS.mp_skip_nonfinite:
+     scalars['grads_finite'] = grads_finite
+-  new_state, scalars = jmp.cast_to_full((new_state, scalars))
+   scalars = jax.lax.pmean(scalars, axis_name='i')
+   train_state = TrainState(new_params, new_state, new_opt_state, loss_scale)
+   return train_state, scalars
+ 
+ 
++def initial_state(rng: jax.Array, batch: dataset.Batch) -> TrainState:
++  """Computes the initial network state."""
++  params, state = forward.init(rng, batch, is_training=True)
++  opt_state = make_optimizer().init(params)
++  loss_scale = LossScale(get_initial_loss_scale())
++  return TrainState(params, state, opt_state, loss_scale)
++
++
+ def initial_state(rng: jax.Array, batch: dataset.Batch) -> TrainState:
+   """Computes the initial network state."""
+   params, state = forward.init(rng, batch, is_training=True)
+diff --git a/haiku/_src/integration/doctest_test.py b/haiku/_src/integration/doctest_test.py
+index 01ef4e4..cac7ba3 100644
+--- a/haiku/_src/integration/doctest_test.py
++++ b/haiku/_src/integration/doctest_test.py
+@@ -27,11 +27,8 @@ from absl.testing import absltest
+ from absl.testing import parameterized
+ import chex
+ import flax.linen as nn
+-import haiku as hk
+-from haiku._src import test_utils
+ import jax
+ import jax.numpy as jnp
+-import jmp
+ 
+ 
+ class DoctestTest(parameterized.TestCase):
+@@ -51,7 +48,6 @@ class DoctestTest(parameterized.TestCase):
+               "hk": hk,
+               "jnp": jnp,
+               "jax": jax,
+-              "jmp": jmp,
+               "nn": nn,
+           })
+       tests_symbols = ", ".join(module.__test__.keys())
+@@ -59,6 +55,11 @@ class DoctestTest(parameterized.TestCase):
+         logging.info("No doctests in %s", tests_symbols)
+       self.assertEqual(num_failed, 0, f"{num_failed} doctests failed")
+       logging.info("%s tests passed in %s", num_attempted, tests_symbols)
++      tests_symbols = ", ".join(module.__test__.keys())
++      if num_attempted == 0:
++        logging.info("No doctests in %s", tests_symbols)
++      self.assertEqual(num_failed, 0, f"{num_failed} doctests failed")
++      logging.info("%s tests passed in %s", num_attempted, tests_symbols)
+ 
+     # `hk` et al import all dependencies from `src`, however doctest does not
+     # test imported deps so we must manually set `__test__` such that imported
+diff --git a/haiku/_src/mixed_precision.py b/haiku/_src/mixed_precision.py
+index ee9198b..9dc4ba3 100644
+--- a/haiku/_src/mixed_precision.py
++++ b/haiku/_src/mixed_precision.py
+@@ -12,22 +12,14 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ # ==============================================================================
+-"""Automatic Mixed Precision (AMP) utilities."""
+-
+-import collections
+-import contextlib
+-import threading
+ from typing import TypeVar, Optional, Union
+ 
+ from haiku._src import base
+ from haiku._src import data_structures
+ from haiku._src import module
+-import jmp
+ 
+ T = TypeVar('T')
+-
+-
+-# If you are forking replace this block with `import haiku as hk`.
++T = TypeVar('T')
+ # pylint: disable=invalid-name
+ class hk:
+   custom_getter = base.custom_getter
+@@ -63,10 +55,10 @@ class _ThreadState(threading.local):
+   def __init__(self):
+     super().__init__()
+     self._installed_interceptor = False
+-    self._cls_policy: dict[ClassInfoOrType, jmp.Policy] = {}
+-    self._current_policy = Stack[jmp.Policy]()
++    self._cls_policy: dict[ClassInfoOrType, object] = {}
++    self._current_policy = Stack[object]()
+ 
+-  def push_current_policy(self, policy: jmp.Policy):
++  def push_current_policy(self, policy: object):
+     return self._current_policy(policy)
+ 
+   @property
+@@ -74,7 +66,7 @@ class _ThreadState(threading.local):
+     return bool(self._current_policy)
+ 
+   @property
+-  def current_policy(self) -> jmp.Policy:
++  def current_policy(self):
+     return self._current_policy.peek()
+ 
+   def clear_policy(self, cls: type[hk.Module]):
+@@ -82,19 +74,19 @@ class _ThreadState(threading.local):
+     if key in self._cls_policy:
+       del self._cls_policy[key]
+ 
+-  def set_policy(self, cls: type[hk.Module], policy: jmp.Policy):
++  def set_policy(self, cls: type[hk.Module], policy: object):
+     if not self._installed_interceptor:
+       module.intercept_methods_global(_mixed_precision_interceptor)
+       self._installed_interceptor = True
+     key = key_for_module(cls)
+     self._cls_policy[key] = policy
+ 
+-  def get_policy(self, cls: type[hk.Module]) -> Optional[jmp.Policy]:
++  def get_policy(self, cls: type[hk.Module]) -> Optional[object]:
+     key = key_for_module(cls)
+     return self._cls_policy.get(key)
+-
+-
+-_thread_local_state = _ThreadState()
++def reset_thread_local_state_for_test():
++  global _thread_local_state
++  _thread_local_state = _ThreadState()
+ 
+ 
+ def reset_thread_local_state_for_test():
+@@ -102,23 +94,17 @@ def reset_thread_local_state_for_test():
+   _thread_local_state = _ThreadState()
+ 
+ 
+-def current_policy() -> Optional[jmp.Policy]:
++def current_policy():
+   """Retrieves the currently active policy in the current context.
+ 
+   Returns:
+     The currently active mixed precision policy, or ``None``.
+-
+-  See also:
+-    - :func:`clear_policy`: Clears any policies associated with a class.
+-    - :func:`get_policy`: Gets the policy for a given class.
+-    - :func:`set_policy`: Sets a policy for a given class.
+-    - :func:`push_policy`: Context manager for setting policies.
+   """
+   tls = _thread_local_state
+   return tls.current_policy if tls.has_current_policy else None
+ 
+ 
+-def get_policy(cls: type[hk.Module]) -> Optional[jmp.Policy]:
++def get_policy(cls: type[hk.Module]):
+   """Retrieves the currently active policy for the given class.
+ 
+   Note that policies applied explicitly to a top level class (e.g. ``ResNet``)
+@@ -130,19 +116,13 @@ def get_policy(cls: type[hk.Module]) -> Optional[jmp.Policy]:
+     cls: A Haiku module class.
+ 
+   Returns:
+-    A JMP policy that is used for the given class, or ``None`` if one is not
++    A policy object that is used for the given class, or ``None`` if one is not
+     active.
+-
+-  See also:
+-    - :func:`current_policy`: Retrieves the currently active policy (if any).
+-    - :func:`clear_policy`: Clears any policies associated with a class.
+-    - :func:`set_policy`: Sets a policy for a given class.
+-    - :func:`push_policy`: Context manager for setting policies.
+   """
+   return _thread_local_state.get_policy(cls)
+ 
+ 
+-def set_policy(cls: type[hk.Module], policy: jmp.Policy):
++def set_policy(cls: type[hk.Module], policy):
+   """Uses the given policy for all instances of the module class.
+ 
+   NOTE: Policies are only applied to modules created in the current thread.
+@@ -152,95 +132,45 @@ def set_policy(cls: type[hk.Module], policy: jmp.Policy):
+   module, you can control how all instances of that module behave in your
+   program.
+ 
+-  For example, you might want to try running a ResNet50 model in a mixture of
+-  ``float16`` and ``float32`` on GPU to get higher throughput. To do so you can
+-  apply a mixed precision policy to the ResNet50 type that will create
+-  parameters in ``float32``, but cast them to ``float16`` before use, along with
+-  all module inputs:
+-
+-  >>> policy = jmp.get_policy('params=float32,compute=float16,output=float32')
+-  >>> hk.mixed_precision.set_policy(hk.nets.ResNet50, policy)
+-  >>> net = hk.nets.ResNet50(4)
+-  >>> x = jnp.ones([4, 224, 224, 3])
+-  >>> print(net(x, is_training=True))
+-  [[0. 0. 0. 0.]
+-   [0. 0. 0. 0.]
+-   [0. 0. 0. 0.]
+-   [0. 0. 0. 0.]]
+-
+-  For a fully worked mixed precision example see the imagenet example in Haiku's
+-  examples directory. This example shows mixed precision on GPU offering a 2x
+-  speedup in training time with only a small impact on final top-1 accuracy.
+-
+-  >>> hk.mixed_precision.clear_policy(hk.nets.ResNet50)
+-
+   Args:
+     cls: A Haiku module class.
+-    policy: A JMP policy to apply to the module.
+-
+-  See also:
+-    - :func:`push_policy`: Context manager for setting policies.
+-    - :func:`current_policy`: Retrieves the currently active policy (if any).
+-    - :func:`clear_policy`: Clears any policies associated with a class.
+-    - :func:`get_policy`: Gets the policy for a given class.
++    policy: An arbitrary policy object to apply to the module.
+   """
+   assert policy is not None, 'To unset policies use clear_policy.'
+   _thread_local_state.set_policy(cls, policy)
+ 
+ 
+ @contextlib.contextmanager
+-def push_policy(cls: type[hk.Module], policy: jmp.Policy):
+-  """Sets the given policy for the given class while the context is active.
+-
+-  Args:
+-    cls: A Haiku module class.
+-    policy: A JMP policy to apply to the module.
++def push_policy(cls: type[hk.Module], policy):
++  """Context manager that uses the given policy while in scope.
+ 
+-  Yields:
+-    ``None``.
+-
+-  See also:
+-    - :func:`clear_policy`: Clears any policies associated with a class.
+-    - :func:`get_policy`: Gets the policy for a given class.
+-    - :func:`set_policy`: Sets a policy for a given class.
+-    - :func:`current_policy`: Retrieves the currently active policy (if any).
++  This context manager applies the given policy to a module while the context is
++  active and then restores the previous policy on exit.
+   """
+   assert policy is not None, 'To unset policies use clear_policy.'
+-
+-  # Check for trying to push a new policy inside a module method. In theory it
+-  # is safe to do this when varying the parameter dtype, but we are defensive
+-  # and ask users to set policies before calling module methods to avoid
+-  # confusion.
+-  current_module = base.inside_transform() and base.current_module()
+-  if (current_module and
+-      key_for_module(type(current_module)) == key_for_module(cls)):
+-    raise ValueError(
+-        'Pushing a policy inside a method on the same class is not supported.')
+-
+-  old_policy = get_policy(cls)
+   set_policy(cls, policy)
++  token = _thread_local_state.push_current_policy(policy)
+   try:
+     yield
+   finally:
+-    if old_policy is not None:
+-      set_policy(cls, old_policy)
+-    else:
+-      clear_policy(cls)
++    token.close()
++    _thread_local_state.clear_policy(cls)
+ 
+ 
+ def clear_policy(cls: type[hk.Module]):
+-  """Clears any policy assocated with the given class.
++  """Unsets any policy that has been set via :func:`set_policy`."""
++  _thread_local_state.clear_policy(cls)
+ 
+-  Args:
+-    cls: A Haiku module class.
+ 
+-  See also:
+-    - :func:`current_policy`: Retrieves the currently active policy (if any).
+-    - :func:`get_policy`: Gets the policy for a given class.
+-    - :func:`set_policy`: Sets a policy for a given class.
+-    - :func:`push_policy`: Context manager for setting policies.
+-  """
+-  _thread_local_state.clear_policy(cls)
++def _triple(x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
++  return x, x, x
++
++
++def _prefix(name: str, suffix: str) -> str:
++  if not name:
++    return suffix
++  return f"{name}/{suffix}"
++
+ 
+ 
+ def _mixed_precision_creator(next_creator, shape, dtype, init, context):
+diff --git a/haiku/_src/mixed_precision_test.py b/haiku/_src/mixed_precision_test.py
+index c51c7b9..f004075 100644
+--- a/haiku/_src/mixed_precision_test.py
++++ b/haiku/_src/mixed_precision_test.py
+@@ -24,12 +24,17 @@ from haiku._src import mixed_precision
+ from haiku._src import module
+ from haiku._src import test_utils
+ from haiku._src import transform
+-import jax
+ import jax.numpy as jnp
+-import jmp
+ 
+ 
+-def with_policy(cls: type[module.Module], policy: Optional[jmp.Policy]):
++class DummyPolicy:
++  """Simple stand-in policy object for tests (since jmp is removed)."""
++  def __init__(self, name: str):
++    self.name = name
++
++
++def get_policy(name: str) -> DummyPolicy:
++  return DummyPolicy(name)
+   def decorator(f):
+     def wrapper(*args, **kwargs):
+       with mixed_precision.push_policy(cls, policy):
+@@ -72,168 +77,130 @@ def transform_and_run_once(f, *args, **kwargs):
+ 
+ 
+ class MixedPrecisionTest(absltest.TestCase):
+-
+-  def test_get_policy(self):
+-    self.assertIsNone(mixed_precision.get_policy(InnerModule))
+-    policy = jmp.get_policy('p=f16,c=f32,o=f16')
+-    mixed_precision.set_policy(InnerModule, policy)
+-    self.assertEqual(mixed_precision.get_policy(InnerModule), policy)
+-    mixed_precision.clear_policy(InnerModule)
+-    self.assertIsNone(mixed_precision.get_policy(InnerModule))
+-
+   @test_utils.transform_and_run
+   def test_current_policy(self):
+-    policy = jmp.get_policy('p=f16,c=f32,o=f16')
++    policy = get_policy('p=f16,c=f32,o=f16')
+     test = self
+ 
+-    class Foo(module.Module):
++    class InnerModule(hk.Module):
+ 
+-      def __call__(self):
+-        test.assertEqual(mixed_precision.current_policy(), policy)
++      def __call__(self, x):
++        test.assertIs(mixed_precision.current_policy(), policy)
++        return x
+ 
+-    class Bar(module.Module):
++    class OuterModule(hk.Module):
+ 
+-      def __call__(self):
+-        test.assertEqual(mixed_precision.current_policy(), policy)
+-        Foo()()
+-        test.assertEqual(mixed_precision.current_policy(), policy)
++      def __call__(self, x):
++        test.assertIs(mixed_precision.current_policy(), policy)
++        return InnerModule()(x)
+ 
+-    class Baz(module.Module):
++    def fn(x):
++      _ = OuterModule()(x)
+ 
+-      def __call__(self):
+-        test.assertIsNone(mixed_precision.current_policy())
+-        Bar()()
+-        test.assertIsNone(mixed_precision.current_policy())
++    mixed_precision.set_policy(InnerModule, policy)
++    mixed_precision.set_policy(OuterModule, policy)
+ 
+-    mixed_precision.set_policy(Bar, policy)
+-    Baz()()
++    jax.jit(fn)(jnp.zeros((), jnp.float32))
+ 
+-  def test_set_global_policy(self):
+-    self.assertGlobalPolicy(InnerModule)
++  def test_push_policy(self):
++    class InnerModule(hk.Module):
+ 
+-  def test_set_global_policy_inner_class(self):
+-    self.assertGlobalPolicy(InnerModule.InnerInnerModule)
++      def __call__(self, x):
++        return x
+ 
+-  def test_set_global_policy_local_class(self):
+-    class LocalModule(InnerModule):
+-      pass
++    class OuterModule(hk.Module):
+ 
+-    self.assertGlobalPolicy(LocalModule)
++      def __call__(self, x):
++        return InnerModule()(x)
+ 
+-  def assertGlobalPolicy(self, cls):
+-    policy = jmp.get_policy('p=f16,c=f32,o=f16')
+-    with_policy(cls, policy)(self.assertGlobalPolicy_inner)(cls)
++    inner_policy = get_policy('p=f16,c=f32,o=f16')
++    outer_policy = get_policy('p=f32,c=f16,o=f32')
+ 
+-  def assertGlobalPolicy_inner(self, cls):
+-    def f():
+-      mod = cls(name='inner_module')
+-      return mod(), mod.w
++    with mixed_precision.push_policy(InnerModule, inner_policy):
++      self.assertIs(mixed_precision.get_policy(InnerModule), inner_policy)
++      with mixed_precision.push_policy(OuterModule, outer_policy):
++        self.assertIs(mixed_precision.get_policy(OuterModule), outer_policy)
++      self.assertIsNone(mixed_precision.get_policy(OuterModule))
+ 
+-    params, (ret, w) = transform_and_run_once(f)
++  def test_thread_local_state_race(self):
++    mixed_precision.reset_thread_local_state_for_test()
+ 
+-    self.assertEqual(ret, jnp.float16)
+-    self.assertEqual(w, jnp.float32)
+-    self.assertEqual(params['inner_module'], {'w': jnp.float16})
++    m = threading.Event()
++    n = threading.Event()
+ 
+-  @test_utils.transform_and_run
+-  def test_set_policy_factory(self):
+-    def factory():
+-      class MyModule(module.Module):
++    def parallel():
++      m.set()
++      n.wait()
++
++    thread = threading.Thread(target=parallel)
++    thread.start()
++    m.wait()
+ 
+-        def __call__(self, x):
+-          return x
++    mixed_precision.reset_thread_local_state_for_test()
+ 
+-      return MyModule
++    n.set()
++    thread.join()
+ 
+-    cls1 = factory()
+-    cls2 = factory()
++  def test_nested_with_policy(self):
+ 
+-    mixed_precision.set_policy(cls1, jmp.get_policy('o=f16'))
+-    mixed_precision.set_policy(cls2, jmp.get_policy('o=bf16'))
+-    x = jnp.ones([])
+-    self.assertEqual(cls1()(x).dtype, jnp.float16)
+-    self.assertEqual(cls2()(x).dtype, jnp.bfloat16)
++    class InnerModule(hk.Module):
+ 
+-  @test_utils.transform_and_run
+-  def test_push_policy(self):
+-    policy = jmp.get_policy('o=f16')
+-    test = self
++      def __call__(self, x):
++        return x
+ 
+-    class FooModule(module.Module):
++    class OuterModule(hk.Module):
+ 
+-      def __call__(self):
+-        test.assertEqual(mixed_precision.current_policy(), policy)
++      def __call__(self, x):
++        return InnerModule()(x)
+ 
+-    mod = FooModule()
+-    with mixed_precision.push_policy(FooModule, policy):
+-      self.assertEqual(mixed_precision.get_policy(FooModule), policy)
+-      mod()
++    inner_policy = get_policy('p=f16,c=f32,o=f16')
++    outer_policy = get_policy('p=f32,c=f16,o=f32')
+ 
+-    self.assertIsNone(mixed_precision.get_policy(FooModule))
++    with_policy = mixed_precision.with_policy
+ 
+-  @test_utils.transform_and_run
+-  def test_push_policy_maintains_old_policy(self):
+-    old_policy = jmp.get_policy('o=f16')
+-    new_policy = jmp.get_policy('o=f64')
+-    self.assertIsNone(mixed_precision.get_policy(InnerModule))
+-    mixed_precision.set_policy(InnerModule, old_policy)
+-    with mixed_precision.push_policy(InnerModule, new_policy):
+-      self.assertEqual(mixed_precision.get_policy(InnerModule), new_policy)
+-    self.assertEqual(mixed_precision.get_policy(InnerModule), old_policy)
+-    mixed_precision.clear_policy(InnerModule)
++    @with_policy(InnerModule, inner_policy)
++    @with_policy(OuterModule, outer_policy)
++    @test_utils.transform_and_run
++    def f(x):
++      self.assertEqual(mixed_precision.get_policy(InnerModule), inner_policy)
++      self.assertEqual(mixed_precision.get_policy(OuterModule), outer_policy)
++      return InnerModule()(OuterModule()(x))
+ 
+-  @test_utils.transform_and_run
+-  def test_push_policy_not_allowed_in_method_of_same_class(self):
+-    any_policy = jmp.get_policy('o=f16')
++    x = jnp.zeros((3,), dtype=jnp.float32)
++    self.assertTrue(jnp.allclose(f(x), x))
+ 
+-    class PushesInMethod(module.Module):
++  def test_repr(self):
++    class Module(hk.Module):
+ 
+-      def __call__(self):
+-        with mixed_precision.push_policy(PushesInMethod, any_policy):
+-          pass
++      def __call__(self, x):
++        return x
+ 
+-    mod = PushesInMethod()
+-    with self.assertRaisesRegex(ValueError, 'same class is not supported'):
+-      mod()
++    cls1 = Module
++    cls2 = type('DerivedModule', (Module,), {})  # pylint: disable=type-builtin
+ 
+-  @with_policy(InnerModule, jmp.get_policy('p=f16,c=f32,o=f16'))
+-  def test_clear_global_policy(self):
+-    def f():
+-      mod = InnerModule()
+-      return mod(), mod.w
++    mixed_precision.clear_policy(cls1)
++    mixed_precision.clear_policy(cls2)
+ 
+-    mixed_precision.clear_policy(InnerModule)
++    inner = get_policy('p=f16,c=f32,o=f16')
++    self.assertIsNone(mixed_precision.get_policy(cls1))
++    self.assertIsNone(mixed_precision.get_policy(cls2))
++
++    mixed_precision.set_policy(cls1, inner)
++    mixed_precision.set_policy(cls2, inner)
++
++    repr_ = repr(mixed_precision)
++    self.assertIn('MixedPrecision', repr_)
++    self.assertIn('Module', repr_)
+ 
+     params, (ret, w) = transform_and_run_once(f)
+ 
+     self.assertEqual(ret, jnp.bfloat16)
+     self.assertEqual(w, jnp.bfloat16)
+     self.assertEqual(params['inner_module'], {'w': jnp.bfloat16})
+-
+-  @with_policy(OuterModule, jmp.get_policy('p=f32,c=f16,o=f32'))
+-  @with_policy(InnerModule, jmp.get_policy('p=f16,c=f32,o=f32'))
+-  def test_set_global_policy_nested(self):
+-    def f():
+-      outer = OuterModule()
+-      outer_ret = outer()
+-      return outer_ret, outer.inner_ret, outer.w, outer.inner.w
+-
+-    params, (outer_ret, inner_ret, outer_w, inner_w) = transform_and_run_once(f)
+-
+-    # The return type of the modules should use the output type of the module.
+-    self.assertEqual(outer_ret, jnp.float32)
+-    self.assertEqual(inner_ret, jnp.float32)
+-    # Inside the module we should use the compute type of the policy.
+-    self.assertEqual(outer_w, jnp.float16)
+-    self.assertEqual(inner_w, jnp.float32)
+-    # The parameters returned from init should use the param type of the policy.
+-    self.assertEqual(params['outer_module'], {'w': jnp.float32})
+-    self.assertEqual(params['outer_module/inner_module'], {'w': jnp.float16})
+-
+   def test_policy_for_reloaded_class(self):
+     conv_local = conv
+ 
+-    policy = jmp.get_policy('p=f16,c=f32,o=f16')
++    policy = get_policy('p=f16,c=f32,o=f16')
+     mixed_precision.set_policy(conv_local.ConvND, policy)
+     conv_local = importlib.reload(conv)
+ 
+@@ -254,13 +221,9 @@ class MixedPrecisionTest(absltest.TestCase):
+     # installed when we call set_policy (this only happens the first call).
+     mixed_precision.reset_thread_local_state_for_test()
+ 
+-    policy = jmp.get_policy('p=f16,c=f32,o=f16')
++    policy = get_policy('p=f16,c=f32,o=f16')
+     with module.intercept_methods(my_interceptor):
+       mixed_precision.set_policy(OuterModule, policy)
+       x = OuterModule()()
+       self.assertEqual(x.dtype, jnp.float16)
+     # Outer.init, Outer.call, Inner.init, Inner.call
+-    self.assertLen(sidechannel, 4)
+-
+-if __name__ == '__main__':
+-  absltest.main()
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..ef2567a 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,14 @@
++absl-py>=0.10.0
++chex>=0.1.0
++clu>=0.0.7
++contextlib2>=0.6.0
++dm-tree>=0.1.5
++jax>=0.4.0
++jaxlib>=0.4.0
++ml-collections>=0.1.0
++numpy>=1.19.0
++optax>=0.1.0
++sphinx>=4.0.0
++sphinx-book-theme>=0.1.0
++sphinxcontrib-katex>=0.7.0
++tensorflow_datasets>=4.0.0

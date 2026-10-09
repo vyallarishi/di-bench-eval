@@ -1,0 +1,154 @@
+diff --git a/appdaemon/plugins/hass/hassplugin.py b/appdaemon/plugins/hass/hassplugin.py
+index 6d0416a..9bb0166 100644
+--- a/appdaemon/plugins/hass/hassplugin.py
++++ b/appdaemon/plugins/hass/hassplugin.py
+@@ -14,6 +14,12 @@ from urllib.parse import urlencode
+ 
+ import aiohttp
+ import pytz
++from aiohttp import ClientSession, ClientWebSocketResponse
++from deepdiff import DeepDiff
++
++import appdaemon.utils as utils
++from appdaemon.appdaemon import AppDaemon
++from appdaemon.plugin_management import PluginBase
+ from deepdiff import DeepDiff
+ 
+ import appdaemon.utils as utils
+@@ -210,76 +216,18 @@ class HassPlugin(PluginBase):
+                 ssl_context = ssl.create_default_context(capath=self.cert_path)
+             conn = aiohttp.TCPConnector(ssl=ssl_context)
+ 
+-            # configure auth
+-            headers = {}
+-            if self.token is not None:
+-                headers["Authorization"] = "Bearer {}".format(self.token)
+-            elif self.ha_key is not None:
+-                headers["x-ha-access"] = self.ha_key
+-
+-            self._session = aiohttp.ClientSession(
+-                connector=conn,
+-                headers=headers,
+-                json_serialize=utils.convert_json,
+-            )
+-        return self._session
+-
+-    #
+-    # Connect and return a new WebSocket to HASS instance
+-    #
+-    async def create_websocket(self):
+-        self.init_q()
+-
+-        ws = await self.session.ws_connect(f"{self.ha_url}/api/websocket")
+-        result = await ws.receive_json()
+-        self.logger.info("Connected to Home Assistant %s with aiohttp", result["ha_version"])
+-
+-        # Zero command ID counter
+-        async with self.queue_lock:
+-            self.id = 0
+-
+-        # Check if auth required, if so send password
+-        if result["type"] == "auth_required":
+-            if self.token is not None:
+-                auth = {"type": "auth", "access_token": self.token}
+-            elif self.ha_key is not None:
+-                auth = {"type": "auth", "api_password": self.ha_key}
+-            else:
+-                raise ValueError("HASS requires authentication and none provided in plugin config")
+-
+-            await ws.send_json(auth)
+-
+-            result = await ws.receive_json()
+-            if result["type"] != "auth_ok":
+-                self.logger.warning("Error in authentication")
+-                raise ValueError("Error in authentication")
+-
+-        return ws
+-
+-    #
+-    # Get initial state
+-    #
+-    async def get_complete_state(self, internal=False):
+-        #
+-        # This version is called by a separate task periodically
+-        #
+-        hass_state = await self.get_hass_state(internal)
+-        states = {}
+-        for state in hass_state:
+-            states[state["entity_id"]] = state
+-        self.logger.debug("Got state")
+-        self.logger.debug("*** Sending Complete State: %s ***", hass_state)
+-        return states
+-
+-    #
+-    # Get HASS Metadata
+-    #
+-    async def get_metadata(self):
+-        return self.metadata
+-
+-    #
+-    # Handle state updates
+-    #
++    async def _create_ws(self) -> ClientWebSocketResponse:
++        session = await self._ensure_session()
++        headers = {"Authorization": f"Bearer {self.token}"}
++        ssl_context = None
++        if self.cert_verify is False:
++            ssl_context = False
++        elif self.cert_path:
++            ssl_context = ssl.create_default_context(cafile=self.cert_path)
++
++        ws_url = self.ha_url.replace("http", "ws") + "/api/websocket"
++        self.ws = await session.ws_connect(ws_url, headers=headers, ssl=ssl_context, heartbeat=60)
++        return self.ws
+     async def evaluate_started(self, first_time, plugin_booting, event=None):  # noqa: C901
+         if first_time is True:
+             self.hass_ready = False
+diff --git a/appdaemon/stream/ws_handler.py b/appdaemon/stream/ws_handler.py
+index b9cbb3c..b829917 100644
+--- a/appdaemon/stream/ws_handler.py
++++ b/appdaemon/stream/ws_handler.py
+@@ -1,13 +1,10 @@
+ import traceback
+ import json
+ 
+-import aiohttp
+-from aiohttp import web
++from aiohttp import web, WSMsgType
+ import asyncio
+ 
+ from appdaemon import utils as utils
+-
+-
+ class WSHandler:
+     def __init__(self, ADStream, app, path, ad):
+         self.AD = ad
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..cedcfb3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,24 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    'importlib-metadata; python_version<"3.8"',
++    'aiohttp_jinja2 >= 1.5.1,< 1.7.0',
++    'astral ~= 3.2',
++    'bcrypt >= 4.0.1,< 4.3.0',
++    'deepdiff == 8.0.1',
++    'feedparser ~= 6.0.10',
++    'iso8601 >= 1.1,< 2.2',
++    'paho-mqtt >= 1.6.1,< 2.2.0',
++    'pid ~= 3.0.4',
++    'python-dateutil >= 2.8.2,< 2.10.0',
++    'python-socketio >= 5.5,< 5.12',
++    'pytz >= 2022.7.1,< 2024.2.0',
++    'pyyaml ~= 6.0.1',
++    'requests >= 2.28.2,< 2.33.0',
++    'sockjs >= 0.11,< 0.14',
++    'uvloop==0.20.0; sys_platform != "win32"',
++    'tomli ~= 2.0.1',
++    'tomli_w ~= 1.0.0'
+ ]
+ 
+ classifiers= [

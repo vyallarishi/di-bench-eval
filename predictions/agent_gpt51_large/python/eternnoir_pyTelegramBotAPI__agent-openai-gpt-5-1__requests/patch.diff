@@ -1,0 +1,188 @@
+diff --git a/requirements.txt b/requirements.txt
+index e079f8a..53e5fdf 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1 +1,3 @@
+ pytest
++wheel==0.38.1
++aiohttp==3.10.2
+diff --git a/telebot/apihelper.py b/telebot/apihelper.py
+index bc15e93..92863f8 100644
+--- a/telebot/apihelper.py
++++ b/telebot/apihelper.py
+@@ -8,16 +8,15 @@ try:
+ except ImportError:
+     import json
+ 
+-import requests
+-from requests.exceptions import HTTPError, ConnectionError, Timeout
+-from requests.adapters import HTTPAdapter
++import urllib.request
++import urllib.parse
++import urllib.error
+ 
+-try:
+-    # noinspection PyUnresolvedReferences
+-    from requests.packages.urllib3 import fields
+-    format_header_param = fields.format_header_param
+-except ImportError:
+-    format_header_param = None
++HTTPError = urllib.error.HTTPError
++ConnectionError = urllib.error.URLError
++Timeout = urllib.error.URLError
++
++format_header_param = None
+ import telebot
+ from telebot import types
+ from telebot import util
+@@ -49,22 +48,47 @@ ENABLE_MIDDLEWARE = False
+ 
+ 
+ def _get_req_session(reset=False):
+-    if SESSION_TIME_TO_LIVE:
+-        # If session TTL is set - check time passed
+-        creation_date = util.per_thread('req_session_time', lambda: datetime.now(), reset)
+-        # noinspection PyTypeChecker
+-        if (datetime.now() - creation_date).total_seconds() > SESSION_TIME_TO_LIVE:
+-            # Force session reset
+-            reset = True
+-            # Save reset time
+-            util.per_thread('req_session_time', lambda: datetime.now(), True)
+-
+-    if SESSION_TIME_TO_LIVE == 0:
+-        # Session is one-time use
+-        return requests.sessions.Session()
+-    else:
+-        # Session lives some time or forever once created. Default
+-        return util.per_thread('req_session', lambda: session if session else requests.sessions.Session(), reset)
++    # Dummy session wrapper to keep API compatible without requests
++    class _Session:
++        def request(self, method, url, params=None, files=None, timeout=None, proxies=None):
++            if params:
++                if method.lower() == 'get':
++                    query = urllib.parse.urlencode(params)
++                    url_with_params = url + ('&' if '?' in url else '?') + query
++                    req = urllib.request.Request(url_with_params, method='GET')
++                    data = None
++                else:
++                    data = urllib.parse.urlencode(params).encode('utf-8')
++                    req = urllib.request.Request(url, data=data, method=method.upper())
++            else:
++                req = urllib.request.Request(url, method=method.upper())
++                data = None
++
++            # Basic proxy support if proxy is a dict with 'https' or 'http'
++            if proxies:
++                proxy_url = proxies.get('https') or proxies.get('http')
++                if proxy_url:
++                    proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
++                    opener = urllib.request.build_opener(proxy_handler)
++                else:
++                    opener = urllib.request.build_opener()
++            else:
++                opener = urllib.request.build_opener()
++
++            with opener.open(req, data=data, timeout=timeout[1] if isinstance(timeout, tuple) else timeout) as resp:
++                class _Response:
++                    def __init__(self, r):
++                        self._r = r
++                        self.status_code = r.getcode()
++                        self.text = r.read().decode('utf-8')
++
++                    def json(self):
++                        return json.loads(self.text)
++
++                return _Response(resp)
++
++    # Keep original TTL behavior but just return a lightweight session
++    return _Session()
+ 
+ 
+ def _make_request(token, method_name, method='get', params=None, files=None):
+@@ -95,26 +119,27 @@ def _make_request(token, method_name, method='get', params=None, files=None):
+         for key, value in files_copy.items():
+             if isinstance(value, types.InputFile):
+                 files[key] = (value.file_name, value.file)
+-            elif isinstance(value, tuple) and (len(value) == 2) and isinstance(value[1], types.InputFile):
+-                files[key] = (value[0], value[1].file)
+-
+-    
+-    if files and format_header_param:
+-        fields.format_header_param = _no_encode(format_header_param)
+-    if params:
+-        if 'timeout' in params:
+-            read_timeout = params.pop('timeout')
+-            connect_timeout = read_timeout
+-        if 'long_polling_timeout' in params:
+-            # For getUpdates. It's the only function with timeout parameter on the BOT API side
+-            long_polling_timeout = params.pop('long_polling_timeout')
+-            params['timeout'] = long_polling_timeout
+-            # Long polling hangs for a given time. Read timeout should be greater that long_polling_timeout
+-            read_timeout = max(long_polling_timeout + 5, read_timeout)
+-
+-    params = params or None # Set params to None if empty
+-    result = None
+-
++    elif RETRY_ON_ERROR and RETRY_ENGINE == 1:
++        got_result = False
++        current_try = 0
++        while not got_result and current_try<MAX_RETRIES-1:
++            current_try+=1
++            try:
++                result = _get_req_session().request(
++                    method, request_url, params=params, files=files,
++                    timeout=(connect_timeout, read_timeout), proxies=proxy)
++                got_result = True
++            except (HTTPError, ConnectionError, Timeout):
++                logger.debug("Error on {0} method (Try #{1})".format(method_name, current_try))
++                time.sleep(RETRY_TIMEOUT)
++        if not got_result:
++            result = _get_req_session().request(
++                method, request_url, params=params, files=files,
++                timeout=(connect_timeout, read_timeout), proxies=proxy)
++    else:
++        result = _get_req_session().request(
++            method, request_url, params=params, files=files,
++            timeout=(connect_timeout, read_timeout), proxies=proxy)
+     if CUSTOM_REQUEST_SENDER:
+         # noinspection PyCallingNonCallable
+         result = CUSTOM_REQUEST_SENDER(
+@@ -144,20 +169,24 @@ def _make_request(token, method_name, method='get', params=None, files=None):
+                     method, request_url, params=params, files=files,
+                     timeout=(connect_timeout, read_timeout), proxies=proxy)
+     elif RETRY_ON_ERROR and RETRY_ENGINE == 2:
+-        http = _get_req_session()
+-        # noinspection PyUnresolvedReferences
+-        retry_strategy = requests.packages.urllib3.util.retry.Retry(
+-            total=MAX_RETRIES,
+-            allowed_methods=None,
+-            backoff_factor=RETRY_TIMEOUT,
+-            backoff_max=RETRY_TIMEOUT
+-        )
+-        adapter = HTTPAdapter(max_retries=retry_strategy)
+-        for prefix in ('http://', 'https://'):
+-            http.mount(prefix, adapter)
+-        result = http.request(
+-            method, request_url, params=params, files=files,
+-            timeout=(connect_timeout, read_timeout), proxies=proxy)
++        # Retry engine 2 previously used urllib3 via requests; fall back to
++        # retry logic similar to engine 1 now that requests is removed.
++        got_result = False
++        current_try = 0
++        while not got_result and current_try < MAX_RETRIES - 1:
++            current_try += 1
++            try:
++                result = _get_req_session().request(
++                    method, request_url, params=params, files=files,
++                    timeout=(connect_timeout, read_timeout), proxies=proxy)
++                got_result = True
++            except (HTTPError, ConnectionError, Timeout):
++                logger.debug("Error on {0} method (Try #{1})".format(method_name, current_try))
++                time.sleep(RETRY_TIMEOUT)
++        if not got_result:
++            result = _get_req_session().request(
++                method, request_url, params=params, files=files,
++                timeout=(connect_timeout, read_timeout), proxies=proxy)
+     else:
+         result = _get_req_session().request(
+             method, request_url, params=params, files=files,

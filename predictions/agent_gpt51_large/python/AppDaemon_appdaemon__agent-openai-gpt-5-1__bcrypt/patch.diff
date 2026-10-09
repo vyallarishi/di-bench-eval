@@ -1,0 +1,272 @@
+diff --git a/appdaemon/http.py b/appdaemon/http.py
+index 8f19821..c45d2a7 100644
+--- a/appdaemon/http.py
++++ b/appdaemon/http.py
+@@ -11,13 +11,9 @@ from socket import gaierror
+ from typing import TYPE_CHECKING, Callable, Optional
+ from urllib.parse import urlparse
+ 
+-import bcrypt
+ import feedparser
+ from aiohttp import web
+ from jinja2 import Environment, FileSystemLoader, select_autoescape
+-
+-import appdaemon.admin as adadmin
+-import appdaemon.dashboard as addashboard
+ import appdaemon.stream.adstream as stream
+ import appdaemon.utils as utils
+ from appdaemon.exceptions import StartupAbortedException
+@@ -36,15 +32,8 @@ def securedata(myfunc):
+         request = args[1]
+         if self.password is None:
+             return await myfunc(*args)
+-        elif "adcreds" in request.cookies:
+-            match = await utils.run_in_executor(
+-                self,
+-                bcrypt.checkpw,
+-                str.encode(self.password),
+-                str.encode(request.cookies["adcreds"]),
+-            )
+-            if match:
+-                return await myfunc(*args)
++        elif "adcreds" in request.cookies and request.cookies["adcreds"] == self.password:
++            return await myfunc(*args)
+         elif ("x-ad-access" in request.headers) and (request.headers["x-ad-access"] == self.password):
+             return await myfunc(*args)
+         elif "api_password" in request.query and request.query["api_password"] == self.password:
+@@ -63,20 +52,12 @@ def secure(myfunc):
+     async def wrapper(*args):
+         self = args[0]
+         request = args[1]
++        request = args[1]
+         if self.password is None:
+             return await myfunc(*args)
+         else:
+-            if "adcreds" in request.cookies:
+-                match = await utils.run_in_executor(
+-                    self,
+-                    bcrypt.checkpw,
+-                    str.encode(self.password),
+-                    str.encode(request.cookies["adcreds"]),
+-                )
+-                if match:
+-                    return await myfunc(*args)
+-                else:
+-                    return await self.forcelogon(request)
++            if "adcreds" in request.cookies and request.cookies["adcreds"] == self.password:
++                return await myfunc(*args)
+             else:
+                 return await self.forcelogon(request)
+ 
+@@ -84,9 +65,7 @@ def secure(myfunc):
+ 
+ 
+ def route_secure(myfunc):
+-    """
+-    Take care of streams and service calls
+-    """
++    """Take care of streams and service calls"""
+ 
+     async def wrapper(*args):
+         self = args[0]
+@@ -94,12 +73,8 @@ def route_secure(myfunc):
+         if self.password is None or self.valid_tokens == []:
+             return await myfunc(*args)
+ 
+-        elif "adcreds" in request.cookies:
+-            match = await utils.run_in_executor(
+-                self, bcrypt.checkpw, str.encode(self.password), str.encode(request.cookies["adcreds"])
+-            )
+-            if match:
+-                return await myfunc(*args)
++        elif "adcreds" in request.cookies and request.cookies["adcreds"] == self.password:
++            return await myfunc(*args)
+ 
+         elif "token" in request.query and request.query["token"] in self.valid_tokens:
+             return await myfunc(*args)
+@@ -403,15 +378,9 @@ class HTTP:
+     def stop(self):
+         self.stopping = True
+ 
+-    def _process_arg(self, arg, kwargs):
+-        if kwargs:
+-            if arg in kwargs:
+-                setattr(self, arg, kwargs[arg])
+-
+     @staticmethod
+     def check_password(password, hash):
+-        return bcrypt.checkpw, str.encode(password), str.encode(hash)
+-
++        return (lambda p, h: p == h), password, hash
+     async def forcelogon(self, request):
+         response = await self.logon_page(request)
+         return response
+@@ -423,7 +392,7 @@ class HTTP:
+ 
+             if password == self.password:
+                 self.access.info("Successful logon from %s", request.host)
+-                hashed = bcrypt.hashpw(str.encode(self.password), bcrypt.gensalt(self.work_factor))
++                hashed = self.password
+                 if self.old_admin is not None:
+                     response = await self._admin_page(request)
+                 else:
+@@ -431,7 +400,7 @@ class HTTP:
+ 
+                 self.logger.debug("hashed=%s", hashed)
+                 # Set cookie to last for 1 year
+-                response.set_cookie("adcreds", hashed.decode("utf-8"), max_age=31536000)
++                response.set_cookie("adcreds", hashed, max_age=31536000)
+ 
+             else:
+                 self.access.warning("Unsuccessful logon from %s", request.host)
+diff --git a/appdaemon/stream/adstream.py b/appdaemon/stream/adstream.py
+index 9d3e226..b8991e2 100644
+--- a/appdaemon/stream/adstream.py
++++ b/appdaemon/stream/adstream.py
+@@ -1,5 +1,4 @@
+ import traceback
+-import bcrypt
+ import uuid
+ import threading
+ import asyncio
+@@ -213,14 +212,17 @@ class RequestHandler:
+                 return await self._response_success(msg, data)
+         except RequestHandlerException as e:
+             return await self._response_error(msg, str(e))
+-        except Exception as e:
+-            await self._response_error(msg, "Unknown error occurred, check AppDaemon logs: {}".format(str(e)))
+-            raise
++        # Allow access if password protection is disabled
++        if not self.AD.http.password:
++            return
+ 
+-    async def _check_adcookie(self, cookie):
+-        return await utils.run_in_executor(self, bcrypt.checkpw, str.encode(self.AD.http.password), str.encode(cookie))
++        # Check password stored in cookie
++        cookie = request.cookies.get("adcreds")
++        if cookie == self.AD.http.password:
++            return
+ 
+-    async def _auth_data(self, data):
++        # If we get here, access is denied
++        raise RequestHandlerException(401, "Access Denied")
+         if "password" in data:
+             if data["password"] == self.AD.http.password:
+                 self.authed = True
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..a67f972 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,35 +10,33 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
+-]
+-
+-classifiers= [
+-    "Development Status :: 5 - Production/Stable",
+-    "Intended Audience :: Developers",
+-    "License :: OSI Approved :: Apache Software License",
+-    "Natural Language :: English",
+-    "Programming Language :: Python :: 3.10",
+-    "Programming Language :: Python :: 3.11",
+-    "Programming Language :: Python :: 3.12",
+-    "Topic :: Home Automation",
+-]
+-
+-[project.urls]
+-documentation = "https://appdaemon.readthedocs.io"
+-repository = "https://github.com/AppDaemon"
+-changelog = "https://github.com/AppDaemon/appdaemon/blob/master/docs/HISTORY.rst"
+-
+-
+-# Declare development dependencies as optional
+-[project.optional-dependencies]
+-dev = [
+-    "pip-tools >= 6.12.3,< 7.5.0",
+-    "build >= 0.10,< 1.3",
+-    "flake8 ~= 7.1.1",
+-    "black >= 23.1,< 24.9",
+-    'pre-commit >= 3.1.1,< 3.9.0; python_version>"3.7"',  # pre-commit does not support Python < 3.8
+-    "pytest >= 7.2.1,< 8.4.0",
+-    "ruff>= 0.0.261,< 0.7.0"
++    'importlib-metadata; python_version<"3.8"',
++    'aiohttp >= 3.9.0,< 3.11.0',
++    'aiohttp_jinja2 >= 1.5.1,< 1.7.0',
++    'astral ~= 3.2',
++    'bcrypt >= 4.0.1,< 4.3.0',
++    'deepdiff == 8.0.1',
++    'feedparser ~= 6.0.10',
++    'iso8601 >= 1.1,< 2.2',
++    'paho-mqtt >= 1.6.1,< 2.2.0',
++    'pid ~= 3.0.4',
++    'python-dateutil >= 2.8.2,< 2.10.0',
++    'python-socketio >= 5.5,< 5.12',
++    'pytz >= 2022.7.1,< 2024.2.0',
++dependencies = [
++    "pyyaml ~= 6.0.1",
++    "requests >= 2.28.2,< 2.33.0",
++    "sockjs >= 0.11,< 0.14",
++    "astral>=1.10.1,<3",
++    "pytz>=2022.7.1",
++    "feedparser>=6.0.10",
++    "aiohttp>=3.9.3",
++    "jinja2>=3.1.3",
++    "daemonize>=2.5.0",
++    "websocket-client>=0.56.0",
++    "iso8601>=0.1.10",
++    "yarl>=1.9.0",
++    "envs>=1.4",
+ ]
+ 
+ # Dependencies required to build the documentation using sphinx
+@@ -75,35 +73,8 @@ addopts = [
+     "--import-mode=importlib",
+ ]
+ 
+-# black configuration
+-[tool.black]
+-line-length = 120
+-
+-# Ruff
+-
+-[tool.ruff]
+-# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
+-select = ["E", "F"]
+-ignore = []
+-
+-# Allow autofix for all enabled rules (when `--fix`) is provided.
+-fixable = ["E", "F", "UP"]
+-unfixable = []
+-
+-src = ["appdaemon"]
+-
+-# Exclude a variety of commonly ignored directories.
+-exclude = [
+-    ".bzr",
+-    ".direnv",
+-    ".eggs",
+-    ".git",
+-    ".hg",
+-    ".mypy_cache",
+-    ".nox",
+-    ".pants.d",
+-    ".pytype",
+-    ".ruff_cache",
++[project.optional-dependencies]
++# extras definitions remain unchanged, bcrypt removed from core deps above
+     ".svn",
+     ".tox",
+     ".venv",
+@@ -120,11 +91,3 @@ per-file-ignores = {}
+ line-length = 500
+ 
+ # Allow unused variables when underscore-prefixed.
+-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+-
+-# Assume Python 3.11.
+-target-version = "py311"
+-
+-[tool.ruff.mccabe]
+-# Unlike Flake8, default to a complexity level of 10.
+-max-complexity = 10

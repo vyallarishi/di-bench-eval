@@ -1,0 +1,66 @@
+diff --git a/eliot/_action.py b/eliot/_action.py
+index 782648c..1bb9fec 100644
+--- a/eliot/_action.py
++++ b/eliot/_action.py
+@@ -12,7 +12,7 @@ from functools import partial
+ from inspect import getcallargs
+ from contextvars import ContextVar
+ 
+-from pyrsistent import field, PClass, optional, pmap_field, pvector
++from boltons.funcutils import wraps
+ from boltons.funcutils import wraps
+ 
+ from ._message import (
+diff --git a/eliot/_validation.py b/eliot/_validation.py
+index f198034..6bf8751 100644
+--- a/eliot/_validation.py
++++ b/eliot/_validation.py
+@@ -7,7 +7,6 @@ although in theory it could be done then as well.
+ 
+ from warnings import warn
+ 
+-from pyrsistent import PClass, field as pyrsistent_field
+ 
+ from ._message import (
+     Message,
+diff --git a/eliot/parse.py b/eliot/parse.py
+index 0e618b4..a7ecafe 100644
+--- a/eliot/parse.py
++++ b/eliot/parse.py
+@@ -2,7 +2,6 @@
+ Parse a stream of serialized messages into a forest of
+ ``WrittenAction`` and ``WrittenMessage`` objects.
+ """
+-
+ from pyrsistent import PClass, pmap_field, pset_field, discard
+ 
+ from ._message import WrittenMessage, TASK_UUID_FIELD
+diff --git a/eliot/testing.py b/eliot/testing.py
+index 5d93cd4..22792f2 100644
+--- a/eliot/testing.py
++++ b/eliot/testing.py
+@@ -5,7 +5,6 @@ Utilities to aid unit testing L{eliot} and code that uses it.
+ from unittest import SkipTest
+ from functools import wraps
+ 
+-from pyrsistent import PClass, field
+ 
+ from ._action import (
+     ACTION_STATUS_FIELD,
+diff --git a/setup.py b/setup.py
+index 419267a..eb03499 100644
+--- a/setup.py
++++ b/setup.py
+@@ -32,9 +32,9 @@ setup(
+     version=versioneer.get_version(),
+     cmdclass=versioneer.get_cmdclass(),
+     description="Logging library that tells you why it happened",
+-    python_requires=">=3.8.0",
+-    install_requires=[
+-    ],
++install_requires = [
++    "zope.interface >= 4.0.0",
++],
+     extras_require={
+         "journald": [
+             # We use cffi to talk to the journald API:

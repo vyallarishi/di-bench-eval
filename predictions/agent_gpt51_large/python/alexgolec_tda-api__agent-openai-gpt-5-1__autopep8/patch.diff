@@ -1,0 +1,55 @@
+diff --git a/setup.py b/setup.py
+index 3a662b6..19ba6fd 100644
+--- a/setup.py
++++ b/setup.py
+@@ -30,7 +30,13 @@ setuptools.setup(
+     ],
+     python_requires='>=3.7',
+     install_requires=[
+-    ],
++         'authlib',
++         'httpx',
++         'prompt_toolkit',
++         'python-dateutil',
++         'selenium', 
++         'websockets>=9.0.0'
++     ],
+     extras_require={
+         'dev': [
+             'asynctest',
+diff --git a/tda/contrib/orders.py b/tda/contrib/orders.py
+index 54ad0f8..67022e7 100644
+--- a/tda/contrib/orders.py
++++ b/tda/contrib/orders.py
+@@ -1,4 +1,5 @@
+-import autopep8
++from collections import defaultdict
++
+ import tda
+ 
+ from tda.orders.generic import OrderBuilder
+@@ -8,8 +9,6 @@ from tda.orders.common import (
+         OrderStrategyType,
+ )
+ 
+-from collections import defaultdict
+-
+ 
+ def _call_setters_with_values(order, builder):
+     '''
+@@ -131,12 +130,12 @@ def code_for_builder(builder, var_name=None):
+         var_prefix = f'{var_name} = '
+     else:
+         var_prefix = ''
+-
+-    return autopep8.fix_code(
++    return (
+             '\n'.join(import_lines) + 
+             '\n\n' +
+             var_prefix +
+-            '\n'.join(lines))
++            '\n'.join(lines)
++    )
+ 
+ 
+ class FirstTriggersSecondAST:

@@ -1,0 +1,82 @@
+diff --git a/chalice/compat.py b/chalice/compat.py
+index 188f63d..f7aa8de 100644
+--- a/chalice/compat.py
++++ b/chalice/compat.py
+@@ -13,31 +13,12 @@ STRING_TYPES = six.string_types
+ 
+ def pip_import_string():
+     # type: () -> str
+-    import pip
+-    pip_major_version = int(pip.__version__.split('.')[0])
+-    pip_minor_version = int(pip.__version__.split('.')[1])
+-    pip_major_minor = (pip_major_version, pip_minor_version)
+-    # Pip moved its internals to an _internal module in version 10.
+-    # In order to be compatible with version 9 which has it at at the
+-    # top level we need to figure out the correct import path here.
+-    if (9, 0) <= pip_major_minor < (10, 0):
+-        return 'from pip import main'
+-    elif (10, 0) <= pip_major_minor < (19, 3):
+-        # Pip changed their import structure again in 19.3
+-        # https://github.com/pypa/pip/commit/09fd200
+-        return 'from pip._internal import main'
+-    elif (19, 3) <= pip_major_minor < (20, 0):
+-        return 'from pip._internal.main import main'
+-    elif pip_major_minor >= (20, 0):
+-        # More changes! https://github.com/pypa/pip/issues/7498
+-        # We'll assume that anything >= v20.0 will use this import
+-        # string.  We're already specifying our supported versions of
+-        # pip as a dependency so assuming this stays the same, pip
+-        # upgrades will just require bumping our dependency range in
+-        # setup.py.
+-        return 'from pip._internal.cli.main import main'
+-    raise RuntimeError("Unknown import string for pip version: %s"
+-                       % str(pip_major_minor))
++    # We no longer depend on or shell out to pip. Instead, we use
++    # the "python -m pip" module invocation which is stable across
++    # pip versions and does not require importing pip as a library.
++    # This function is retained for backwards compatibility with
++    # callers and tests that expect an import string.
++    return 'import runpy; runpy.run_module("pip", run_name="__main__")'
+ 
+ 
+ if os.name == 'nt':
+diff --git a/chalice/deploy/packager.py b/chalice/deploy/packager.py
+index cfddd9d..124ae76 100644
+--- a/chalice/deploy/packager.py
++++ b/chalice/deploy/packager.py
+@@ -1075,6 +1075,15 @@ class SubprocessPip(object):
+         out, err = p.communicate()
+         rc = p.returncode
+         return rc, out, err
++        p = self._osutils.popen(
++            invoke_pip,
++            stdout=self._osutils.pipe,
++            stderr=self._osutils.pipe,
++            env=env_vars,
++        )
++        out, err = p.communicate()
++        rc = p.returncode
++        return rc, out, err
+ 
+ 
+ class PipRunner(object):
+diff --git a/setup.py b/setup.py
+index de366e7..ca7c224 100644
+--- a/setup.py
++++ b/setup.py
+@@ -29,6 +29,15 @@ setup(
+     url='https://github.com/aws/chalice',
+     packages=find_packages(exclude=['tests', 'tests.*']),
+     install_requires=[
++        'click>=7,<9.0',
++        'botocore>=1.14.0,<2.0.0',
++        'typing-extensions>=4.0.0,<5.0.0;python_version<"3.8"',
++        'six>=1.10.0,<2.0.0',
++        'jmespath>=0.9.3,<2.0.0',
++        'pyyaml>=5.3.1,<7.0.0',
++        'inquirer>=2.7.0,<3.0.0',
++        'wheel',
++        'setuptools'
+     ],
+     extras_require={
+         'event-file-poller': ['watchdog==2.3.1'],

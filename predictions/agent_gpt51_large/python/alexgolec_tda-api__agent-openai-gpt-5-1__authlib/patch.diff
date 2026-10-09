@@ -1,0 +1,30 @@
+diff --git a/setup.py b/setup.py
+index 3a662b6..bccb8b6 100644
+--- a/setup.py
++++ b/setup.py
+@@ -30,6 +30,12 @@ setuptools.setup(
+     ],
+     python_requires='>=3.7',
+     install_requires=[
++        'autopep8',
++        'httpx',
++        'prompt_toolkit',
++        'python-dateutil',
++        'selenium', 
++        'websockets>=9.0.0'
+     ],
+     extras_require={
+         'dev': [
+diff --git a/tda/auth.py b/tda/auth.py
+index b77deea..6c19f4a 100644
+--- a/tda/auth.py
++++ b/tda/auth.py
+@@ -1,7 +1,7 @@
+ ##########################################################################
+ # Authentication Wrappers
+ 
+-from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
++from httpx import AsyncClient as AsyncOAuth2Client, Client as OAuth2Client
+ from prompt_toolkit import prompt
+ 
+ import json

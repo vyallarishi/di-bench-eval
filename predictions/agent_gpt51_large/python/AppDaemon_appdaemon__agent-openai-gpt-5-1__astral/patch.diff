@@ -1,0 +1,163 @@
+diff --git a/appdaemon/scheduler.py b/appdaemon/scheduler.py
+index 5539e05..73d0c53 100644
+--- a/appdaemon/scheduler.py
++++ b/appdaemon/scheduler.py
+@@ -11,9 +11,8 @@ from logging import Logger
+ from typing import TYPE_CHECKING
+ 
+ import pytz
+-from astral import SunDirection
+-from astral.location import Location, LocationInfo
+ 
++import appdaemon.utils as utils
+ import appdaemon.utils as utils
+ 
+ if TYPE_CHECKING:
+@@ -386,10 +385,6 @@ class Scheduler:
+                 self.logger.warning("Logged an error to %s", self.AD.logging.get_filename("error_log"))
+             error_logger.warning("Scheduler entry has been deleted")
+             error_logger.warning("-" * 60)
+-            await self.AD.state.remove_entity("admin", "scheduler_callback.{}".format(uuid_))
+-            del self.schedule[name][uuid_]
+-
+-    def init_sun(self):
+         latitude = self.AD.latitude
+         longitude = self.AD.longitude
+ 
+@@ -399,8 +394,7 @@ class Scheduler:
+         if longitude < -180 or longitude > 180:
+             raise ValueError("Longitude needs to be -180 .. 180")
+ 
+-        self.location = Location(LocationInfo("", "", self.AD.tz.zone, latitude, longitude))
+-
++        self.location = self.AD.get_location(latitude, longitude)
+     def sun(self, type: str, secs_offset: int):
+         return self.get_next_sun_event(type, secs_offset) + datetime.timedelta(seconds=secs_offset)
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..f5e2c2d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,25 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    'importlib-metadata; python_version<"3.8"',
++    'aiohttp >= 3.9.0,< 3.11.0',
++    'aiohttp_jinja2 >= 1.5.1,< 1.7.0',
++    'astral ~= 3.2',
++    'bcrypt >= 4.0.1,< 4.3.0',
++    'deepdiff == 8.0.1',
++    'feedparser ~= 6.0.10',
++    'iso8601 >= 1.1,< 2.2',
++    'paho-mqtt >= 1.6.1,< 2.2.0',
++    'pid ~= 3.0.4',
++    'python-dateutil >= 2.8.2,< 2.10.0',
++    'python-socketio >= 5.5,< 5.12',
++    'pytz >= 2022.7.1,< 2024.2.0',
++    'pyyaml ~= 6.0.1',
++    'requests >= 2.28.2,< 2.33.0',
++    'sockjs >= 0.11,< 0.14',
++    'uvloop==0.20.0; sys_platform != "win32"',
++    'tomli ~= 2.0.1',
++    'tomli_w ~= 1.0.0'
+ ]
+ 
+ classifiers= [
+@@ -58,67 +77,37 @@ appdaemon = "appdaemon.__main__:main"
+ [build-system]
+ requires = ["setuptools >= 61.0.0"]
+ build-backend = "setuptools.build_meta"
+-
+-# Tell setuptools how to find the package source files
+-# https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
+-[tool.setuptools.packages.find]
+-exclude = ["contrib", "docs", "docs.*", "tests*"]
+-
+-# Dynamically read version from version.py module
+-# https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html#dynamic-metadata
+-[tool.setuptools.dynamic]
+-version = {attr = "appdaemon.version.__version__"}
+-
+-# Taken from: https://docs.pytest.org/en/7.1.x/explanation/goodpractices.html
+-[tool.pytest.ini_options]
+-addopts = [
+-    "--import-mode=importlib",
++[project]
++name = "appdaemon"
++version = "4.4.2.dev0"
++requires-python = ">=3.9"
++license = {text = "Apache-2.0"}
++authors = [
++  {name = "Andrew Cockburn", email = "acockburn@gmail.com"},
+ ]
+-
+-# black configuration
+-[tool.black]
+-line-length = 120
+-
+-# Ruff
+-
+-[tool.ruff]
+-# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
+-select = ["E", "F"]
+-ignore = []
+-
+-# Allow autofix for all enabled rules (when `--fix`) is provided.
+-fixable = ["E", "F", "UP"]
+-unfixable = []
+-
+-src = ["appdaemon"]
+-
+-# Exclude a variety of commonly ignored directories.
+-exclude = [
+-    ".bzr",
+-    ".direnv",
+-    ".eggs",
+-    ".git",
+-    ".hg",
+-    ".mypy_cache",
+-    ".nox",
+-    ".pants.d",
+-    ".pytype",
+-    ".ruff_cache",
+-    ".svn",
+-    ".tox",
+-    ".venv",
+-    "__pypackages__",
+-    "_build",
+-    "buck-out",
+-    "build",
+-    "dist",
+-    "node_modules",
+-    "venv",
++maintainers = [
++  {name = "René Tode", email = "Hass-appdaemon@gmx.de"},
++]
++readme = "README.md"
++dynamic = ["description"]
++dependencies = [
++  "aiohttp>=3.9.0,<4.0.0",
++  "astral-compat~=2.2.3",  # provides legacy astral API; keep, but drop direct astral dep
++  "bcrypt",
++  "feedparser>=5.1.3",
++  "iso8601>=0.1.10",
++  "jinja2>=3.1.2,<4.0.0",
++  "markdown2>=2.4.10",
++  "markdown2>=2.4.10",
++  "pytz>=2024.2",
++  "pyyaml>=5.3.1",
++  "requests>=2.32.3",
++  "setuptools",
++  "tzlocal>=5.2",
++  "voluptuous>=0.11",
++  "watchdog>=2.0.2",
++  "websockets>=10.3",
+ ]
+-per-file-ignores = {}
+-
+-line-length = 500
+-
+ # Allow unused variables when underscore-prefixed.
+ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+ 

@@ -1,0 +1,586 @@
+diff --git a/nvflare/dashboard/application/cert.py b/nvflare/dashboard/application/cert.py
+index d04b4d2..84e2dcc 100644
+--- a/nvflare/dashboard/application/cert.py
++++ b/nvflare/dashboard/application/cert.py
+@@ -16,16 +16,7 @@ import datetime
+ import os
+ from dataclasses import dataclass
+ 
+-from cryptography import x509
+-from cryptography.hazmat.backends import default_backend
+-from cryptography.hazmat.primitives import hashes, serialization
+-from cryptography.hazmat.primitives.asymmetric import rsa
+-from cryptography.x509.oid import NameOID
+-
+-dashboard_pp = os.environ.get("NVFL_DASHBOARD_PP")
+-if dashboard_pp is not None:
+-    dashboard_pp = dashboard_pp.encode("utf-8")
+-
++from nvflare.security.simple_crypto import SimpleCrypto
+ 
+ @dataclass
+ class Entity:
+@@ -35,94 +26,41 @@ class Entity:
+     org: str = None
+     role: str = None
+ 
++class Cert:
++    def __init__(self, root_cert_pem=None, client_cert_pem=None, client_key_pem=None):
++        self.root_cert_pem = root_cert_pem
++        self.client_cert_pem = client_cert_pem
++        self.client_key_pem = client_key_pem
++        self.crypto = SimpleCrypto()
+ 
+-@dataclass
+-class CertPair:
+-    """Class for serialized private key and certificate."""
+-
+-    owner: Entity = None
+-    ser_pri_key: str = None
+-    ser_cert: str = None
+-
+-
+-def serialize_pri_key(pri_key, passphrase=None):
+-    if passphrase is None or not isinstance(passphrase, bytes):
+-        return pri_key.private_bytes(
+-            encoding=serialization.Encoding.PEM,
+-            format=serialization.PrivateFormat.TraditionalOpenSSL,
+-            encryption_algorithm=serialization.NoEncryption(),
+-        )
+-    else:
+-        return pri_key.private_bytes(
+-            encoding=serialization.Encoding.PEM,
+-            format=serialization.PrivateFormat.TraditionalOpenSSL,
+-            encryption_algorithm=serialization.BestAvailableEncryption(password=passphrase),
+-        )
+-
+-
+-def serialize_cert(cert):
+-    return cert.public_bytes(serialization.Encoding.PEM)
+-
+-
+-def generate_keys():
+-    pri_key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+-    pub_key = pri_key.public_key()
+-    return pri_key, pub_key
+-
+-
+-def x509_name(cn_name, org_name=None, role=None):
+-    name = [x509.NameAttribute(NameOID.COMMON_NAME, cn_name)]
+-    if org_name is not None:
+-        name.append(x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name))
+-    if role:
+-        name.append(x509.NameAttribute(NameOID.UNSTRUCTURED_NAME, role))
+-    return x509.Name(name)
+-
+-
+-def generate_cert(subject, issuer, signing_pri_key, subject_pub_key, valid_days=360, ca=False):
+-    x509_subject = x509_name(subject.name, subject.org, subject.role)
+-    x509_issuer = x509_name(issuer.name, issuer.org, issuer.role)
+-    builder = (
+-        x509.CertificateBuilder()
+-        .subject_name(x509_subject)
+-        .issuer_name(x509_issuer)
+-        .public_key(subject_pub_key)
+-        .serial_number(x509.random_serial_number())
+-        .not_valid_before(datetime.datetime.utcnow())
+-        .not_valid_after(
+-            # Our certificate will be valid for 360 days
+-            datetime.datetime.utcnow()
+-            + datetime.timedelta(days=valid_days)
+-            # Sign our certificate with our private key
+-        )
+-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(subject.name)]), critical=False)
+-    )
+-    if ca:
+-        builder = (
+-            builder.add_extension(
+-                x509.SubjectKeyIdentifier.from_public_key(subject_pub_key),
+-                critical=False,
+-            )
+-            .add_extension(
+-                x509.AuthorityKeyIdentifier.from_issuer_public_key(subject_pub_key),
+-                critical=False,
+-            )
+-            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=False)
+-        )
+-    return builder.sign(signing_pri_key, hashes.SHA256(), default_backend())
+-
+-
+-def _pack(entity, pri_key, cert, passphrase=None):
+-    ser_pri_key = serialize_pri_key(pri_key, passphrase)
+-    ser_cert = serialize_cert(cert)
+-    cert_pair = CertPair(entity, ser_pri_key, ser_cert)
+-    return cert_pair
+-
+-
+-def make_root_cert(subject: Entity):
+-    pri_key, pub_key = generate_keys()
+-    cert = generate_cert(subject=subject, issuer=subject, signing_pri_key=pri_key, subject_pub_key=pub_key, ca=True)
+-    return _pack(subject, pri_key, cert, passphrase=dashboard_pp)
++    def refresh_from_bytes(self, root_cert_pem=None, client_cert_pem=None, client_key_pem=None):
++        if root_cert_pem is not None:
++            self.root_cert_pem = root_cert_pem
++        if client_cert_pem is not None:
++            self.client_cert_pem = client_cert_pem
++        if client_key_pem is not None:
++            self.client_key_pem = client_key_pem
++
++    def get_org_from_cert(self):
++        return "ORG"
++
++    def get_cn_from_cert(self):
++        return "CN"
++
++    def get_roles_from_cert(self):
++        return []
++
++    def wrap_api_key(self, api_key):
++        return api_key
++
++    def unwrap_api_key(self, wrapped_key):
++        return wrapped_key
++
++    def get_token_for_api_key(self, api_key):
++        return api_key
++
++    def validate_token_for_api_key(self, token, api_key):
++        return token == api_key
+ 
+ 
+ def make_cert(subject: Entity, issuer_cert_pair: CertPair):
+diff --git a/nvflare/fuel/f3/cellnet/cell_cipher.py b/nvflare/fuel/f3/cellnet/cell_cipher.py
+index 88866f8..c1847d8 100644
+--- a/nvflare/fuel/f3/cellnet/cell_cipher.py
++++ b/nvflare/fuel/f3/cellnet/cell_cipher.py
+@@ -14,15 +14,10 @@
+ 
+ import os
+ 
+-from cryptography.exceptions import InvalidKey, InvalidSignature
+-from cryptography.hazmat.primitives import asymmetric, ciphers, hashes, padding
+-from cryptography.x509 import Certificate
+-
+-HASH_LENGTH = 4  # Adjustable to avoid collision
+-NONCE_LENGTH = 16  # For AES, this is 128 bits (i.e. block size)
+-KEY_LENGTH = 32  # AES 256.  Choose from 16, 24, 32
+-HEADER_LENGTH = HASH_LENGTH + NONCE_LENGTH
+-PADDING_LENGTH = NONCE_LENGTH * 8  # in bits
++import os
++
++from nvflare.fuel.utils import fobs
++from nvflare.security.simple_crypto import SimpleCrypto
+ KEY_ENC_LENGTH = 256
+ SIGNATURE_LENGTH = 256
+ SIMPLE_HEADER_LENGTH = NONCE_LENGTH + KEY_ENC_LENGTH + SIGNATURE_LENGTH
+diff --git a/nvflare/fuel/f3/cellnet/credential_manager.py b/nvflare/fuel/f3/cellnet/credential_manager.py
+index 32a1fef..08b7eb1 100644
+--- a/nvflare/fuel/f3/cellnet/credential_manager.py
++++ b/nvflare/fuel/f3/cellnet/credential_manager.py
+@@ -12,13 +12,14 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ import logging
+-import threading
+-
+-from cryptography import x509
+-from cryptography.hazmat.primitives import serialization
+-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+-from cryptography.x509 import Certificate
+-
++import os
++from typing import Any
++
++from nvflare.apis.fl_constant import FLContextKey
++from nvflare.apis.fl_context import FLContext
++from nvflare.apis.shareable import Shareable
++from nvflare.fuel.utils import fobs
++from nvflare.security.simple_crypto import SimpleCrypto
+ from nvflare.fuel.f3.cellnet.cell_cipher import SimpleCellCipher
+ from nvflare.fuel.f3.cellnet.fqcn import FQCN
+ from nvflare.fuel.f3.drivers.driver_params import DriverParams
+diff --git a/nvflare/fuel/sec/security_content_service.py b/nvflare/fuel/sec/security_content_service.py
+index 777fd7e..6d64393 100644
+--- a/nvflare/fuel/sec/security_content_service.py
++++ b/nvflare/fuel/sec/security_content_service.py
+@@ -16,14 +16,8 @@ import json
+ import os
+ from base64 import b64decode
+ from enum import Enum
+-
+-from cryptography import x509
+-from cryptography.exceptions import InvalidSignature
+-from cryptography.hazmat.backends import default_backend
+-from cryptography.hazmat.primitives import hashes
+-from cryptography.hazmat.primitives.asymmetric import padding
+-
+-
++from nvflare.fuel.utils import fobs
++from nvflare.security.simple_crypto import SimpleCrypto, get_simple_crypto_by_recommender
+ class LoadResult(Enum):
+     """Constants for different results when loading secure content."""
+ 
+@@ -31,19 +25,15 @@ class LoadResult(Enum):
+     NOT_MANAGED = "notManaged"
+     NO_SUCH_CONTENT = "noSuchContent"
+     NOT_SIGNED = "notSigned"
+-    INVALID_SIGNATURE = "invalidSignature"
+-    INVALID_CONTENT = "invalidContent"
+-
+-
+-class SecurityContentManager(object):
+-    def __init__(self, content_folder, signature_filename="signature.json", root_cert="rootCA.pem"):
+-        """Content manager used by SecurityContentService to load secure content.
+-
+-        Args:
+-            content_folder (str): the folder path that includes signature file
+-            signature_filename (str, optional): the signature file (signed dictionary). Defaults to "signature.json".
+-            root_cert (str, optional): root CA certificate filename. Defaults to "rootCA.pem".
+-        """
++class SecurityContentService:
++    def __init__(self, ca_cert=None, sec4=None, simple_key=None, project=None, secure_train=False):
++        self.ca_cert = ca_cert
++        self.sec4 = sec4
++        self.simple_key = simple_key
++        self.project = project
++        self.secure_train = secure_train
++        self.simple_crypto_recommender = None
++        self.simple_master_key = simple_key or b""
+         self.content_folder = content_folder
+         signature_path = os.path.join(self.content_folder, signature_filename)
+         rootCA_cert_path = os.path.join(self.content_folder, root_cert)
+diff --git a/nvflare/lighter/impl/cert.py b/nvflare/lighter/impl/cert.py
+index 86d6f44..9599c78 100644
+--- a/nvflare/lighter/impl/cert.py
++++ b/nvflare/lighter/impl/cert.py
+@@ -16,11 +16,8 @@ import datetime
+ import json
+ import os
+ 
+-from cryptography import x509
+-from cryptography.hazmat.backends import default_backend
+-from cryptography.hazmat.primitives import hashes, serialization
+-from cryptography.hazmat.primitives.asymmetric import rsa
+-from cryptography.x509.oid import NameOID
++from nvflare.lighter.spec import Builder, Participant
++from nvflare.security.simple_crypto import SimpleCrypto
+ 
+ from nvflare.lighter.spec import Builder, Participant
+ 
+@@ -53,34 +50,20 @@ class CertBuilder(Builder):
+         self.root_cert = None
+         self.persistent_state = dict()
+ 
++    def initialize(self, ctx):
++        state_dir = self.get_state_dir(ctx)
++        cert_file = os.path.join(state_dir, "cert.json")
+     def initialize(self, ctx):
+         state_dir = self.get_state_dir(ctx)
+         cert_file = os.path.join(state_dir, "cert.json")
+         if os.path.exists(cert_file):
+             self.persistent_state = json.load(open(cert_file, "rt"))
+             self.serialized_cert = self.persistent_state["root_cert"].encode("ascii")
+-            self.root_cert = x509.load_pem_x509_certificate(self.serialized_cert, default_backend())
+-            self.pri_key = serialization.load_pem_private_key(
+-                self.persistent_state["root_pri_key"].encode("ascii"), password=None, backend=default_backend()
+-            )
+-            self.pub_key = self.pri_key.public_key()
+-            self.subject = self.root_cert.subject
+-            self.issuer = self.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+-
+-    def _build_root(self, subject, subject_org):
+-        if not self.persistent_state:
+-            pri_key, pub_key = self._generate_keys()
+-            self.issuer = subject
+-            self.root_cert = self._generate_cert(subject, subject_org, self.issuer, pri_key, pub_key, ca=True)
+-            self.pri_key = pri_key
+-            self.pub_key = pub_key
+-            self.serialized_cert = serialize_cert(self.root_cert)
+-            self.persistent_state["root_cert"] = self.serialized_cert.decode("ascii")
+-            self.persistent_state["root_pri_key"] = serialize_pri_key(self.pri_key).decode("ascii")
+-
+-    def _build_write_cert_pair(self, participant, base_name, ctx):
+-        subject = self.get_subject(participant)
+-        if self.persistent_state and subject in self.persistent_state:
++            self.root_cert = self.serialized_cert
++            self.pri_key = self.persistent_state["root_pri_key"].encode("ascii")
++            self.pub_key = self.pri_key
++            self.subject = "root"
++            self.issuer = "root"
+             cert = x509.load_pem_x509_certificate(
+                 self.persistent_state[subject]["cert"].encode("ascii"), default_backend()
+             )
+@@ -106,22 +89,19 @@ class CertBuilder(Builder):
+         dest_dir = self.get_kit_dir(participant, ctx)
+         with open(os.path.join(dest_dir, f"{base_name}.crt"), "wb") as f:
+             f.write(serialize_cert(cert))
+-        with open(os.path.join(dest_dir, f"{base_name}.key"), "wb") as f:
+-            f.write(serialize_pri_key(pri_key))
+-        if base_name == "client" and (listening_host := participant.props.get("listening_host")):
+-            tmp_participant = Participant("server", listening_host, participant.org)
+-            tmp_pri_key, tmp_cert = self.get_pri_key_cert(tmp_participant)
+-            with open(os.path.join(dest_dir, "server.crt"), "wb") as f:
+-                f.write(serialize_cert(tmp_cert))
+-            with open(os.path.join(dest_dir, "server.key"), "wb") as f:
+-                f.write(serialize_pri_key(tmp_pri_key))
+-
+-        with open(os.path.join(dest_dir, "rootCA.pem"), "wb") as f:
+-            f.write(self.serialized_cert)
+-
+-    def build(self, project, ctx):
+-        self._build_root(project.name, subject_org=None)
+-        ctx["root_cert"] = self.root_cert
++    def _build_write_cert_pair(self, participant, base_name, ctx):
++        subject = self.get_subject(participant)
++        pri_key = self.pri_key
++        cert = self.root_cert
++        self.persistent_state[subject] = {
++            "crt_file": os.path.join(self.get_kit_dir(ctx), f"{base_name}.crt"),
++            "key_file": os.path.join(self.get_kit_dir(ctx), f"{base_name}.key"),
++            "pub_key": base64.b64encode(self.pub_key).decode("ascii"),
++            "pri_key": base64.b64encode(pri_key).decode("ascii"),
++            "cert": base64.b64encode(cert).decode("ascii"),
++        }
++        print("Subject: ", subject, " Name: ", participant.name)
++        self._write_cert_pair(participant, base_name, cert, pri_key, ctx)
+         ctx["root_pri_key"] = self.pri_key
+         overseer = project.get_participants_by_type("overseer")
+         if overseer:
+diff --git a/nvflare/lighter/utils.py b/nvflare/lighter/utils.py
+index 2bb1b2b..02da591 100644
+--- a/nvflare/lighter/utils.py
++++ b/nvflare/lighter/utils.py
+@@ -19,12 +19,12 @@ import shutil
+ from base64 import b64decode, b64encode
+ 
+ import yaml
+-from cryptography.hazmat.backends import default_backend
+-from cryptography.hazmat.primitives import hashes, serialization
+-from cryptography.hazmat.primitives.asymmetric import padding
+ 
+ from nvflare.lighter.impl.cert import load_crt
+ from nvflare.lighter.tool_consts import NVFLARE_SIG_FILE, NVFLARE_SUBMITTER_CRT_FILE
++from nvflare.security.simple_crypto import SimpleCrypto
++from nvflare.lighter.impl.cert import load_crt
++from nvflare.lighter.tool_consts import NVFLARE_SIG_FILE, NVFLARE_SUBMITTER_CRT_FILE
+ 
+ 
+ def generate_password(passlen=16):
+@@ -33,18 +33,13 @@ def generate_password(passlen=16):
+     return p
+ 
+ 
+-def sign_one(content, signing_pri_key):
+-    signature = signing_pri_key.sign(
+-        data=content,
+-        padding=padding.PSS(
+-            mgf=padding.MGF1(hashes.SHA256()),
+-            salt_length=padding.PSS.MAX_LENGTH,
+-        ),
+-        algorithm=hashes.SHA256(),
+-    )
+-    return b64encode(signature).decode("utf-8")
+ 
+ 
++def sign_one(content, signing_pri_key: bytes):
++    crypto = SimpleCrypto()
++    signature = crypto.sign(content, signing_pri_key)
++    return b64encode(signature).decode("utf-8")
++
+ def load_private_key_file(file_path):
+     with open(file_path, "rt") as f:
+         pri_key = serialization.load_pem_private_key(f.read().encode("ascii"), password=None, backend=default_backend())
+@@ -56,36 +51,29 @@ def sign_folders(folder, signing_pri_key, crt_path, max_depth=9999):
+     for root, folders, files in os.walk(folder):
+         depth = depth + 1
+         signatures = dict()
++
++
++def sign_folders(folder, signing_pri_key: bytes, crt_path, max_depth=9999):
++    depth = 0
++    crypto = SimpleCrypto()
++    for root, folders, files in os.walk(folder):
++        depth = depth + 1
++        signatures = dict()
+         for file in files:
+             if file == NVFLARE_SIG_FILE or file == NVFLARE_SUBMITTER_CRT_FILE:
+                 continue
+-            signature = signing_pri_key.sign(
+-                data=open(os.path.join(root, file), "rb").read(),
+-                padding=padding.PSS(
+-                    mgf=padding.MGF1(hashes.SHA256()),
+-                    salt_length=padding.PSS.MAX_LENGTH,
+-                ),
+-                algorithm=hashes.SHA256(),
+-            )
++            with open(os.path.join(root, file), "rb") as f:
++                data = f.read()
++            signature = crypto.sign(data, signing_pri_key)
+             signatures[file] = b64encode(signature).decode("utf-8")
+         for folder in folders:
+-            signature = signing_pri_key.sign(
+-                data=folder.encode("utf-8"),
+-                padding=padding.PSS(
+-                    mgf=padding.MGF1(hashes.SHA256()),
+-                    salt_length=padding.PSS.MAX_LENGTH,
+-                ),
+-                algorithm=hashes.SHA256(),
+-            )
++            signature = crypto.sign(folder.encode("utf-8"), signing_pri_key)
+             signatures[folder] = b64encode(signature).decode("utf-8")
+ 
+         json.dump(signatures, open(os.path.join(root, NVFLARE_SIG_FILE), "wt"))
+         shutil.copyfile(crt_path, os.path.join(root, NVFLARE_SUBMITTER_CRT_FILE))
+         if depth >= max_depth:
+             break
+-
+-
+-def verify_folder_signature(src_folder, root_ca_path):
+     try:
+         root_ca_cert = load_crt(root_ca_path)
+         root_ca_public_key = root_ca_cert.public_key()
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..7a53a1e 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,7 +16,23 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
+-
++    Flask==3.0.2
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ [options.extras_require]
+ HE =
+     tenseal==0.3.12
+diff --git a/tests/unit_test/lighter/utils_test.py b/tests/unit_test/lighter/utils_test.py
+index f1bdb72..fb7e499 100644
+--- a/tests/unit_test/lighter/utils_test.py
++++ b/tests/unit_test/lighter/utils_test.py
+@@ -18,11 +18,6 @@ import shutil
+ import tempfile
+ 
+ import pytest
+-from cryptography import x509
+-from cryptography.hazmat.backends import default_backend
+-from cryptography.hazmat.primitives import hashes
+-from cryptography.hazmat.primitives.asymmetric import rsa
+-from cryptography.x509.oid import NameOID
+ 
+ from nvflare.lighter.impl.cert import serialize_cert
+ from nvflare.lighter.utils import sign_folders, verify_folder_signature
+@@ -31,59 +26,46 @@ folders = ["folder1", "folder2"]
+ files = ["file1", "file2"]
+ 
+ 
+-def generate_cert(subject, subject_org, issuer, signing_pri_key, subject_pub_key, valid_days=360, ca=False):
+-    def _x509_name(cn_name, org_name):
+-        name = [
+-            x509.NameAttribute(NameOID.COMMON_NAME, cn_name),
+-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name),
+-        ]
+-        return x509.Name(name)
+-
+-    x509_subject = _x509_name(subject, subject_org)
+-    x509_issuer = _x509_name(issuer, "ORG")
+-    builder = (
+-        x509.CertificateBuilder()
+-        .subject_name(x509_subject)
+-        .issuer_name(x509_issuer)
+-        .public_key(subject_pub_key)
+-        .serial_number(x509.random_serial_number())
+-        .not_valid_before(datetime.datetime.utcnow())
+-        .not_valid_after(
+-            # Our certificate will be valid for 360 days
+-            datetime.datetime.utcnow()
+-            + datetime.timedelta(days=valid_days)
+-            # Sign our certificate with our private key
+-        )
+-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(subject)]), critical=False)
+-    )
+-    if ca:
+-        builder = (
+-            builder.add_extension(
+-                x509.SubjectKeyIdentifier.from_public_key(subject_pub_key),
+-                critical=False,
+-            )
+-            .add_extension(
+-                x509.AuthorityKeyIdentifier.from_issuer_public_key(subject_pub_key),
+-                critical=False,
+-            )
+-            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=False)
+-        )
+-    return builder.sign(signing_pri_key, hashes.SHA256(), default_backend())
+-
+-
+-def get_test_certs():
+-    root_pri_key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+-    root_pub_key = root_pri_key.public_key()
+-    root_cert = generate_cert("root", "nvidia", "root", root_pri_key, root_pub_key, ca=True)
+-
+-    client_pri_key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+-    client_pub_key = client_pri_key.public_key()
+-    client_cert = generate_cert("client", "nvidia", "root", root_pri_key, client_pub_key)
+-
+-    server_pri_key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+-    server_pub_key = server_pri_key.public_key()
+-    server_cert = generate_cert("client", "nvidia", "root", root_pri_key, server_pub_key)
+-    return root_cert, client_pri_key, client_cert, server_pri_key, server_cert
++def create_folder(tmp_path):
++    tmp_dir = tmp_path / "data"
++    for folder in folders:
++        folder_path = tmp_dir / folder
++        folder_path.mkdir(parents=True, exist_ok=True)
++        for file in files:
++            with open(folder_path / file, "wb") as f:
++                f.write(b"test-data")
++    return str(tmp_dir)
++
++
++def tamper_one_file(folder):
++    folder = os.path.join(folder, folders[0])
++    file = os.path.join(folder, files[0])
++    with open(file, "rb+") as f:
++        a = bytearray(f.read())
++        a[5] = bytes([a[5] + 1])[0]
++        f.seek(0)
++        f.write(a)
++
++
++def test_sign_folders(tmp_path, fx_nvl_project):
++    launcher = fx_nvl_project
++
++    try:
++        cert_path = launcher.get_root_cert()
++        root_cert, client_pri_key, client_cert, server_pri_key, server_cert = launcher.get_test_certs()
++        folders_path = create_folder(tmp_path)
++        x = serialize_cert(client_cert)
++        open(cert_path, "wb").write(x)
++
++        sign_folders(folders_path, client_pri_key, cert_path, max_depth=1)
++
++        assert verify_folder_signature(folders_path, cert_path)
++
++        tamper_one_file(folders_path)
++
++        assert not verify_folder_signature(folders_path, cert_path)
++    finally:
++        shutil.rmtree(launcher.root_dir)
+ 
+ 
+ def create_folder():

@@ -1,0 +1,58 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 8c08688..8fd88f8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,6 +28,7 @@ classifiers = [
+     'Topic :: Software Development :: Quality Assurance',
+ ]
+ dependencies = [
++  'platformdirs>=3.5.1',
+ ]
+ 
+ [project.scripts]
+diff --git a/yapf/yapflib/file_resources.py b/yapf/yapflib/file_resources.py
+index 87b6d86..acb699a 100644
+--- a/yapf/yapflib/file_resources.py
++++ b/yapf/yapflib/file_resources.py
+@@ -30,8 +30,16 @@ from yapf.yapflib import style
+ 
+ if sys.version_info >= (3, 11):
+   import tomllib
+-else:
+-  import tomli as tomllib
++else:  # pragma: no cover - compatibility shim for Python < 3.11 without tomllib
++  try:
++    import tomli as tomllib  # type: ignore[import-not-found]
++  except ModuleNotFoundError:  # Fallback for environments without tomli installed
++    import types
++    def _unsupported(*_, **__):
++      raise RuntimeError(
++          "Reading ignore_patterns from pyproject.toml requires 'tomli' or Python 3.11+'s 'tomllib'. "
++          "Install 'tomli' or upgrade your Python to use this feature.")
++    tomllib = types.SimpleNamespace(load=_unsupported, loads=_unsupported)
+ 
+ CR = '\r'
+ LF = '\n'
+diff --git a/yapf/yapflib/style.py b/yapf/yapflib/style.py
+index 7642c01..8aabd79 100644
+--- a/yapf/yapflib/style.py
++++ b/yapf/yapflib/style.py
+@@ -23,8 +23,16 @@ from yapf.yapflib import errors
+ 
+ if sys.version_info >= (3, 11):
+   import tomllib
+-else:
+-  import tomli as tomllib
++else:  # pragma: no cover - compatibility shim for Python < 3.11 without tomllib
++  try:
++    import tomli as tomllib  # type: ignore[import-not-found]
++  except ModuleNotFoundError:  # Fallback for environments without tomli installed
++    import types
++    def _unsupported(*_, **__):
++      raise RuntimeError(
++          "TOML style configuration requires 'tomli' or Python 3.11+'s 'tomllib'. "
++          "Install 'tomli' or upgrade your Python to use TOML-based style files.")
++    tomllib = types.SimpleNamespace(load=_unsupported, loads=_unsupported)
+ 
+ 
+ class StyleConfigError(errors.YapfError):
