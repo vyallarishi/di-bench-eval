@@ -46,7 +46,7 @@ import string
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from record_usage import values_equal  # noqa: E402
+from record_usage import summarize, values_equal  # noqa: E402
 
 PRINTABLE = string.ascii_letters + string.digits + " -_,.!?'\"/\\&%#@()[]{}:;\t\n"
 
@@ -167,15 +167,14 @@ def _call(fn, args):
 
 
 def _comparable(outcome):
+    """The outcome as G4a would have recorded it: same summary, same equality."""
     kind, val = outcome
     if kind == "raised":
         return ("raised", val)
     try:
-        if isinstance(val, (str, bytes, int, float, bool, type(None))):
-            return ("ret", val)
-        return ("ret", repr(val)[:300])
+        return ("ret", summarize(val))
     except Exception:
-        return ("ret", "<unreprable>")
+        return ("ret", {"t": "?", "r": "<unsummarisable>"})
 
 
 def compare_callables(ref_fn, cand_fn, recorded: list[dict],
@@ -193,7 +192,7 @@ def compare_callables(ref_fn, cand_fn, recorded: list[dict],
     for args in cases:
         a, b = _comparable(_call(ref_fn, args)), _comparable(_call(cand_fn, args))
         if a[0] == b[0] and (a[0] == "raised" and a[1] == b[1]
-                             or a[0] == "ret" and _eq(a[1], b[1])):
+                             or a[0] == "ret" and values_equal(a[1], b[1])):
             agreed += 1
         else:
             divergences.append(dict(args=[repr(x)[:80] for x in args],
@@ -212,16 +211,6 @@ def compare_callables(ref_fn, cand_fn, recorded: list[dict],
                 evidence=dict(tried=len(cases), agreed=agreed,
                               divergent=len(divergences),
                               divergences=divergences[:10]))
-
-
-def _eq(a, b) -> bool:
-    if isinstance(a, float) and isinstance(b, float):
-        if a != a and b != b:
-            return True
-        if a == b:
-            return True
-        return abs(a - b) <= 1e-9 * max(abs(a), abs(b), 1.0)
-    return a == b
 
 
 def main():

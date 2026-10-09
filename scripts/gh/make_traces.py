@@ -59,7 +59,7 @@ def recorder_body(dep: str, names, own, out: str) -> str:
                            out=out, maxcalls=MAX_CALLS, site_exclude=[])
     old_emit = '''        try:
             with open(_OUT, "a") as fh:
-                fh.write(json.dumps(rec, default=str) + "\\n")'''
+                fh.write(_bounded(rec) + "\\n")'''
     # Write to a DUPLICATE of fd 1 taken at interpreter start.
     #
     # pytest's default capture mode is --capture=fd: it redirects file
@@ -71,7 +71,7 @@ def recorder_body(dep: str, names, own, out: str) -> str:
     # its capture, and a dup of fd 1 taken then still points at the real
     # console for the life of the process.
     new_emit = '''        try:
-            os.write(_TRACE_FD, ("%s%s" % (_MARKER, json.dumps(rec, default=str))
+            os.write(_TRACE_FD, ("%s%s" % (_MARKER, _bounded(rec))
                                  + chr(10)).encode("utf-8", "replace"))'''
     assert old_emit in body, "recorder emit block changed; update make_traces"
     body = body.replace(old_emit, new_emit, 1)

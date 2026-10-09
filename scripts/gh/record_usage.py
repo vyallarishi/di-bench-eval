@@ -43,8 +43,10 @@ RECORDER = '''\
 # mypy: ignore-errors
 # isort: skip_file
 """Injected by UnpinBench: record calls this repository makes into {dep!r}."""
+import hashlib
 import json
 import os
+import re as _re
 import sys
 import threading
 
@@ -129,18 +131,39 @@ def _summary(v, _d=0):
     if isinstance(v, float):
         # bit pattern so NaN/-0.0 compare exactly; G4a applies a tolerance rule
         return {{"t": "float", "v": repr(v)}}
-    if isinstance(v, (str, bytes)):
-        s = v if isinstance(v, str) else v.decode("utf-8", "replace")
-        return {{"t": name, "n": len(v), "v": s[:_MAXREPR]}}
+    if isinstance(v, memoryview):
+        v = v.tobytes()
+    if isinstance(v, (str, bytes, bytearray)):
+        s = v if isinstance(v, str) else bytes(v).decode("utf-8", "replace")
+        out = {{"t": name, "n": len(v), "v": s[:_MAXREPR]}}
+        if len(s) > _MAXREPR:
+            # the prefix is for reading; the hash is what equality uses, so a
+            # replacement that differs only past the cap is still caught
+            out["h"] = hashlib.sha1(s.encode("utf-8", "replace")).hexdigest()[:16]
+        return out
     if isinstance(v, (list, tuple, set, frozenset)) and _d < 3:
         items = list(v)[:20]
-        return {{"t": name, "n": len(v), "items": [_summary(i, _d + 1) for i in items]}}
+        out = {{"t": name, "n": len(v), "items": [_summary(i, _d + 1) for i in items]}}
+        if len(v) > 20:
+            out["h"] = _fingerprint(v)
+        return out
     if isinstance(v, dict) and _d < 3:
         keys = sorted(map(str, list(v)))[:20]
-        return {{"t": "dict", "n": len(v),
-                "items": [[k, _summary(v[k] if k in v else v.get(k), _d + 1)] for k in keys if k in v]}}
+        out = {{"t": "dict", "n": len(v),
+               "items": [[k, _summary(v[k] if k in v else v.get(k), _d + 1)] for k in keys if k in v]}}
+        if len(v) > 20:
+            out["h"] = _fingerprint(v)
+        return out
     mod = getattr(t, "__module__", "") or ""
     out = {{"t": name, "mod": mod.split(".")[0]}}
+    if callable(v) or name in ("generator", "coroutine", "async_generator"):
+        # A function or a lazy iterator has no value to compare until it is
+        # used; the recorder sees that use as a later call if the repository
+        # makes it. Record what it is, not a repr with an address in it.
+        q = getattr(v, "__qualname__", None) or getattr(
+            getattr(v, "gi_code", None) or getattr(v, "cr_code", None), "co_name", None)
+        out["r"] = "<%s %s>" % (name, q or "?")
+        return out
     try:
         r = repr(v)[:_MAXREPR]
     except Exception:
@@ -157,9 +180,88 @@ def _summary(v, _d=0):
     try:
         if hasattr(v, "tolist") and getattr(v, "size", 1 << 30) <= 64:
             out["list"] = _summary(v.tolist(), _d + 1)
+        elif hasattr(v, "to_numpy") and getattr(v, "size", 1 << 30) <= 64:
+            out["list"] = _summary(v.to_numpy().tolist(), _d + 1)
     except Exception:
         pass
+    # arrays and tables larger than the inline cap: hash the whole content,
+    # not the elided repr pandas and numpy print
+    try:
+        if "list" not in out and getattr(v, "size", 0) and hasattr(v, "tobytes"):
+            out["h"] = hashlib.sha1(v.tobytes()).hexdigest()[:16]
+        elif "list" not in out and hasattr(v, "to_csv") and getattr(v, "size", 1 << 30) <= 1000000:
+            out["h"] = hashlib.sha1(str(v.to_csv()).encode("utf-8", "replace")).hexdigest()[:16]
+    except Exception:
+        pass
+    # Observable structure. A repr can omit most of an object's state, and a
+    # replacement that returns a plausible-looking object of the right type
+    # could differ in exactly what the repr leaves out. Record the public,
+    # non-callable attributes (the interface the repository can actually read)
+    # and the length if it has one, depth-bounded like containers. This is the
+    # state-carving idea of Elbaum et al.: compare what is observable through
+    # the interface, not the object's identity.
+    if _d < 2:
+        try:
+            attrs = {{}}
+            d = getattr(v, "__dict__", None)
+            if isinstance(d, dict):
+                for k in sorted(d)[:16]:
+                    if k.startswith("_") or callable(d[k]):
+                        continue
+                    attrs[k] = _summary(d[k], _d + 1)
+            elif hasattr(v, "_fields"):
+                for k in list(v._fields)[:16]:
+                    attrs[k] = _summary(getattr(v, k), _d + 1)
+            if attrs:
+                out["attrs"] = attrs
+        except Exception:
+            pass
+        try:
+            if hasattr(v, "__len__"):
+                out["len"] = len(v)
+        except Exception:
+            pass
     return out
+
+
+def _fingerprint(v):
+    """Deterministic hash of a whole value, address-stripped."""
+    try:
+        r = _re.sub(r" at 0x[0-9a-fA-F]+", " at 0xADDR", repr(v))
+    except Exception:
+        return None
+    return hashlib.sha1(r.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+_MAXREC = 32768
+
+
+def _shrink(s):
+    """Replace a summary's expanded structure by a hash of that structure.
+
+    Equality over the shrunk form is equality over the full summary, since the
+    hash is taken of the summary itself; only readability is lost.
+    """
+    if isinstance(s, dict) and ("attrs" in s or "items" in s or "list" in s):
+        out = dict((k, v) for k, v in s.items() if k not in ("attrs", "items", "list"))
+        out["h"] = hashlib.sha1(json.dumps(s, sort_keys=True, default=str)
+                                .encode("utf-8", "replace")).hexdigest()[:16]
+        return out
+    return s
+
+
+def _bounded(rec):
+    """A record no larger than _MAXREC bytes: the trace travels through a CI
+    log, and one deep object must not crowd out the rest of the run."""
+    line = json.dumps(rec, default=str)
+    if len(line) <= _MAXREC:
+        return line
+    rec = dict(rec)
+    if "ret" in rec:
+        rec["ret"] = _shrink(rec["ret"])
+    rec["args"] = [_shrink(a) for a in rec.get("args", [])]
+    rec["kwargs"] = dict((k, _shrink(v)) for k, v in rec.get("kwargs", {{}}).items())
+    return json.dumps(rec, default=str)
 
 
 def _emit(rec):
@@ -169,7 +271,7 @@ def _emit(rec):
         _count[0] += 1
         try:
             with open(_OUT, "a") as fh:
-                fh.write(json.dumps(rec, default=str) + "\\n")
+                fh.write(_bounded(rec) + "\\n")
         except Exception as e:
             # Never silent: a trace that fails to write is indistinguishable
             # from a dependency the tests do not exercise, and that ambiguity
@@ -345,6 +447,32 @@ def write_recorder(root: pathlib.Path, dep: str, names, own=None,
     return inject.install(root, body)
 
 
+def _summary_namespace() -> dict:
+    """Execute the recorder's summary functions in isolation."""
+    src = RECORDER.format(dep="", names=[], own=[], out="", maxcalls=0, site_exclude=[])
+    start = src.index("def _summary(")
+    end = src.index("def _emit(")
+    ns: dict = {}
+    exec("import hashlib, re as _re\n_MAXREPR = 300\n" + src[start:end], ns)
+    return ns
+
+
+_NS = None
+
+
+def summarize(v):
+    """The recorder's own summary of a live value, for tools outside the recorder.
+
+    G4b runs the library and the candidate in-process and compares what they
+    return; it must compare with the same summary and the same equality as
+    G4a, or the two gates would disagree about what "same" means.
+    """
+    global _NS
+    if _NS is None:
+        _NS = _summary_namespace()
+    return _NS["_summary"](v)
+
+
 # --------------------------------------------------------------------------
 # trace comparison, used by G4a
 # --------------------------------------------------------------------------
@@ -370,9 +498,11 @@ def values_equal(a, b) -> bool:
     - floats compare within a relative tolerance; NaN equals NaN
     - containers compare by length and element-wise, order-sensitively except
       for set and dict, whose summaries are already order-normalised
-    - opaque objects compare by type name and capped repr; a differing repr on
-      an object whose type matches is reported as a *difference*, not a pass,
-      because the alternative is to ignore every non-primitive result
+    - a value longer than the display cap carries a hash of the whole; the
+      hash decides equality, so nothing past the cap is invisible
+    - opaque objects compare by type name, address-stripped repr, length, and
+      their public non-callable attributes recursively (depth 2); a differing
+      repr or attribute is reported as a *difference*, not a pass
     """
     if type(a) is not type(b):
         return False
@@ -383,11 +513,22 @@ def values_equal(a, b) -> bool:
     t = a.get("t")
     if t == "float":
         return _floats_equal(a.get("v"), b.get("v"))
+    if "h" in a or "h" in b:
+        # a truncated or large value: the hash of the whole thing decides, not
+        # the prefix or the elided repr
+        return (a.get("h") == b.get("h") and a.get("n") == b.get("n")
+                and a.get("shape") == b.get("shape"))
     if "items" in a or "items" in b:
         ia, ib = a.get("items") or [], b.get("items") or []
         if len(ia) != len(ib):
             return False
         return all(values_equal(x, y) for x, y in zip(ia, ib))
+    if "attrs" in a or "attrs" in b:
+        aa, bb = a.get("attrs") or {}, b.get("attrs") or {}
+        if set(aa) != set(bb) or not all(values_equal(aa[k], bb[k]) for k in aa):
+            return False
+    if a.get("len") != b.get("len"):
+        return False
     for k in ("v", "r", "shape", "dtype", "size"):
         if a.get(k) != b.get(k):
             if k == "r" and a.get("t") == b.get("t"):

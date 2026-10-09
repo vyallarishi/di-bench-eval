@@ -23,7 +23,7 @@ try:
     fn = spec['fn']
     if not hasattr(lib, fn) or not hasattr(m, fn):
         print(json.dumps(dict(outcome='function not on both'))); sys.exit(0)
-    r = compare_callables(getattr(lib, fn), getattr(m, fn), spec['calls'], n=300, seed=0)
+    r = compare_callables(getattr(lib, fn), getattr(m, fn), spec["calls"], n=spec.get("n", 300), seed=0)
     print(json.dumps(dict(outcome=('CAUGHT' if r['pass'] is False
                                    else 'agrees' if r['pass'] else 'cannot speak'),
                           reason=r['reason'][:160],
