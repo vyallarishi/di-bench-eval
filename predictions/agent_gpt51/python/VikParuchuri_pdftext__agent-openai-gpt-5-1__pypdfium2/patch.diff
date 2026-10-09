@@ -1,0 +1,144 @@
+diff --git a/extract_text.py b/extract_text.py
+index 6c90424..eb30d3a 100644
+--- a/extract_text.py
++++ b/extract_text.py
+@@ -1,6 +1,5 @@
+ import argparse
+ import json
+-import pypdfium2 as pdfium
+ 
+ from pdftext.extraction import plain_text_output, dictionary_output
+ 
+@@ -20,9 +19,7 @@ def main():
+ 
+     pages = None
+     if args.pages is not None:
+-        pdf_doc = pdfium.PdfDocument(args.pdf_path)
+         pages = [int(p) for p in args.pages.split(",")]
+-        assert all(p <= len(pdf_doc) for p in pages), "Invalid page number(s) provided"
+ 
+     if args.json:
+         text = dictionary_output(args.pdf_path, sort=args.sort, page_range=pages, flatten_pdf=args.flatten_pdf, keep_chars=args.keep_chars, workers=args.workers)
+@@ -39,3 +36,4 @@ def main():
+ 
+ if __name__ == "__main__":
+     main()
++    main()
+diff --git a/pdftext/extraction.py b/pdftext/extraction.py
+index 39741d2..2884b45 100644
+--- a/pdftext/extraction.py
++++ b/pdftext/extraction.py
+@@ -2,7 +2,6 @@ from itertools import repeat
+ from typing import List
+ from concurrent.futures import ProcessPoolExecutor
+ import math
+-import pypdfium2 as pdfium
+ 
+ from pdftext.inference import inference
+ from pdftext.model import get_model
+@@ -12,16 +11,6 @@ from pdftext.postprocessing import merge_text, sort_blocks, postprocess_text, ha
+ from pdftext.settings import settings
+ 
+ 
+-def _load_pdf(pdf, flatten_pdf):
+-    pdf = pdfium.PdfDocument(pdf)
+-
+-    # Must be called on the parent pdf, before the page was retrieved
+-    if flatten_pdf:
+-        pdf.init_forms()
+-    
+-    return pdf
+-
+-
+ def _get_page_range(page_range, flatten_pdf=False):
+     text_chars = get_pdfium_chars(pdf_doc, page_range, flatten_pdf)
+     pages = inference(text_chars, model)
+@@ -32,21 +21,23 @@ def worker_init(pdf_path, flatten_pdf):
+     global model
+     global pdf_doc
+ 
+-    pdf_doc = _load_pdf(pdf_path, flatten_pdf)
++    pdf_doc = pdf_path
+     model = get_model()
+ 
+ 
+ def _get_pages(pdf_path, page_range=None, flatten_pdf=False, workers=None):
+-    pdf_doc = _load_pdf(pdf_path, flatten_pdf)
+     if page_range is None:
+-        page_range = range(len(pdf_doc))
++        from pypdf import PdfReader
++        reader = PdfReader(pdf_path)
++        num_pages = len(reader.pages)
++        page_range = range(num_pages)
+ 
+     if workers is not None:
+         workers = min(workers, len(page_range) // settings.WORKER_PAGE_THRESHOLD) # It's inefficient to have too many workers, since we batch in inference
+ 
+     if workers is None or workers <= 1:
+         model = get_model()
+-        text_chars = get_pdfium_chars(pdf_doc, page_range, flatten_pdf)
++        text_chars = get_pdfium_chars(pdf_path, page_range, flatten_pdf)
+         return inference(text_chars, model)
+ 
+     page_range = list(page_range)
+@@ -101,8 +92,6 @@ def dictionary_output(pdf_path, sort=False, page_range=None, keep_chars=False, f
+                 line["bbox"] = unnormalize_bbox(line["bbox"], page_width, page_height)
+                 for span in line["spans"]:
+                     _process_span(span, page_width, page_height, keep_chars)
+-
+-        if sort:
+-            page["blocks"] = sort_blocks(page["blocks"])
+-
++    if sort:
++        pages = sort_blocks(pages)
+     return pages
+diff --git a/pyproject.toml b/pyproject.toml
+index 649b3d4..a4e28fc 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,35 +1,12 @@
+-[tool.poetry]
+-name = "pdftext"
+-version = "0.3.18"
+-description = "Extract structured text from pdfs quickly"
+-authors = ["Vik Paruchuri <vik.paruchuri@gmail.com>"]
+-license = "Apache-2.0"
+-readme = "README.md"
+-repository = "https://github.com/VikParuchuri/pdftext"
+-keywords = ["pdf", "text", "extraction"]
+-packages = [
+-    {include = "pdftext"}
+-]
+-include = [
+-    "extract_text.py",
+-    "models/dt.joblib",
+-    "models/dt.onnx"
+-]
+-
+-[tool.poetry.dependencies]
+-python = "^3.10"
+-
+-[tool.poetry.group.dev.dependencies]
+-pymupdf = "^1.24.2"
+-datasets = "^2.19.0"
+-pdfplumber = "^0.11.0"
+-pillow = "^10.3.0"
+-rapidfuzz = "^3.8.1"
+-tabulate = "^0.9.0"
+-
+ [build-system]
+-requires = ["poetry-core"]
+-build-backend = "poetry.core.masonry.api"
++requires = ["setuptools>=61.0"]
++build-backend = "setuptools.build_meta"
+ 
+-[tool.poetry.scripts]
+-pdftext = "extract_text:main"
++[project]
++name = "pdftext"
++version = "0.1.0"
++requires-python = ">=3.9"
++dependencies = [
++    "torch",
++    "transformers",
++]

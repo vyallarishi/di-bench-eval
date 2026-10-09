@@ -1,0 +1,172 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..421869e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++  "Django>=3.0",
++]
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",
+diff --git a/revproxy/connection.py b/revproxy/connection.py
+index 7f4d893..2e773d2 100644
+--- a/revproxy/connection.py
++++ b/revproxy/connection.py
+@@ -1,25 +1,33 @@
++from urllib.parse import urlparse
+ 
+-from urllib3.connection import HTTPConnection, HTTPSConnection
+-from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
++import httpx
+ 
++from django.conf import settings
+ 
+-def _output(self, s):
+-    """Host header should always be first"""
+ 
+-    if s.lower().startswith(b'host: '):
+-        self._buffer.insert(1, s)
++def get_upstream(request, host):
++    if hasattr(settings, 'REVPROXY_HEADERS'):  # pragma: no cover
++        headers = settings.REVPROXY_HEADERS
+     else:
+-        self._buffer.append(s)
++        headers = {}
+ 
++    headers.setdefault('Accept-Encoding', 'identity')
+ 
+-HTTPConnectionPool.ConnectionCls = type(
+-    'RevProxyHTTPConnection',
+-    (HTTPConnection,),
+-    {'_output': _output},
+-)
++    parsed = urlparse(host)
++    port = parsed.port
+ 
+-HTTPSConnectionPool.ConnectionCls = type(
+-    'RevProxyHTTPSConnection',
+-    (HTTPSConnection,),
+-    {'_output': _output}
+-)
++    if hasattr(settings, 'REVPROXY_HTTPS'):  # pragma: no cover
++        use_https = settings.REVPROXY_HTTPS
++    else:
++        use_https = parsed.scheme == 'https'
++
++    scheme = 'https' if use_https else 'http'
++    netloc = parsed.hostname
++    if port:
++        netloc = f"{netloc}:{port}"
++
++    base_url = f"{scheme}://{netloc}"
++
++    session = httpx.Client(base_url=base_url, headers=headers)
++
++    return None, base_url, session
+diff --git a/revproxy/response.py b/revproxy/response.py
+index de29d4e..f2e5ff3 100644
+--- a/revproxy/response.py
++++ b/revproxy/response.py
+@@ -47,7 +47,7 @@ def get_django_response(
+                                          status=status,
+                                          content_type=content_type)
+     else:
+-        content = proxy_response.data or b''
++        content = proxy_response.content or b''
+         response = HttpResponse(content, status=status,
+                                 content_type=content_type)
+ 
+diff --git a/revproxy/views.py b/revproxy/views.py
+index f0676d8..29fceef 100644
+--- a/revproxy/views.py
++++ b/revproxy/views.py
+@@ -1,26 +1,22 @@
+-# -*- coding: utf-8 -*-
+-
+-import os
+-import re
+-import sys
+-import mimetypes
+ import logging
++import mimetypes
++import re
++from urllib.parse import quote, quote_plus
+ 
+-import urllib3
+-
+-try:
+-    from django.utils.six.moves.urllib.parse import (
+-        urlparse, urlencode, quote_plus, quote
+-    )
+-except ImportError:
+-    # Django 3 has no six
+-    from urllib.parse import (
+-        urlparse, urlencode, quote_plus, quote
+-    )
++import httpx
+ 
+ from django.conf import settings
++from django.http import HttpResponse
+ from django.shortcuts import redirect
++from django.utils.cache import patch_response_headers
+ from django.views.generic import View
++
++from .connection import get_upstream
++from .response import get_django_response
++from .utils import (UNRESOLVED_REQUEST, HTTP_METHODS, QUOTE_SAFE,
++                    encode_items, get_client_ip)
++
++HTTP_CLIENT = httpx.Client()
+ from django.utils.decorators import classonlymethod
+ from django.views.generic.base import ContextMixin
+ 
+@@ -40,7 +36,7 @@ ERRORS_MESSAGES = {
+                            "'http' or 'https' (%s).")
+ }
+ 
+-HTTP_POOLS = urllib3.PoolManager()
++HTTP_CLIENT = httpx.Client()
+ 
+ 
+ class ProxyView(View):
+@@ -73,7 +69,7 @@ class ProxyView(View):
+         for from_pattern, to_pattern in self.rewrite:
+             from_re = re.compile(from_pattern)
+             self._rewrite.append((from_re, to_pattern))
+-        self.http = HTTP_POOLS
++        self.http = HTTP_CLIENT
+         self.log = logging.getLogger('revproxy.view')
+         self.log.info("ProxyView created")
+ 
+@@ -196,17 +192,15 @@ class ProxyView(View):
+             self.log.debug("Request URL: %s", request_url)
+ 
+         try:
+-            proxy_response = self.http.urlopen(request.method,
+-                                               request_url,
+-                                               redirect=False,
+-                                               retries=self.retries,
+-                                               headers=self.request_headers,
+-                                               body=request_payload,
+-                                               decode_content=False,
+-                                               preload_content=False)
+-            self.log.debug("Proxy response header: %s",
+-                           proxy_response.headers)
+-        except urllib3.exceptions.HTTPError as error:
++            proxy_response = self.http.request(
++                method=request.method,
++                url=request_url,
++                headers=self.request_headers,
++                content=request_payload,
++                follow_redirects=False,
++            )
++            self.log.debug("Proxy response header: %s", proxy_response.headers)
++        except httpx.HTTPError as error:
+             self.log.exception(error)
+             raise
+ 

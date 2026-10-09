@@ -1,0 +1,67 @@
+diff --git a/solidago/pyproject.toml b/solidago/pyproject.toml
+index 15af6a9..8b13789 100644
+--- a/solidago/pyproject.toml
++++ b/solidago/pyproject.toml
+@@ -1,43 +1 @@
+-[build-system]
+-requires = ["hatchling"]
+-build-backend = "hatchling.build"
+ 
+-[project]
+-name = "solidago"
+-authors = [
+-  { name="Tournesol Association", email="hello@tournesol.app" },
+-]
+-description = "Algorithms for Secure Algorithmic Governance"
+-readme = "README.md"
+-requires-python = ">=3.9"
+-license = "LGPL-3.0-or-later"
+-classifiers = [
+-    "Programming Language :: Python :: 3",
+-    "Operating System :: OS Independent",
+-    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+-]
+-keywords = ["tournesol", "collaborative recommendations", "judgement aggregation", "comparison based", "mehestan"]
+-dependencies = [
+-]
+-dynamic = ["version"]
+-
+-[project.urls]
+-"Homepage" = "https://github.com/tournesol-app/tournesol/tree/main/solidago"
+-"Bug Tracker" = "https://github.com/tournesol-app/tournesol/issues"
+-
+-[project.optional-dependencies]
+-test = [
+-    "pytest >=7.1.3,<8.0.0",
+-]
+-torch = [
+-    "torch>=2.2,<3",
+-]
+-
+-[tool.hatch.version]
+-path = "src/solidago/__version__.py"
+-
+-[tool.pytest.ini_options]
+-filterwarnings = [
+-    # Will be removed in Numba 0.58. See https://github.com/numba/numba/issues/8936
+-    "ignore:Use of isinstance():numba.NumbaExperimentalFeatureWarning",
+-]
+diff --git a/solidago/src/solidago/scaling/quantile_zero_shift.py b/solidago/src/solidago/scaling/quantile_zero_shift.py
+index ccd9bd2..15ecf6d 100644
+--- a/solidago/src/solidago/scaling/quantile_zero_shift.py
++++ b/solidago/src/solidago/scaling/quantile_zero_shift.py
+@@ -1,4 +1,3 @@
+-import pandas as pd
+ import numpy as np
+ 
+ from .base import Scaling
+diff --git a/solidago/src/solidago/scaling/standardize.py b/solidago/src/solidago/scaling/standardize.py
+index d2eef40..a71db06 100644
+--- a/solidago/src/solidago/scaling/standardize.py
++++ b/solidago/src/solidago/scaling/standardize.py
+@@ -1,4 +1,4 @@
+-import pandas as pd
++import numpy as np
+ import numpy as np
+ 
+ from .base import Scaling

@@ -1,0 +1,178 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..439b2c8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,8 +29,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.11",
+   "Programming Language :: Python :: 3.12"
+ ]
+-dynamic = ["version"]
+-dependencies = []
++dependencies = [
++  "dvc-render>=1.0.0,<2",
++  "dvc-studio-client>=0.20,<1",
++  "funcy",
++  "gto",
++  "ruamel.yaml",
++  "scmrepo>=3,<4",
++  "psutil",
++  "pynvml"
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/dvclive/dvc.py b/src/dvclive/dvc.py
+index e3e18d0..02fc681 100644
+--- a/src/dvclive/dvc.py
++++ b/src/dvclive/dvc.py
+@@ -41,10 +41,16 @@ def _find_dvc_root(root: Optional[StrPath] = None) -> Optional[str]:
+ 
+ 
+ def get_dvc_repo() -> Optional["Repo"]:
+-    from dvc.exceptions import NotDvcRepoError
+-    from dvc.repo import Repo
+-    from dvc.scm import Git, SCMError
+-    from scmrepo.exceptions import SCMError as GitSCMError
++    # dvc repo support has been dropped as a hard dependency.
++    # This function is kept for backwards compatibility and for tests,
++    # but will only work if ``dvc`` is installed in the environment.
++    try:
++        from dvc.exceptions import NotDvcRepoError  # type: ignore[import]
++        from dvc.repo import Repo  # type: ignore[import]
++        from dvc.scm import Git, SCMError  # type: ignore[import]
++        from scmrepo.exceptions import SCMError as GitSCMError
++    except Exception:  # pragma: no cover - dvc not installed
++        return None
+ 
+     try:
+         return Repo()
+@@ -54,7 +60,6 @@ def get_dvc_repo() -> Optional["Repo"]:
+         except GitSCMError:
+             return None
+ 
+-
+ def make_dvcyaml(live) -> None:  # noqa: C901
+     dvcyaml_dir = Path(live.dvc_file).parent.absolute().as_posix()
+ 
+@@ -91,7 +96,10 @@ def make_dvcyaml(live) -> None:  # noqa: C901
+ 
+ 
+ def update_dvcyaml(live, updates):  # noqa: C901
+-    from dvc.utils.serialize import modify_yaml
++    try:
++        from dvc.utils.serialize import modify_yaml  # type: ignore[import]
++    except Exception:  # pragma: no cover - dvc not installed
++        return
+ 
+     dvcyaml_dir = os.path.abspath(os.path.dirname(live.dvc_file))
+     dvclive_dir = os.path.relpath(live.dir, dvcyaml_dir) + "/"
+@@ -128,15 +136,18 @@ def update_dvcyaml(live, updates):  # noqa: C901
+         if not orig["artifacts"]:
+             del orig["artifacts"]
+ 
+-
+ def get_exp_name(name, scm, baseline_rev) -> str:
+-    from dvc.exceptions import InvalidArgumentError
+-    from dvc.repo.experiments.refs import ExpRefInfo
+-    from dvc.repo.experiments.utils import (
+-        check_ref_format,
+-        gen_random_name,
+-        get_random_exp_name,
+-    )
++    try:
++        from dvc.exceptions import InvalidArgumentError  # type: ignore[import]
++        from dvc.repo.experiments.refs import ExpRefInfo  # type: ignore[import]
++        from dvc.repo.experiments.utils import (  # type: ignore[import]
++            check_ref_format,
++            gen_random_name,
++            get_random_exp_name,
++        )
++    except Exception:  # pragma: no cover - dvc not installed
++        # Fallback: best-effort naming without DVC
++        return name or os.getenv(env.DVC_EXP_NAME) or "dvclive-exp"
+ 
+     name = name or os.getenv(env.DVC_EXP_NAME)
+     if name and scm and baseline_rev:
+@@ -146,7 +157,7 @@ def get_exp_name(name, scm, baseline_rev) -> str:
+         else:
+             try:
+                 check_ref_format(scm, ref)
+-            except InvalidArgumentError as e:
++            except InvalidArgumentError as e:  # pragma: no cover - passthrough
+                 logger.warning(e)
+             else:
+                 return name
+@@ -167,7 +178,10 @@ def find_overlapping_stage(dvc_repo: "Repo", path: StrPath) -> Optional["Stage"]
+ 
+ 
+ def ensure_dir_is_tracked(directory: str, dvc_repo: "Repo") -> None:
+-    from pathspec import PathSpec
++    try:
++        from pathspec import PathSpec
++    except Exception:  # pragma: no cover - pathspec not installed
++        return
+ 
+     dir_spec = PathSpec.from_lines("gitwildmatch", [directory])
+     outs_spec = PathSpec.from_lines(
+diff --git a/src/dvclive/live.py b/src/dvclive/live.py
+index 754137f..94082e4 100644
+--- a/src/dvclive/live.py
++++ b/src/dvclive/live.py
+@@ -207,10 +207,11 @@ class Live:
+         for dvc_file in glob.glob(os.path.join(self.dir, "**dvc.yaml")):
+             os.remove(dvc_file)
+ 
+-    @catch_and_warn(DvcException, logger)
+     def _init_dvc(self):  # noqa: C901
+-        from dvc.scm import NoSCM
+-
++        try:
++            from dvc.scm import NoSCM  # type: ignore[import]
++        except Exception:  # pragma: no cover - dvc not installed
++            return
+         if os.getenv(env.DVC_ROOT, None):
+             self._inside_dvc_pipeline = True
+             self._init_dvc_pipeline()
+diff --git a/tests/test_dvc.py b/tests/test_dvc.py
+index bf263fc..e79311c 100644
+--- a/tests/test_dvc.py
++++ b/tests/test_dvc.py
+@@ -1,9 +1,9 @@
+ import os
+ 
+ import pytest
+-from dvc.exceptions import DvcException
+-from dvc.repo import Repo
+-from dvc.scm import NoSCM
++from dvc.exceptions import DvcException  # type: ignore[import]
++from dvc.repo import Repo  # type: ignore[import]
++from dvc.scm import NoSCM  # type: ignore[import]
+ from scmrepo.git import Git
+ 
+ from dvclive import Live
+diff --git a/tests/test_log_artifact.py b/tests/test_log_artifact.py
+index 987ccaa..245b33b 100644
+--- a/tests/test_log_artifact.py
++++ b/tests/test_log_artifact.py
+@@ -2,7 +2,7 @@ import shutil
+ from pathlib import Path
+ 
+ import pytest
+-from dvc.exceptions import DvcException
++from dvc.exceptions import DvcException  # type: ignore[import]
+ 
+ from dvclive import Live
+ from dvclive.error import InvalidDataTypeError
+diff --git a/tests/test_post_to_studio.py b/tests/test_post_to_studio.py
+index a9ac838..c36b421 100644
+--- a/tests/test_post_to_studio.py
++++ b/tests/test_post_to_studio.py
+@@ -2,7 +2,7 @@ from pathlib import Path
+ 
+ import pytest
+ import time
+-from dvc.env import DVC_EXP_GIT_REMOTE
++from dvc.env import DVC_EXP_GIT_REMOTE  # type: ignore[import]
+ from dvc_studio_client import DEFAULT_STUDIO_URL
+ from dvc_studio_client.env import DVC_STUDIO_REPO_URL, DVC_STUDIO_TOKEN
+ from PIL import Image as ImagePIL

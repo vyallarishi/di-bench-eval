@@ -1,0 +1,183 @@
+diff --git a/openant/base/ant.py b/openant/base/ant.py
+index d5b717f..ea7de48 100644
+--- a/openant/base/ant.py
++++ b/openant/base/ant.py
+@@ -31,10 +31,23 @@ import time
+ import queue
+ import logging
+ 
+-import usb.core
+-import usb.util
+-from usb import USBError
++try:
++    import usb.core
++    import usb.util
++    from usb import USBError
++except Exception:  # pragma: no cover - optional dependency
++    usb = None
++
++    class USBError(Exception):
++        """Fallback USBError used when pyusb is not installed.
++
++        This replicates only the interface used in this module (being able to
++        compare with usb.core.USBTimeoutError). The actual communication is
++        handled by Driver implementations, which already support non-USB
++        backends (e.g. serial), so lacking pyusb should not be fatal here.
++        """
+ 
++        pass
+ from .message import Message
+ from .commons import format_list
+ from .driver import find_driver
+diff --git a/openant/base/driver.py b/openant/base/driver.py
+index 5d63925..3ee2831 100644
+--- a/openant/base/driver.py
++++ b/openant/base/driver.py
+@@ -28,8 +28,10 @@ import logging
+ from typing import Generator, Optional
+ from enum import Enum
+ 
+-from usb.core import Device
+-
++try:
++    from usb.core import Device
++except Exception:  # pragma: no cover - optional dependency
++    Device = object
+ _logger = logging.getLogger("openant.base.driver")
+ 
+ 
+@@ -242,12 +244,129 @@ try:
+     drivers.append(SerialDriver)
+ 
+ except ImportError:
+-    pass
++    # Importing usb is optional: USBDriver will only be available when pyusb
++    # (or a compatible usb package) is installed. Other drivers (e.g. Serial)
++    # continue to work without it.
++    try:
++        import usb.core
++        import usb.util
++        from .commons import is_windows
++        import time
++    except Exception:  # pragma: no cover - optional dependency
++        usb = None
++        is_windows = lambda: False  # type: ignore
++        time = None
++    else:
++
++        class USBDriver(Driver):
++            """USB-based ANT driver.
++
++            This driver is only usable when a compatible usb library is
++            installed. When it's missing, discovery will simply not return this
++            driver and the rest of the package remains functional.
++            """
++
++            # default USB2
++            ID_VENDOR = 0x0FCF
++            ID_PRODUCT = 0x1008
++
++            def __init__(self):
++                self.dev: Optional[Generator[Device, None, None]] = None
++                self._in = None
++                self._out = None
++
++            @classmethod
++            def find(cls):
++                return (
++                    usb.core.find(idVendor=cls.ID_VENDOR, idProduct=cls.ID_PRODUCT)
++                    is not None
++                )
+ 
+-try:
+-    import usb.core
+-    import usb.util
+-    from .commons import is_windows
++            def open(self):
++                # Find USB device
++                _logger.debug(
++                    "USB Find device, vendor %#04x, product %#04x",
++                    self.ID_VENDOR,
++                    self.ID_PRODUCT,
++                )
++
++                self.dev = usb.core.find(
++                    idVendor=self.ID_VENDOR, idProduct=self.ID_PRODUCT
++                )
++                if self.dev is None:
++                    raise DriverException("Device not found")
++
++                # Attempt to detach kernel driver so we can claim the interface
++                try:
++                    if self.dev.is_kernel_driver_active(0):
++                        _logger.debug("USB detach kernel driver")
++                        self.dev.detach_kernel_driver(0)
++                except (NotImplementedError, usb.core.USBError):
++                    # Some backends / platforms don't support this, ignore
++                    pass
++
++                # Set active configuration
++                self.dev.set_configuration()
++
++                cfg = self.dev.get_active_configuration()
++
++                interface_number = None
++                for intf in cfg:
++                    # We don't know ahead of time which interface to use, so we
++                    # look for one with both IN and OUT endpoints.
++                    ep_in = usb.util.find_descriptor(
++                        intf,
++                        custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
++                        == usb.util.ENDPOINT_IN,
++                    )
++                    ep_out = usb.util.find_descriptor(
++                        intf,
++                        custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
++                        == usb.util.ENDPOINT_OUT,
++                    )
++                    if ep_in is not None and ep_out is not None:
++                        interface_number = intf.bInterfaceNumber
++                        break
++
++                if interface_number is None or ep_in is None or ep_out is None:
++                    raise DriverException("Could not find both IN and OUT endpoints")
++
++                _logger.debug("USB interface %s", interface_number)
++
++                # Claim interface
++                usb.util.claim_interface(self.dev, interface_number)
++
++                self._in = ep_in
++                self._out = ep_out
++
++            def read(self):
++                try:
++                    data = self._in.read(self._in.wMaxPacketSize, timeout=1000)
++                    return array.array("B", data)
++                except usb.core.USBTimeoutError:
++                    # Return empty array on timeout to behave like serial driver
++                    return array.array("B")
++                except usb.core.USBError as e:
++                    raise DriverException(e) from e
++
++            def write(self, data):
++                try:
++                    self._out.write(data)
++                except usb.core.USBTimeoutError as e:
++                    raise DriverTimeoutException(e) from e
++                except usb.core.USBError as e:
++                    raise DriverException(e) from e
++
++            def close(self):
++                if self.dev is None:
++                    return
++
++                try:
++                    usb.util.dispose_resources(self.dev)
++                finally:
++                    self.dev = None
++
++        drivers.append(USBDriver)
+     import time
+ 
+     class USBDriver(Driver):

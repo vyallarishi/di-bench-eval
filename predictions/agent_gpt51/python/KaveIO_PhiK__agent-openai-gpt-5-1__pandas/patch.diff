@@ -1,0 +1,417 @@
+diff --git a/example.py b/example.py
+index 810cd29..4ff210a 100644
+--- a/example.py
++++ b/example.py
+@@ -1,34 +1,9 @@
+-import pandas as pd
++import numpy as np
+ 
+-import phik
+-from phik import resources, report
++from phik.phik import phik_from_hist2d
+ 
+-# open fake car insurance data
+-df = pd.read_csv( resources.fixture('fake_insurance_data.csv.gz') )
+-df.head()
+ 
+-# Pearson's correlation matrix between numeric variables (pandas functionality)
+-df.corr()
+-
+-# get the phi_k correlation matrix between all variables
+-df.phik_matrix()
+-
+-# get global correlations based on phi_k correlation matrix
+-df.global_phik()
+-
+-# get the significance matrix (expressed as one-sided Z)
+-# of the hypothesis test of each variable-pair dependency
+-df.significance_matrix()
+-
+-# contingency table of two columns
+-cols = ['mileage', 'car_size']
+-df[cols].hist2d()
+-
+-# normalized residuals of contingency test applied to cols
+-df[cols].outlier_significance_matrix()
+-
+-# show the normalized residuals of each variable-pair
+-df.outlier_significance_matrices()
+-
+-# generate a phik correlation report and save as test.pdf
+-report.correlation_report(df, pdf_file_name='test.pdf')
++if __name__ == "__main__":
++    # Simple example using a numpy 2D contingency table
++    observed = np.array([[10, 20], [20, 40]])
++    print("phik:", phik_from_hist2d(observed))
+diff --git a/phik/binning.py b/phik/binning.py
+index e211937..f59b713 100644
+--- a/phik/binning.py
++++ b/phik/binning.py
+@@ -13,16 +13,10 @@ modification, are permitted according to the terms listed in the file
+ LICENSE.
+ """
+ import sys
+-from typing import List, Optional, Tuple, Union
+-
+-import numpy as np
+-import pandas as pd
+-
+-from phik import definitions as defs
+-from phik.data_quality import dq_check_nunique_values
+-from phik.utils import array_like_to_dataframe, guess_interval_cols
+-
+-
++from .definitions import defs
++from .utils import guess_interval_cols
++from .data_quality import dq_check_nunique_values
++from .histogram import bin_edges, bin_array
+ def bin_edges(
+     arr: Union[np.ndarray, list, pd.Series], nbins: int, quantile: bool = False
+ ) -> np.ndarray:
+@@ -78,29 +72,20 @@ def bin_array(
+     # Set underflow values to UF
+     binned_arr[np.argwhere(binned_arr == 0)] = defs.UF
+ 
+-    # Set overflow values to OF
+-    binned_arr[np.argwhere(binned_arr == len(bin_edges))] = defs.OF
+-
+-    return binned_arr, bin_labels
+-
+ 
+ def bin_data(
+-    data: pd.DataFrame,
++    data,
+     cols: Union[list, np.ndarray, tuple] = (),
+     bins: Union[int, list, np.ndarray, dict] = 10,
+     quantile: bool = False,
+     retbins: bool = False,
+ ):
+-    """
+-    Index the input DataFrame given the bin_edges for the columns specified in cols.
++    """Bin numeric columns of a DataFrame-like object.
+ 
+-    :param DataFrame data: input data
+-    :param list cols: list of columns with numeric data which needs to be indexed
+-    :param bins: number of bins, or a list of bin edges (same for all columns), or a dictionary where per column the bins are specified. (default=10)\
+-    E.g.: bins = {'mileage':5, 'driver_age':[18,25,35,45,55,65,125]}
+-    :param quantile: when bins is an integer, uniform bins (False) or bins based on quantiles (True)
+-    :returns: rebinned DataFrame
+-    :rtype: pandas.DataFrame
++    The *data* argument is expected to support:
++    - column access via data[col]
++    - .copy()
++    - column assignment via data[col] = ...
+     """
+     xbins = None
+     if isinstance(bins, dict):
+@@ -112,23 +97,20 @@ def bin_data(
+     elif isinstance(bins, (list, np.ndarray)):
+         xbins = bins
+ 
+-    # MB 20210307: check for numeric bins turned off here, also done in dq_check_nunique_values().
+-
+     binned_data = data.copy()
+ 
+     bins_dict = {}
+     for col in cols:
++        col_values = np.asarray(binned_data[col], dtype=float)
+         if np.issubdtype(type(bins), np.integer) or np.issubdtype(
+             type(bins), np.floating
+         ):
+-            xbins = bin_edges(data[col].astype(float), int(bins), quantile=quantile)
++            xbins = bin_edges(col_values, int(bins), quantile=quantile)
+         elif isinstance(bins, dict):
+             if np.issubdtype(type(bins[col]), np.integer) or np.issubdtype(
+                 type(bins[col]), np.floating
+             ):
+-                xbins = bin_edges(
+-                    data[col].astype(float), int(bins[col]), quantile=quantile
+-                )
++                xbins = bin_edges(col_values, int(bins[col]), quantile=quantile)
+             elif isinstance(bins[col], (list, np.ndarray)):
+                 xbins = bins[col]
+         elif xbins is None:
+@@ -136,7 +118,8 @@ def bin_data(
+                 "Unexpected type for bins. The found type was '%s'" % str(type(bins))
+             )
+ 
+-        binned_data[col], bin_labels = bin_array(data[col].astype(float).values, xbins)
++        binned_col, bin_labels = bin_array(col_values, xbins)
++        binned_data[col] = binned_col
+         if retbins:
+             bins_dict[col] = bin_labels
+ 
+@@ -147,26 +130,14 @@ def bin_data(
+ 
+ 
+ def auto_bin_data(
+-    df: pd.DataFrame,
++    df,
+     interval_cols: Optional[list] = None,
+     bins: Union[int, list, np.ndarray, dict] = 10,
+     quantile: bool = False,
+     dropna: bool = True,
+     verbose: bool = True,
+-) -> pd.DataFrame:
+-    """
+-    Index the input DataFrame with automatic bin_edges and interval columns.
+-
+-    :param pd.DataFrame data_binned: input data
+-    :param list interval_cols: column names of columns with interval variables.
+-    :param bins: number of bins, or a list of bin edges (same for all columns), or a dictionary where per column
+-        the bins are specified. (default=10)\
+-        E.g.: bins = {'mileage':5, 'driver_age':[18,25,35,45,55,65,125]}
+-    :param quantile: when bins is an integer, uniform bins (False) or bins based on quantiles (True)
+-    :param bool dropna: remove NaN values with True
+-    :param bool verbose: if False, do not print all interval columns that are guessed
+-    :return: phik correlation matrix
+-    """
++):
++    """Automatic binning of interval columns for DataFrame-like input."""
+     # guess interval columns
+     if interval_cols is None:
+         interval_cols = guess_interval_cols(df, verbose)
+@@ -181,6 +152,19 @@ def auto_bin_data(
+         df_clean, cols=interval_cols_clean, bins=bins, quantile=quantile, retbins=True
+     )
+     return data_binned, binning_dict
++    if interval_cols is None:
++        interval_cols = guess_interval_cols(df, verbose)
++
++    # clean the data
++    df_clean, interval_cols_clean = dq_check_nunique_values(
++        df, interval_cols, dropna=dropna
++    )
++
++    # perform rebinning
++    data_binned, binning_dict = bin_data(
++        df_clean, cols=interval_cols_clean, bins=bins, quantile=quantile, retbins=True
++    )
++    return data_binned, binning_dict
+ 
+ 
+ def create_correlation_overview_table(
+diff --git a/phik/data_quality.py b/phik/data_quality.py
+index 9b77fcc..496eeb1 100644
+--- a/phik/data_quality.py
++++ b/phik/data_quality.py
+@@ -13,14 +13,14 @@ modification, are permitted according to the terms listed in the file
+ LICENSE.
+ """
+ 
++import warnings
++import copy
+ import warnings
+ import copy
+ from typing import Tuple
+ 
+-import pandas as pd
+ import numpy as np
+ 
+-
+ def dq_check_nunique_values(
+     df: pd.DataFrame, interval_cols: list, dropna: bool = True
+ ) -> Tuple[pd.DataFrame, list]:
+diff --git a/phik/outliers.py b/phik/outliers.py
+index 9057caf..981eb7f 100644
+--- a/phik/outliers.py
++++ b/phik/outliers.py
+@@ -13,13 +13,12 @@ modification, are permitted according to the terms listed in the file
+ LICENSE.
+ """
+ 
+-from typing import Tuple, Union, Optional
+-import itertools
++from typing import Tuple
++
+ import numpy as np
+-import pandas as pd
+-import warnings
+ 
+-from scipy import stats
++from .definitions import defs
++from .histogram import create_correlation_overview_table
+ from scipy.special import betainc
+ 
+ from phik import definitions as defs
+diff --git a/phik/phik.py b/phik/phik.py
+index ee70e13..d984231 100644
+--- a/phik/phik.py
++++ b/phik/phik.py
+@@ -13,13 +13,18 @@ modification, are permitted according to the terms listed in the file
+ LICENSE.
+ """
+ from typing import Tuple, Union, Optional
++import itertools
+ 
+ import numpy as np
+-import itertools
+-import pandas as pd
+ from joblib import Parallel, delayed
+-from scipy.linalg import inv, pinv
+ 
++from .definitions import defs
++from .utils import array_like_to_dataframe
++from .significance import (
++    get_pearson_chi_square,
++    get_chi2_using_dependent_frequency_estimates,
++)
++from .bivariate import create_correlation_overview_table
+ from phik import definitions as defs
+ from .bivariate import phik_from_chi2
+ from .statistics import (
+diff --git a/phik/report.py b/phik/report.py
+index 80f692a..9b5fefe 100644
+--- a/phik/report.py
++++ b/phik/report.py
+@@ -15,12 +15,11 @@ LICENSE.
+ import itertools
+ import os
+ from typing import Callable, Dict, Tuple, Union
+-
+ import matplotlib.pyplot as plt
+ import numpy as np
+-import pandas as pd
+ from matplotlib import colors
+ from matplotlib.backends.backend_pdf import PdfPages
++from matplotlib.backends.backend_pdf import PdfPages
+ 
+ from .binning import bin_data
+ from .data_quality import dq_check_nunique_values
+diff --git a/phik/significance.py b/phik/significance.py
+index 59685dd..a5b0cbc 100644
+--- a/phik/significance.py
++++ b/phik/significance.py
+@@ -16,10 +16,10 @@ LICENSE.
+ from typing import Tuple, Union
+ 
+ import numpy as np
+-import pandas as pd
+ import math
+ import itertools
+ import warnings
++import warnings
+ 
+ from scipy import stats
+ from scipy import special, optimize
+diff --git a/phik/utils.py b/phik/utils.py
+index 5deb4d8..28d5225 100644
+--- a/phik/utils.py
++++ b/phik/utils.py
+@@ -1,77 +1,38 @@
+ from typing import Union
+ 
+-import pandas as pd
+ import numpy as np
+ 
+ 
+ def array_like_to_dataframe(
+-    x: Union[pd.Series, list, np.ndarray], y: Union[pd.Series, list, np.ndarray]
+-) -> pd.DataFrame:
+-    """Concat two array-like data structures into a DataFrame
+-
+-    :param x: pd.Series, list or np.ndarray
+-    :param y: pd.Series, list or np.ndarray
+-    :return: pd.DataFrame
++    x: Union[list, np.ndarray], y: Union[list, np.ndarray]
++):
++    """Concat two array-like data structures into a 2D numpy array.
++
++    Historically this returned a pandas.DataFrame; to keep this project free of a
++    pandas dependency we instead return a simple 2D numpy array with two columns.
++    Downstream code only relies on the underlying numeric values, not on DataFrame
++    methods.
+     """
+-    x_name = x.name if isinstance(x, pd.Series) else "x"
+-    y_name = y.name if isinstance(y, pd.Series) else "y"
+-
+-    return pd.DataFrame(np.array([x, y]).T, columns=[x_name, y_name])
++    return np.array([x, y]).T
+ 
+ 
+-def guess_interval_cols(df: pd.DataFrame, verbose: bool = False) -> list:
+-    """Select columns that have a dtype part of np.number
++def guess_interval_cols(df, verbose: bool = False):
++    """Guess interval columns for numeric 2D inputs.
+ 
+-    :param df: DataFrame
+-    :param bool verbose: print all interval columns that are guessed
+-    :return: list of interval columns
++    If *df* exposes a ``select_dtypes`` method (like pandas), that is used to find
++    numeric columns. Otherwise, if *df* is a numpy array, all columns are treated
++    as interval columns.
+     """
+-    interval_cols = df.select_dtypes(include=[np.number]).columns.tolist()
++    if hasattr(df, "select_dtypes"):
++        interval_cols = list(df.select_dtypes(include=[np.number]).columns)
++    else:
++        arr = np.asarray(df)
++        interval_cols = list(range(arr.shape[1]))
++
+     if interval_cols and verbose:
+         print("interval columns not set, guessing: {}".format(str(interval_cols)))
+ 
+     if not isinstance(interval_cols, list):
+         raise ValueError("Could not guess interval columns")
+-    return interval_cols
+-
+-
+-def make_shapes_equal(observed: pd.DataFrame, expected: pd.DataFrame) -> pd.DataFrame:
+-    """Make observed and expected (pandas) histograms equal in shape
+ 
+-    Sometimes expected histogram shape need filling / pruning to make its shape equal to observed. Give expected the
+-    same number of columns and rows. Needed for proper histogram comparison.
+-
+-    :param pd.DataFrame observed: The observed contingency table. The table contains the observed number of occurrences in each cell.
+-    :param pd.DataFrame expected: The expected contingency table. The table contains the expected number of occurrences in each cell.
+-    :return: expected frequencies, having the same shape as observed
+-    """
+-    # columns
+-    o_cols = observed.columns.tolist()
+-    e_cols = expected.columns.tolist()
+-    o_cols_missing = list(set(e_cols) - set(o_cols))
+-    e_cols_missing = list(set(o_cols) - set(e_cols))
+-    # index
+-    o_idx = observed.index.tolist()
+-    e_idx = expected.index.tolist()
+-    o_idx_missing = list(set(e_idx) - set(o_idx))
+-    e_idx_missing = list(set(o_idx) - set(e_idx))
+-
+-    # make expected columns equal to observed
+-    for c in o_cols_missing:
+-        observed[c] = 0.0
+-    for c in e_cols_missing:
+-        expected[c] = 0.0
+-    observed.columns = sorted(observed.columns)
+-    expected.columns = sorted(expected.columns)
+-    # this should always be a match now
+-    assert len(observed.columns) == len(expected.columns)
+-
+-    # make expected index equal to observed
+-    for i in o_idx_missing:
+-        observed.loc[i] = np.zeros(len(observed.columns))
+-    for i in e_idx_missing:
+-        expected.loc[i] = np.zeros(len(expected.columns))
+-    # this should always be a match now
+-    assert len(observed.index) == len(expected.index)
+-
+-    return expected
++    return interval_cols
+diff --git a/pyproject.toml b/pyproject.toml
+index 31f1469..4461508 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,12 @@ classifiers = [
+   "Programming Language :: Python :: 3.12",
+ ]
+ 
+-dependencies = []
++dependencies = [
++  "numpy>=1.18.0",
++  "scipy>=1.5.2",
++  "matplotlib>=2.2.3",
++  "joblib>=0.14.1",
++]
+ 
+ [project.optional-dependencies]
+ test = ["pytest>=4.0.2", "pytest-pylint>=0.13.0"]

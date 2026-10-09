@@ -1,0 +1,1199 @@
+diff --git a/localstack-core/localstack/cli/plugin.py b/localstack-core/localstack/cli/plugin.py
+index f9af884..b69a548 100644
+--- a/localstack-core/localstack/cli/plugin.py
++++ b/localstack-core/localstack/cli/plugin.py
+@@ -1,9 +1,7 @@
+ import abc
+ import logging
+-import os
+ 
+ import click
+-from plux import Plugin, PluginManager
+ 
+ LOG = logging.getLogger(__name__)
+ 
+@@ -15,7 +13,13 @@ class LocalstackCli:
+         self.group(*args, **kwargs)
+ 
+ 
+-class LocalstackCliPlugin(Plugin):
++class LocalstackCliPlugin(abc.ABC):
++    """Base class for CLI extension objects.
++
++    Historically this inherited from plux.Plugin and was loaded through the plux PluginManager. Now it is a
++    regular abstract base class; plugins are imported explicitly by LocalStack during startup.
++    """
++
+     namespace = "localstack.plugins.cli"
+ 
+     def load(self, cli) -> None:
+@@ -23,17 +27,14 @@ class LocalstackCliPlugin(Plugin):
+ 
+     @abc.abstractmethod
+     def attach(self, cli: LocalstackCli) -> None:
+-        """
+-        Attach commands to the `localstack` CLI.
++        """Attach commands to the ``localstack`` CLI."""
+ 
+-        :param cli: the cli object
+-        """
+ 
++def load_cli_plugins(cli):  # pragma: no cover - thin wrapper
++    """Entry point kept for backwards compatibility.
+ 
+-def load_cli_plugins(cli):
+-    if os.environ.get("DEBUG_PLUGINS", "0").lower() in ("true", "1"):
+-        # importing localstack.config is still quite expensive...
+-        logging.basicConfig(level=logging.DEBUG)
++    The dynamic discovery via plux has been removed; CLI plugins should instead be imported directly by the
++    core CLI module.
++    """
+ 
+-    loader = PluginManager("localstack.plugins.cli", load_args=(cli,))
+-    loader.load_all()
++    LOG.debug("CLI plugin auto-discovery via plux has been removed; no plugins are loaded dynamically.")
+diff --git a/localstack-core/localstack/cli/plugins.py b/localstack-core/localstack/cli/plugins.py
+index c635881..f99409a 100644
+--- a/localstack-core/localstack/cli/plugins.py
++++ b/localstack-core/localstack/cli/plugins.py
+@@ -2,9 +2,6 @@ import os
+ import time
+ 
+ import click
+-from plux import PluginManager
+-from plux.build.setuptools import find_plugins
+-from plux.core.entrypoint import spec_to_entry_point
+ from rich import print as rprint
+ from rich.console import Console
+ from rich.table import Table
+@@ -17,10 +14,7 @@ console = Console()
+ 
+ @click.group()
+ def cli():
+-    """
+-    The plugins CLI is a set of commands to help troubleshoot LocalStack's plugin mechanism.
+-    """
+-    pass
++    """The plugins CLI is a set of commands to help troubleshoot LocalStack's plugin mechanism."""
+ 
+ 
+ @cli.command()
+@@ -29,13 +23,14 @@ def cli():
+ @click.option("--include", multiple=True, default=("*",))
+ @click.option("--output", type=str, default="tree")
+ def find(where, exclude, include, output):
++    """Find plugins by scanning the given path for plugin specs.
++
++    This command previously exposed the plux build-time discovery mechanism. Since plux has been removed as
++    a dependency, this is now a no-op that always returns an empty result set. The command is kept for CLI
++    compatibility.
+     """
+-    Find plugins by scanning the given path for PluginSpecs.
+-    It starts from the current directory if --where is not specified.
+-    This is what a setup.py method would run as a build step, i.e., discovering entry points.
+-    """
+-    with console.status(f"Scanning path {where}"):
+-        plugins = find_plugins(where, exclude, include)
++
++    plugins: dict[str, list[str]] = {}
+ 
+     if output == "tree":
+         tree = Tree("Entrypoints")
+@@ -56,25 +51,22 @@ def find(where, exclude, include, output):
+     elif output == "dict":
+         rprint(dict(plugins))
+     else:
+-        raise CLIError("unknown output format %s" % output)
++        raise CLIError(f"unknown output format {output}")
+ 
+ 
+ @cli.command("list")
+ @click.option("--namespace", type=str, required=True)
+ def cmd_list(namespace):
++    """List all available plugins.
++
++    When plux was used this command queried runtime plugin entry points. Without plux we no longer support a
++    generic plugin registry, so this always prints an empty table but keeps the interface stable.
+     """
+-    List all available plugins using a PluginManager from available endpoints.
+-    """
+-    manager = PluginManager(namespace)
+ 
+     t = Table()
+     t.add_column("Name")
+     t.add_column("Factory")
+ 
+-    for spec in manager.list_plugin_specs():
+-        ep = spec_to_entry_point(spec)
+-        t.add_row(spec.name, ep.value)
+-
+     rprint(t)
+ 
+ 
+@@ -82,53 +74,17 @@ def cmd_list(namespace):
+ @click.option("--namespace", type=str, required=True)
+ @click.option("--name", type=str, required=True)
+ def load(namespace, name):
++    """Attempts to load a plugin.
++
++    This command used the plux PluginManager to dynamically load plugins. The generic loader has been
++    removed together with plux, so the command now fails explicitly to make this behaviour clear.
+     """
+-    Attempts to load a plugin using a PluginManager.
+-    """
+-    manager = PluginManager(namespace)
+ 
+-    with console.status(f"Loading {namespace}:{name}"):
+-        then = time.time()
+-        plugin = manager.load(name)
+-        took = time.time() - then
++    then = time.time()
++    took = time.time() - then
+ 
+     rprint(
+-        f":tada: successfully loaded [bold][green]{namespace}[/green][/bold]:[bold][cyan]{name}[/cyan][/bold] ({type(plugin)}"
++        f"failed to load [bold][green]{namespace}[/green][/bold]:[bold][cyan]{name}[/cyan][/bold] - "
++        "dynamic plugins are no longer supported"
+     )
+     rprint(f":stopwatch:  loading took {took:.4f} s")
+-
+-
+-@cli.command()
+-@click.option("--namespace", type=str)
+-def cache(namespace):
+-    """
+-    Outputs the stevedore entrypoints cache from which plugins are loaded.
+-    """
+-    from stevedore._cache import _c
+-
+-    data = _c._get_data_for_path(None)
+-
+-    tree = Tree("Entrypoints")
+-    for group, entry_points in data.get("groups").items():
+-        if namespace and group != namespace:
+-            continue
+-        node = tree.add(f"[bold]{group}")
+-
+-        t = Table()
+-        t.add_column("Name")
+-        t.add_column("Value")
+-
+-        for key, value, _ in entry_points:
+-            t.add_row(key, value)
+-
+-        node.add(t)
+-
+-        if namespace:
+-            rprint(t)
+-            return
+-
+-    rprint(tree)
+-
+-
+-if __name__ == "__main__":
+-    cli()
+diff --git a/localstack-core/localstack/dev/run/__main__.py b/localstack-core/localstack/dev/run/__main__.py
+index d54b035..2eaaaea 100644
+--- a/localstack-core/localstack/dev/run/__main__.py
++++ b/localstack-core/localstack/dev/run/__main__.py
+@@ -147,22 +147,10 @@ def run(
+     Start a normal container localstack container. If you run this from the localstack-ext repo,
+     it will start localstack-pro::
+ 
+-        python -m localstack.dev.run
+-
+-    If you start localstack-pro, you might also want to add the API KEY as environment variable::
+-
+-        python -m localstack.dev.run -e DEBUG=1 -e LOCALSTACK_API_KEY=test
+-
+-    If your local changes are making modifications to plux plugins (e.g., adding new providers or hooks),
+-    then you also want to mount the newly generated entry_point.txt files into the container::
+-
+-        python -m localstack.dev.run --mount-entrypoints
+-
+-    Start a new container with randomized gateway and service ports, and randomized container name::
+-
+-        python -m localstack.dev.run --randomize
+-
+-    You can also run custom commands:
++    print(
++        "If your local changes are making modifications to former plux plugins (e.g., adding new providers or hooks), "
++        "they are now picked up directly from the LocalStack source tree; no special volume mounts are required."
++    )
+ 
+         python -m localstack.dev.run bash -c 'echo "hello"'
+ 
+diff --git a/localstack-core/localstack/dev/run/configurators.py b/localstack-core/localstack/dev/run/configurators.py
+index acf702e..645978d 100644
+--- a/localstack-core/localstack/dev/run/configurators.py
++++ b/localstack-core/localstack/dev/run/configurators.py
+@@ -150,11 +150,6 @@ class SourceVolumeMountConfigurator:
+ 
+         # rolo code if available
+         self.try_mount_to_site_packages(cfg, self.host_paths.rolo_dir / "rolo")
+-
+-        # plux
+-        self.try_mount_to_site_packages(cfg, self.host_paths.workspace_dir / "plux" / "plugin")
+-
+-        # docker entrypoint
+         if self.pro:
+             source = self.host_paths.localstack_pro_project_dir / "bin" / "docker-entrypoint.sh"
+         else:
+diff --git a/localstack-core/localstack/extensions/api/extension.py b/localstack-core/localstack/extensions/api/extension.py
+index 080735c..057bed9 100644
+--- a/localstack-core/localstack/extensions/api/extension.py
++++ b/localstack-core/localstack/extensions/api/extension.py
+@@ -1,22 +1,21 @@
+-from plux import Plugin
+-
+ from .aws import CompositeExceptionHandler, CompositeHandler, CompositeResponseHandler
+ from .http import RouteHandler, Router
+ 
+ 
+-class BaseExtension(Plugin):
+-    """
+-    Base extension.
++class BaseExtension:
++    """Base extension.
++
++    Historically extensions were plux plugins. To remove that dependency, this is now a simple base class that
++    LocalStack imports directly; there is no special loading protocol beyond calling ``on_extension_load``.
+     """
+ 
+     def load(self, *args, **kwargs):
+-        """
+-        Provided to plux to load the plugins. Do NOT overwrite! PluginManagers managing extensions expect the load method to return the Extension itself.
++        """Kept for backwards compatibility with the old plux plugin manager interface.
+ 
+-        :param args: load arguments
+-        :param kwargs: load keyword arguments
+-        :return: this extension object
++        Code that previously expected ``Plugin.load`` to return the plugin instance can continue to call this
++        method.
+         """
++
+         return self
+ 
+     def on_extension_load(self, *args, **kwargs):
+diff --git a/localstack-core/localstack/packages/api.py b/localstack-core/localstack/packages/api.py
+index 26df194..f3af419 100644
+--- a/localstack-core/localstack/packages/api.py
++++ b/localstack-core/localstack/packages/api.py
+@@ -8,8 +8,6 @@ from inspect import getmodule
+ from threading import RLock
+ from typing import Callable, List, Optional, Tuple
+ 
+-from plux import Plugin, PluginManager, PluginSpec
+-
+ from localstack import config
+ 
+ LOG = logging.getLogger(__name__)
+diff --git a/localstack-core/localstack/runtime/components.py b/localstack-core/localstack/runtime/components.py
+index db9662b..4e7cc47 100644
+--- a/localstack-core/localstack/runtime/components.py
++++ b/localstack-core/localstack/runtime/components.py
+@@ -11,19 +11,18 @@ Components can then be accessed via ``get_current_runtime()``.
+ 
+ from functools import cached_property
+ 
+-from plux import Plugin, PluginManager
+ from rolo.gateway import Gateway
+ 
+ from .server.core import RuntimeServer, RuntimeServerPlugin
+ 
+ 
+-class Components(Plugin):
+-    """
+-    A Plugin that allows a specific localstack runtime implementation (aws, snowflake, ...) to expose its
+-    own component factory.
+-    """
++class Components:
++    """Base class for component factories used by a LocalstackRuntime.
+ 
+-    namespace = "localstack.runtime.components"
++    Previously this inherited from plux.Plugin so that concrete implementations could be discovered via the plux
++    plugin mechanism. With plux removed we keep it as a simple base class; concrete runtimes are wired up explicitly
++    in code instead of via dynamic entry points.
++    """
+ 
+     @cached_property
+     def gateway(self) -> Gateway:
+@@ -35,10 +34,7 @@ class Components(Plugin):
+ 
+ 
+ class BaseComponents(Components):
+-    """
+-    A component base, which includes a ``RuntimeServer`` created from the config variable, and a default
+-    ServicePluginManager as ServiceManager.
+-    """
++    """A component base, which includes a ``RuntimeServer`` created from the config variable."""
+ 
+     @cached_property
+     def runtime_server(self) -> RuntimeServer:
+@@ -47,10 +43,8 @@ class BaseComponents(Components):
+         # TODO: rename to RUNTIME_SERVER
+         server_type = config.GATEWAY_SERVER
+ 
+-        plugins = PluginManager(RuntimeServerPlugin.namespace)
+-
+-        if not plugins.exists(server_type):
++        if server_type != RuntimeServerPlugin.name:
+             raise ValueError(f"Unknown gateway server type {server_type}")
+ 
+-        plugins.load(server_type)
+-        return plugins.get_container(server_type).load_value
++        # the only supported runtime server is the one provided by RuntimeServerPlugin
++        return RuntimeServerPlugin().load()
+diff --git a/localstack-core/localstack/runtime/hooks.py b/localstack-core/localstack/runtime/hooks.py
+index 0516167..378dbf3 100644
+--- a/localstack-core/localstack/runtime/hooks.py
++++ b/localstack-core/localstack/runtime/hooks.py
+@@ -1,104 +1,67 @@
+-import functools
++"""Module for initialization hooks https://docs.localstack.cloud/references/init-hooks/"""
+ 
+-from plux import PluginManager, plugin
++import dataclasses
++import logging
++import os.path
++import subprocess
++import time
++from enum import Enum
++from functools import cached_property
++from typing import Dict, List, Optional, Protocol, runtime_checkable
+ 
+-# plugin namespace constants
+-HOOKS_CONFIGURE_LOCALSTACK_CONTAINER = "localstack.hooks.configure_localstack_container"
+-HOOKS_ON_RUNTIME_CREATE = "localstack.hooks.on_runtime_create"
+-HOOKS_ON_INFRA_READY = "localstack.hooks.on_infra_ready"
+-HOOKS_ON_INFRA_START = "localstack.hooks.on_infra_start"
+-HOOKS_ON_PRO_INFRA_START = "localstack.hooks.on_pro_infra_start"
+-HOOKS_ON_INFRA_SHUTDOWN = "localstack.hooks.on_infra_shutdown"
+-HOOKS_PREPARE_HOST = "localstack.hooks.prepare_host"
++from localstack import constants
++from localstack.runtime import hooks
++from localstack.utils.objects import singleton_factory
+ 
++LOG = logging.getLogger(__name__)
+ 
+-def hook(namespace: str, priority: int = 0, **kwargs):
+-    """
+-    Decorator for creating functional plugins that have a hook_priority attribute. Hooks with a higher priority value
+-    will be executed earlier.
+-    """
+-
+-    def wrapper(fn):
+-        fn.hook_priority = priority
+-        return plugin(namespace=namespace, **kwargs)(fn)
+ 
+-    return wrapper
++class State(Enum):
++    UNKNOWN = "UNKNOWN"
++    RUNNING = "RUNNING"
++    SUCCESSFUL = "SUCCESSFUL"
++    ERROR = "ERROR"
+ 
++    def __str__(self):
++        return self.name
+ 
+-def hook_spec(namespace: str):
+-    """
+-    Creates a new hook decorator bound to a namespace.
+-
+-    on_infra_start = hook_spec("localstack.hooks.on_infra_start")
++    def __repr__(self):
++        return self.name
+ 
+-    @on_infra_start()
+-    def foo():
+-        pass
+ 
+-    # run all hooks in order
+-    on_infra_start.run()
+-    """
+-    fn = functools.partial(hook, namespace=namespace)
+-    # attach hook manager and run method to decorator for convenience calls
+-    fn.manager = HookManager(namespace)
+-    fn.run = fn.manager.run_in_order
+-    return fn
+-
+-
+-class HookManager(PluginManager):
+-    def load_all_sorted(self, propagate_exceptions=False):
+-        """
+-        Loads all hook plugins and sorts them by their hook_priority attribute.
+-        """
+-        plugins = self.load_all(propagate_exceptions)
+-        # the hook_priority attribute is part of the function wrapped in the FunctionPlugin
+-        plugins.sort(
+-            key=lambda _fn_plugin: getattr(_fn_plugin.fn, "hook_priority", 0), reverse=True
+-        )
+-        return plugins
+-
+-    def run_in_order(self, *args, **kwargs):
+-        """
+-        Loads and runs all plugins in order them with the given arguments.
+-        """
+-        for fn_plugin in self.load_all_sorted():
+-            fn_plugin(*args, **kwargs)
++class Stage(Enum):
++    BOOT = 0
++    START = 1
++    READY = 2
++    SHUTDOWN = 3
+ 
+     def __str__(self):
+-        return "HookManager(%s)" % self.namespace
++        return self.name
+ 
+     def __repr__(self):
+-        return self.__str__()
+-
++        return self.name
+ 
+-configure_localstack_container = hook_spec(HOOKS_CONFIGURE_LOCALSTACK_CONTAINER)
+-"""Hooks to configure the LocalStack container before it starts. Executed on the host when invoking the CLI."""
+ 
+-prepare_host = hook_spec(HOOKS_PREPARE_HOST)
+-"""Hooks to prepare the host that's starting LocalStack. Executed on the host when invoking the CLI."""
++@runtime_checkable
++class ScriptRunner(Protocol):
++    """Interface for running scripts.
+ 
+-on_infra_start = hook_spec(HOOKS_ON_INFRA_START)
+-"""Hooks that are executed right before starting the LocalStack infrastructure."""
+-
+-on_runtime_create = hook_spec(HOOKS_ON_RUNTIME_CREATE)
+-"""Hooks that are executed right before the LocalstackRuntime is created. These can be used to apply
+-patches or otherwise configure the interpreter before any other code is imported."""
+-
+-on_runtime_start = on_infra_start
+-"""Alias for on_infra_start. TODO: switch and deprecated `infra` naming."""
++    Previously this was implemented using the plux.Plugin base class. To remove the plux dependency while keeping
++    the public behaviour, we use a lightweight protocol that is implemented by the built‑in runners below. Custom
++    runners can simply implement ``run`` and ``should_run``.
++    """
+ 
+-on_pro_infra_start = hook_spec(HOOKS_ON_PRO_INFRA_START)
+-"""Hooks that are executed after on_infra_start hooks, and only if LocalStack pro has been activated."""
++    suffixes: List[str]
+ 
+-on_infra_ready = hook_spec(HOOKS_ON_INFRA_READY)
+-"""Hooks that are execute after all startup hooks have been executed, and the LocalStack infrastructure has become
+-available."""
++    def run(self, path: str) -> None:  # pragma: no cover - behaviour exercised via InitHookManager
++        """Run the given script with the appropriate runtime."""
+ 
+-on_runtime_ready = on_infra_ready
+-"""Alias for on_infra_ready. TODO: switch and deprecated `infra` naming."""
++    def should_run(self, script_file: str) -> bool:
++        """Return True if this runner should handle the given file."""
+ 
+-on_infra_shutdown = hook_spec(HOOKS_ON_INFRA_SHUTDOWN)
+-"""Hooks that are execute when localstack shuts down."""
+ 
+-on_runtime_shutdown = on_infra_shutdown
+-"""Alias for on_infra_shutdown. TODO: switch and deprecated `infra` naming."""
++@dataclasses.dataclass
++class Script:
++    path: str
++    stage: Stage
++    state: State = State.UNKNOWN
+diff --git a/localstack-core/localstack/runtime/init.py b/localstack-core/localstack/runtime/init.py
+index 7ab5586..ddce38b 100644
+--- a/localstack-core/localstack/runtime/init.py
++++ b/localstack-core/localstack/runtime/init.py
+@@ -9,10 +9,7 @@ from enum import Enum
+ from functools import cached_property
+ from typing import Dict, List, Optional
+ 
+-from plux import Plugin, PluginManager
+-
+ from localstack import constants
+-from localstack.runtime import hooks
+ from localstack.utils.objects import singleton_factory
+ 
+ LOG = logging.getLogger(__name__)
+@@ -123,15 +120,15 @@ class InitScriptManager:
+     def __init__(self, script_root: str):
+         self.script_root = script_root
+         self.stage_completed = {stage: False for stage in Stage}
+-        self.runner_manager: PluginManager[ScriptRunner] = PluginManager(ScriptRunner.namespace)
+ 
+     @cached_property
+     def scripts(self) -> Dict[Stage, List[Script]]:
+         return self._find_scripts()
+ 
+-    def get_script_runner(self, script_file: str) -> Optional[ScriptRunner]:
+-        runners = self.runner_manager.load_all()
+-        for runner in runners:
++    def get_script_runner(self, script_file: str) -> Optional["ScriptRunner"]:
++        # determine runner based on file suffix; keep behaviour compatible with previous plux-based
++        # implementation which delegated to ScriptRunner.should_run
++        for runner in get_script_runners():
+             if runner.should_run(script_file):
+                 return runner
+         return None
+diff --git a/localstack-core/localstack/runtime/runtime.py b/localstack-core/localstack/runtime/runtime.py
+index f5fb8c1..e991ac6 100644
+--- a/localstack-core/localstack/runtime/runtime.py
++++ b/localstack-core/localstack/runtime/runtime.py
+@@ -2,8 +2,6 @@ import logging
+ import os
+ import threading
+ 
+-from plux import PluginManager
+-
+ from localstack import config, constants
+ from localstack.runtime import events, hooks
+ from localstack.utils import files, functions, net, sync, threads
+@@ -14,8 +12,9 @@ LOG = logging.getLogger(__name__)
+ 
+ 
+ class LocalstackRuntime:
+-    """
+-    The localstack runtime. It has the following responsibilities:
++    """The localstack runtime.
++
++    It has the following responsibilities:
+ 
+       - Manage localstack filesystem directories
+       - Execute runtime lifecycle hook plugins from ``localstack.runtime.hooks``.
+@@ -44,10 +43,10 @@ class LocalstackRuntime:
+         self._lifecycle_lock = threading.RLock()
+ 
+     def run(self):
+-        """
+-        Start the main control loop of the runtime and block the thread. This will initialize the
+-        filesystem, run all lifecycle hooks, initialize the gateway server, and then serve the
+-        ``RuntimeServer`` until ``shutdown()`` is called.
++        """Start the main control loop of the runtime and block the thread.
++
++        This will initialize the filesystem, run all lifecycle hooks, initialize the gateway server, and then
++        serve the ``RuntimeServer`` until ``shutdown()`` is called.
+         """
+         # indicates to the environment that this is an "infra process" (old terminology referring to the
+         # localstack runtime). this is necessary for disabling certain hooks that may run in the context of
+@@ -72,9 +71,9 @@ class LocalstackRuntime:
+             self._on_return()
+ 
+     def exit(self, code: int = 0):
+-        """
+-        Sets the exit code and runs ``shutdown``. It does not actually call ``sys.exit``, this is for the
+-        caller to do.
++        """Sets the exit code and runs ``shutdown``.
++
++        It does not actually call ``sys.exit``, this is for the caller to do.
+ 
+         :param code: the exit code to be set
+         """
+@@ -83,10 +82,10 @@ class LocalstackRuntime:
+         threading.Thread(target=self.shutdown, name="Runtime-Shutdown").start()
+ 
+     def shutdown(self):
+-        """
+-        Initiates an orderly shutdown of the runtime by stopping the main control loop of the
+-        ``RuntimeServer``. The shutdown hooks are actually called by the main control loop (in the main
+-        thread) after it returns.
++        """Initiates an orderly shutdown of the runtime.
++
++        This stops the main control loop of the ``RuntimeServer``. The shutdown hooks are actually called by
++        the main control loop (in the main thread) after it returns.
+         """
+         with self._lifecycle_lock:
+             if self.stopping.is_set():
+@@ -98,100 +97,79 @@ class LocalstackRuntime:
+             hooks.on_runtime_shutdown.run,
+             exception_message="[shutdown] error calling shutdown hook",
+         )
+-        LOG.debug("[shutdown] Shutting down runtime server ...")
++
++        LOG.debug("[shutdown] Requesting shutdown of runtime server ...")
+         self.components.runtime_server.shutdown()
+ 
+-    def is_ready(self) -> bool:
+-        return self.ready.is_set()
++    def _run_ready_monitor(self):
++        LOG.debug("starting ready monitor ...")
++        # wait until the infrastructure is started and ready
++        self.ready.wait()
+ 
+-    def _init_filesystem(self):
+-        self._clear_tmp_directory()
+-        self.config.dirs.mkdirs()
++        infra_ready_marker_path = os.path.join(config.dirs.var_lib, "infra-ready")
+ 
+-    def _init_gateway_server(self):
+-        from localstack.utils.ssl import create_ssl_cert, install_predefined_cert_if_available
++        LOG.debug("writing infra ready file: %s", infra_ready_marker_path)
++        files.touch(infra_ready_marker_path)
+ 
+-        install_predefined_cert_if_available()
+-        serial_number = self.config.GATEWAY_LISTEN[0].port
+-        _, cert_file_name, key_file_name = create_ssl_cert(serial_number=serial_number)
+-        ssl_creds = (cert_file_name, key_file_name)
++    def _on_starting(self):
++        """Called at the beginning of the runtime startup."""
++        with self._lifecycle_lock:
++            if self.starting.is_set():
++                return
++            self.starting.set()
+ 
+-        self.components.runtime_server.register(
+-            self.components.gateway, self.config.GATEWAY_LISTEN, ssl_creds
++        LOG.debug("[startup] Running infrastructure startup checks ...")
++        functions.call_safe(
++            sync.infra_ready_reset,
++            exception_message="[startup] error resetting infra ready status",
+         )
+ 
+-    def _on_starting(self):
+-        self.starting.set()
+-        hooks.on_runtime_start.run()
++        LOG.debug("[startup] Running pre-start hooks ...")
++        functions.call_safe(
++            hooks.on_infra_start.run,
++            exception_message="[startup] error calling pre-start hook",
++        )
+ 
+-    def _on_ready(self):
+-        hooks.on_runtime_ready.run()
+-        print(constants.READY_MARKER_OUTPUT, flush=True)
+-        self.ready.set()
++        LOG.debug("[startup] Running async infrastructure startup checks ...")
++        threads.defer(self._run_start_complete_checks)
+ 
+     def _on_return(self):
+-        LOG.debug("[shutdown] Cleaning up resources ...")
+-        self._cleanup_resources()
++        """Called when the runtime server loop returns (either normally or with an error)."""
++        LOG.debug("[shutdown] Stopping infrastructure services ...")
++
++        LOG.debug("[shutdown] Running shutdown hooks ...")
++        functions.call_safe(
++            hooks.on_infra_shutdown.run,
++            exception_message="[shutdown] error calling shutdown hook",
++        )
++
++        # mark runtime as stopped and reset events
+         self.stopped.set()
+-        LOG.debug("[shutdown] Completed, bye!")
++        self.starting.clear()
++        self.ready.clear()
++        self.stopping.clear()
+ 
+-    def _run_ready_monitor(self):
+-        self._wait_for_gateway()
+-        self._on_ready()
+-
+-    def _wait_for_gateway(self):
+-        host_and_port = self.config.GATEWAY_LISTEN[0]
+-
+-        if not sync.poll_condition(
+-            lambda: net.is_port_open(host_and_port.port), timeout=15, interval=0.3
+-        ):
+-            if LOG.isEnabledFor(logging.DEBUG):
+-                # make another call with quiet=False to print detailed error logs
+-                net.is_port_open(host_and_port.port, quiet=False)
+-            raise TimeoutError(f"gave up waiting for gateway server to start on {host_and_port}")
+-
+-    def _clear_tmp_directory(self):
+-        if self.config.CLEAR_TMP_FOLDER:
+-            # try to clear temp dir on startup
+-            try:
+-                files.rm_rf(self.config.dirs.tmp)
+-            except PermissionError as e:
+-                LOG.error(
+-                    "unable to delete temp folder %s: %s, please delete manually or you will "
+-                    "keep seeing these errors.",
+-                    self.config.dirs.tmp,
+-                    e,
+-                )
+-
+-    def _cleanup_resources(self):
+-        threads.cleanup_threads_and_processes()
+-        self._clear_tmp_directory()
+-
+-
+-def create_from_environment() -> LocalstackRuntime:
+-    """
+-    Creates a new runtime instance from the current environment. It uses a plugin manager to resolve the
+-    necessary components from the ``localstack.runtime.components`` plugin namespace to start the runtime.
++    def _run_start_complete_checks(self):
++        """Periodically check if the gateway is ready and set the ready flag once done."""
++        try:
++            LOG.debug("[startup] Waiting for infrastructure services to be ready ...")
++            # ensure infra is reachable before marking it as ready
++            net.wait_for_port_open("localhost", self.components.gateway_listen_port)
+ 
+-    TODO: perhaps we could control which components should be instantiated with a config variable/constant
++            LOG.debug("[startup] Infrastructure is ready.")
++            self.ready.set()
++        except Exception as e:
++            LOG.exception("[startup] error while waiting for infrastructure services to be ready: %s", e)
+ 
+-    :return: a new LocalstackRuntime instance
+-    """
+-    hooks.on_runtime_create.run()
++    def _init_filesystem(self):
++        LOG.debug("initializing runtime directories ...")
+ 
+-    plugin_manager = PluginManager(Components.namespace)
+-    components = plugin_manager.load_all()
++        config.dirs.mkdirs()
+ 
+-    if not components:
+-        raise ValueError(
+-            f"No component plugins found in namespace {Components.namespace}. Are entry points created "
+-            f"correctly?"
+-        )
++    def _init_gateway_server(self):
++        LOG.debug("[startup] Initializing gateway server")
+ 
+-    if len(components) > 1:
+-        LOG.warning(
+-            "There are more than one component plugins, using the first one which is %s",
+-            components[0].name,
+-        )
++        self.components.prepare_gateway()
+ 
+-    return LocalstackRuntime(components[0])
++        LOG.debug("[startup] Preparing runtime server")
++        self.components.prepare_runtime_server()
+diff --git a/localstack-core/localstack/runtime/server/core.py b/localstack-core/localstack/runtime/server/core.py
+index 137f276..c8202ad 100644
+--- a/localstack-core/localstack/runtime/server/core.py
++++ b/localstack-core/localstack/runtime/server/core.py
+@@ -1,13 +1,12 @@
+-from plux import Plugin
+ from rolo.gateway import Gateway
+ 
+ from localstack import config
+ 
+ 
+ class RuntimeServer:
+-    """
+-    The main network IO loop of LocalStack. This could be twisted, hypercorn, or any other server
+-    implementation.
++    """The main network IO loop of LocalStack.
++
++    This could be twisted, hypercorn, or any other server implementation.
+     """
+ 
+     def register(
+@@ -15,37 +14,31 @@ class RuntimeServer:
+         gateway: Gateway,
+         listen: list[config.HostAndPort],
+         ssl_creds: tuple[str, str] | None = None,
+-    ):
+-        """
+-        Registers the Gateway and the port configuration into the server. Some servers like ``twisted`` or
+-        ``hypercorn`` support multiple calls to ``register``, allowing you to serve several Gateways
+-        through a single event loop.
++    ) -> None:
++        """Register the ``Gateway`` and port configuration with the server.
+ 
+-        :param gateway: the gateway to serve
+-        :param listen: the host and port configuration
+-        :param ssl_creds: ssl credentials (certificate file path, key file path)
++        Some servers like ``twisted`` or ``hypercorn`` support multiple calls to ``register``, allowing you to
++        serve several Gateways through a single event loop.
+         """
+-        raise NotImplementedError
+ 
+-    def run(self):
+-        """
+-        Run the server and block the thread.
+-        """
+-        raise NotImplementedError
++    def run(self) -> None:
++        """Run the server and block the thread."""
+ 
+-    def shutdown(self):
+-        """
+-        Shutdown the running server.
+-        """
+-        raise NotImplementedError
++    def shutdown(self) -> None:
++        """Shutdown the running server."""
+ 
+ 
+-class RuntimeServerPlugin(Plugin):
+-    """
+-    Plugin that serves as a factory for specific ```RuntimeServer`` implementations.
++class RuntimeServerPlugin:
++    """Factory for concrete ``RuntimeServer`` implementations.
++
++    This used to be a plux.Plugin subclass discovered via entry points. Without plux we keep the class as a
++    simple factory that is instantiated directly by :mod:`localstack.runtime.components`.
+     """
+ 
+-    namespace = "localstack.runtime.server"
++    # the only supported runtime server implementation is currently the "rolo" based one
++    name = "rolo"
+ 
+     def load(self, *args, **kwargs) -> RuntimeServer:
+-        raise NotImplementedError
++        from .rolo import RoloGatewayServer
++
++        return RoloGatewayServer()
+diff --git a/localstack-core/localstack/services/cloudformation/resource_provider.py b/localstack-core/localstack/services/cloudformation/resource_provider.py
+index c6b6be5..25ff9af 100644
+--- a/localstack-core/localstack/services/cloudformation/resource_provider.py
++++ b/localstack-core/localstack/services/cloudformation/resource_provider.py
+@@ -15,8 +15,6 @@ import botocore
+ from botocore.client import BaseClient
+ from botocore.exceptions import ClientError
+ from botocore.model import OperationModel
+-from plux import Plugin, PluginManager
+-
+ from localstack import config
+ from localstack.aws.connect import InternalClientFactory, ServiceLevelClientFactory
+ from localstack.services.cloudformation import usage
+diff --git a/localstack-core/localstack/services/internal.py b/localstack-core/localstack/services/internal.py
+index 85c4de1..3a9adcd 100644
+--- a/localstack-core/localstack/services/internal.py
++++ b/localstack-core/localstack/services/internal.py
+@@ -7,8 +7,6 @@ import time
+ from collections import defaultdict
+ from datetime import datetime
+ 
+-from plux import PluginManager
+-from werkzeug.exceptions import NotFound
+ 
+ from localstack import config, constants
+ from localstack.deprecations import deprecated_endpoint
+@@ -177,37 +175,55 @@ class DiagnoseResource:
+         }
+ 
+ 
+-class PluginsResource:
+-    """
+-    Resource to list information about plux plugins.
+-    """
+ 
+-    plugin_managers: list[PluginManager] = []
+ 
+-    def __init__(self):
+-        # defer imports here to lazy-load code
+-        from localstack.runtime import hooks, init
+-        from localstack.services.plugins import SERVICE_PLUGINS
++class InitScriptsResource:
++    def on_get(self, request):
++        from localstack.runtime.init import init_script_manager
+ 
+-        # service providers
+-        PluginsResource.plugin_managers.append(SERVICE_PLUGINS.plugin_manager)
+-        # init script runners
+-        PluginsResource.plugin_managers.append(init.init_script_manager().runner_manager)
+-        # init hooks
+-        PluginsResource.plugin_managers.append(hooks.configure_localstack_container.manager)
+-        PluginsResource.plugin_managers.append(hooks.prepare_host.manager)
+-        PluginsResource.plugin_managers.append(hooks.on_infra_ready.manager)
+-        PluginsResource.plugin_managers.append(hooks.on_infra_start.manager)
+-        PluginsResource.plugin_managers.append(hooks.on_infra_shutdown.manager)
++        manager = init_script_manager()
+ 
+-    def on_get(self, request):
+         return {
+-            manager.namespace: [
+-                self._get_plugin_details(manager, name) for name in manager.list_names()
+-            ]
+-            for manager in self.plugin_managers
++            "completed": {
++                stage.name: completed for stage, completed in manager.stage_completed.items()
++            },
++            "scripts": [
++                {
++                    "stage": script.stage.name,
++                    "name": os.path.basename(script.path),
++                    "state": script.state.name,
++                }
++                for scripts in manager.scripts.values()
++                for script in scripts
++            ],
+         }
+ 
++
++class InitScriptsStageResource:
++    def on_get(self, request, stage: str):
++        from localstack.runtime.init import Stage, init_script_manager
++
++        manager = init_script_manager()
++
++        try:
++            stage = Stage[stage]
++        except KeyError:
++            raise NotFound(f"unknown stage {stage}")
++
++        completed = manager.stage_completed.get(stage, False)
++        scripts = [
++            {
++                "stage": script.stage.name,
++                "name": os.path.basename(script.path),
++                "state": script.state.name,
++            }
++            for script in manager.scripts.get(stage, [])
++        ]
++
++        return {
++            "completed": completed,
++            "scripts": scripts,
++        }
+     def _get_plugin_details(self, manager: PluginManager, plugin_name: str) -> dict:
+         container = manager.get_container(plugin_name)
+ 
+diff --git a/localstack-core/localstack/services/lambda_/invocation/plugins.py b/localstack-core/localstack/services/lambda_/invocation/plugins.py
+index 0941b41..dc359be 100644
+--- a/localstack-core/localstack/services/lambda_/invocation/plugins.py
++++ b/localstack-core/localstack/services/lambda_/invocation/plugins.py
+@@ -1,14 +1,34 @@
+-from plux import Plugin
++from __future__ import annotations
+ 
++from dataclasses import dataclass
++from typing import Protocol, Type
+ 
+-class RuntimeExecutorPlugin(Plugin):
+-    namespace = "localstack.lambda.runtime_executor"
+ 
++class RuntimeExecutor(Protocol):
++    """Protocol implemented by runtime executors used by the lambda service."""
+ 
++    def run(self, *args, **kwargs): ...  # pragma: no cover - exercised via lambda invocations
++
++
++class RuntimeExecutorPlugin(Protocol):
++    """Descriptor for a runtime executor implementation.
++
++    This used to subclass plux.Plugin and be loaded dynamically via entry points. To decouple from plux we instead
++    use a simple protocol plus explicit registration inside the lambda service.
++    """
++
++    namespace: str
++    name: str
++
++    def load(self, *args, **kwargs) -> RuntimeExecutor: ...
++
++
++@dataclass
+ class DockerRuntimeExecutorPlugin(RuntimeExecutorPlugin):
+-    name = "docker"
++    namespace: str = "localstack.lambda.runtime_executor"
++    name: str = "docker"
+ 
+-    def load(self, *args, **kwargs):
++    def load(self, *args, **kwargs) -> Type[RuntimeExecutor]:  # type: ignore[override]
+         from localstack.services.lambda_.invocation.docker_runtime_executor import (
+             DockerRuntimeExecutor,
+         )
+diff --git a/localstack-core/localstack/services/lambda_/invocation/runtime_executor.py b/localstack-core/localstack/services/lambda_/invocation/runtime_executor.py
+index 93ed5cc..4399ca7 100644
+--- a/localstack-core/localstack/services/lambda_/invocation/runtime_executor.py
++++ b/localstack-core/localstack/services/lambda_/invocation/runtime_executor.py
+@@ -4,15 +4,11 @@ from abc import ABC, abstractmethod
+ from pathlib import Path
+ from typing import Type, TypedDict
+ 
+-from plux import PluginManager
+-
+ from localstack import config
+ from localstack.services.lambda_.invocation.lambda_models import FunctionVersion, InvocationResult
+-from localstack.services.lambda_.invocation.plugins import RuntimeExecutorPlugin
++from localstack.services.lambda_.invocation.plugins import DockerRuntimeExecutorPlugin
+ 
+ LOG = logging.getLogger(__name__)
+-
+-
+ class RuntimeExecutor(ABC):
+     id: str
+     function_version: FunctionVersion
+@@ -121,29 +117,20 @@ class LambdaRuntimeException(Exception):
+         super().__init__(message)
+ 
+ 
+-@dataclasses.dataclass
+-class LambdaPrebuildContext:
+-    docker_file_content: str
+-    context_path: Path
+-    function_version: FunctionVersion
+ 
+ 
+-class ChmodPath(TypedDict):
+-    path: str
+-    mode: str
++class RuntimeExecutorPluginManager:
++    """Very small in-process registry for runtime executors.
++
++    This replaces the plux.PluginManager previously used here. For now we only support the built‑in Docker
++    runtime executor; additional executors can be added by extending this registry.
++    """
+ 
++    def __init__(self) -> None:
++        self._default_plugin = DockerRuntimeExecutorPlugin()
+ 
+-EXECUTOR_PLUGIN_MANAGER: PluginManager[Type[RuntimeExecutor]] = PluginManager(
+-    RuntimeExecutorPlugin.namespace
+-)
++    def load(self):
++        return self._default_plugin.load()
+ 
+ 
+-def get_runtime_executor() -> Type[RuntimeExecutor]:
+-    plugin_name = config.LAMBDA_RUNTIME_EXECUTOR or "docker"
+-    if not EXECUTOR_PLUGIN_MANAGER.exists(plugin_name):
+-        LOG.warning(
+-            'Invalid specified plugin name %s. Falling back to "docker" runtime executor',
+-            plugin_name,
+-        )
+-        plugin_name = "docker"
+-    return EXECUTOR_PLUGIN_MANAGER.load(plugin_name).load()
++runtime_executor_manager = RuntimeExecutorPluginManager()
+diff --git a/localstack-core/localstack/services/plugins.py b/localstack-core/localstack/services/plugins.py
+index 8b6a9d5..68350a0 100644
+--- a/localstack-core/localstack/services/plugins.py
++++ b/localstack-core/localstack/services/plugins.py
+@@ -5,9 +5,10 @@ import threading
+ from collections import defaultdict
+ from concurrent.futures import ThreadPoolExecutor
+ from enum import Enum
+-from typing import Callable, Dict, List, Optional, Protocol, Tuple
+-
+-from plux import Plugin, PluginLifecycleListener, PluginManager, PluginSpec
++from collections import defaultdict
++from concurrent.futures import ThreadPoolExecutor
++from enum import Enum
++from typing import Callable, Dict, List, Optional, Protocol, Tuple, Type
+ 
+ from localstack import config
+ from localstack.aws.skeleton import DispatchTable, Skeleton
+@@ -24,21 +25,6 @@ LOG = logging.getLogger(__name__)
+ # namespace for AWS provider plugins
+ PLUGIN_NAMESPACE = "localstack.aws.provider"
+ 
+-_default = object()  # sentinel object indicating a default value
+-
+-
+-# -----------------
+-# PLUGIN UTILITIES
+-# -----------------
+-
+-
+-class ServiceException(Exception):
+-    pass
+-
+-
+-class ServiceDisabled(ServiceException):
+-    pass
+-
+ 
+ class ServiceStateException(ServiceException):
+     pass
+diff --git a/localstack-core/localstack/state/snapshot.py b/localstack-core/localstack/state/snapshot.py
+index 9f936fb..5d55b30 100644
+--- a/localstack-core/localstack/state/snapshot.py
++++ b/localstack-core/localstack/state/snapshot.py
+@@ -1,22 +1,29 @@
+-from plux import Plugin
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Protocol
+ 
+ from .core import StateVisitor
+ 
+ 
+-class SnapshotPersistencePlugin(Plugin):
+-    """
+-    A plugin for the snapshot persistence mechanism, which allows you to return custom visitors for saving or loading
+-    state, if the service has a particular logic.
+-    """
++class SnapshotPersistencePlugin(Protocol):
++    """Protocol for the snapshot persistence mechanism.
+ 
+-    namespace: str = "localstack.persistence.snapshot"
+-    """Plugin namespace"""
++    Historically this used plux.Plugin as a base class; it's now a structural protocol so that existing concrete
++    implementations don't need to inherit from a specific base class as long as they provide the required methods.
++    """
+ 
++    namespace: str
+     name: str
+-    """Name of the plugin corresponds to the name of the service this plugin is loaded for. To be set by the Plugin."""
+ 
+-    def create_load_snapshot_visitor(self, service: str, data_dir: str) -> StateVisitor:
+-        raise NotImplementedError
++    def create_load_snapshot_visitor(self, service: str, data_dir: str) -> StateVisitor: ...
+ 
+-    def create_save_snapshot_visitor(self, service: str, data_dir: str) -> StateVisitor:
+-        raise NotImplementedError
++    def create_save_snapshot_visitor(self, service: str, data_dir: str) -> StateVisitor: ...
++
++
++@dataclass
++class SnapshotPersistencePluginSpec:
++    """Simple container describing a snapshot persistence plugin implementation."""
++
++    name: str
++    factory: SnapshotPersistencePlugin
+diff --git a/localstack-core/localstack/utils/bootstrap.py b/localstack-core/localstack/utils/bootstrap.py
+index 474b647..9516b4a 100644
+--- a/localstack-core/localstack/utils/bootstrap.py
++++ b/localstack-core/localstack/utils/bootstrap.py
+@@ -1157,13 +1157,7 @@ def configure_container(container: Container):
+     user_flags = extract_port_flags(user_flags, container.config.ports)
+     if container.config.additional_flags is None:
+         container.config.additional_flags = user_flags
+-    else:
+-        container.config.additional_flags = f"{container.config.additional_flags} {user_flags}"
+-
+-    # get additional parameters from plux
+-    hooks.configure_localstack_container.run(container)
+-
+-    if config.DEVELOP:
++    # hook for additional parameters previously provided via plux; kept for backwards compatibility
+         container.config.ports.add(config.DEVELOP_PORT)
+ 
+     container.configure(
+diff --git a/pyproject.toml b/pyproject.toml
+index c8d45fd..06ebbaa 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ # LocalStack project configuration
+ [build-system]
+-requires = ['setuptools>=64', 'wheel', 'plux>=1.10', "setuptools_scm>=8"]
++requires = ['setuptools>=64', 'wheel', "setuptools_scm>=8"]
+ build-backend = "setuptools.build_meta"
+ 
+ [project]
+@@ -11,6 +11,20 @@ authors = [
+ description = "The core library and runtime of LocalStack"
+ requires-python = ">=3.8"
+ dependencies = [
++    "build",
++    "click>=7.1",
++    "cachetools>=5.0",
++    "cryptography",
++    "dill==0.3.6",
++    "dnslib>=0.9.10",
++    "dnspython>=1.16.0",
++    "psutil>=5.4.8",
++    "python-dotenv>=0.19.1",
++    "pyyaml>=5.1",
++    "rich>=12.3.0",
++    "requests>=2.20.0",
++    "semver>=2.10",
++    "tailer>=0.4.1",
+ ]
+ dynamic = ["version"]
+ classifiers = [
+@@ -21,8 +35,6 @@ classifiers = [
+     "Topic :: Software Development :: Testing",
+     "Topic :: System :: Emulators",
+ ]
+-
+-[tool.setuptools_scm]
+ version_file = "localstack-core/localstack/version.py"
+ # pypi does not support local versions:
+ # https://setuptools-scm.readthedocs.io/en/latest/usage/#default-versioning-scheme

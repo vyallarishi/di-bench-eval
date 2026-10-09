@@ -1,0 +1,144 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 7156f43..d4eb16b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,7 +17,17 @@ classifiers = [
+   "Operating System :: OS Independent",
+   "Programming Language :: Python"
+ ]
+-dependencies = []
++[project]
++name = "torchode"
++version = "0.0.0"
++classifiers = [
++  "Operating System :: OS Independent",
++  "Programming Language :: Python"
++]
++dependencies = [
++  "sympy ~= 1.10",
++  "torch >= 2.0",
++]
+ 
+ [project.optional-dependencies]
+ test = ["pytest", "numpy ~= 1.22"]
+diff --git a/torchode/single_step_methods/runge_kutta.py b/torchode/single_step_methods/runge_kutta.py
+index 8002fd1..c390e87 100644
+--- a/torchode/single_step_methods/runge_kutta.py
++++ b/torchode/single_step_methods/runge_kutta.py
+@@ -2,29 +2,27 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+ 
+ import torch
+ import torch.nn as nn
+-from torchtyping import TensorType
+ 
+ from ..interpolation import LocalInterpolation
+ from ..problems import InitialValueProblem
+ from ..status_codes import Status
+ from ..terms import ODETerm
+ from ..typing import *
+-from .base import StepResult
+ 
+ 
+-class CoefficientVector(TensorType["nodes"]):
++class CoefficientVector(torch.Tensor):
+     pass
+ 
+ 
+-class RungeKuttaMatrix(TensorType["nodes", "weights"]):
++class RungeKuttaMatrix(torch.Tensor):
+     pass
+ 
+ 
+-class WeightVector(TensorType["weights"]):
++class WeightVector(torch.Tensor):
+     pass
+ 
+ 
+-class WeightMatrix(TensorType["rows", "weights"]):
++class WeightMatrix(torch.Tensor):
+     pass
+ 
+ 
+diff --git a/torchode/typing.py b/torchode/typing.py
+index 06c9695..4301103 100644
+--- a/torchode/typing.py
++++ b/torchode/typing.py
+@@ -1,7 +1,6 @@
+ from typing import Optional
+ 
+ import torch
+-from torchtyping import TensorType, is_float
+ 
+ 
+ def same_dtype(*tensors: torch.Tensor):
+@@ -35,53 +34,20 @@ def same_shape(*tensors: torch.Tensor, dim: Optional[int] = None):
+     return True
+ 
+ 
+-################
+-# Tensor Types #
+-################
+-
+-# These are subclasses of TensorType instead of using TensorType annotations directly,
+-# because TorchScript does not support custom type constructors. In this way, we can
+-# continue to document the shapes and types of tensors while being TorchScript
+-# compatible, see [1].
+-#
+-# [1] https://github.com/patrick-kidger/torchtyping/issues/13
+-
+-
+-class DataTensor(TensorType["batch", "feature", is_float]):
+-    pass
+-
+-
+-class NormTensor(TensorType["batch", is_float]):
+-    pass
+-
+-
+-class SolutionDataTensor(TensorType["batch", "time", "feature", is_float]):
+-    pass
+-
+-
+-class TimeTensor(TensorType["batch", is_float]):
+-    pass
+-
+-
+-class EvaluationTimesTensor(TensorType["batch", "time", is_float]):
+-    pass
+-
+-
+-class AcceptTensor(TensorType["batch", torch.bool]):
+-    pass
+-
+-
+-class StatusTensor(TensorType["batch", torch.long]):
+-    pass
+-
+-
+-class InterpTimeTensor(TensorType["interp-points", is_float]):
+-    pass
+-
+-
+-class InterpDataTensor(TensorType["interp-points", "feature", is_float]):
+-    pass
+-
+-
+-class SampleIndexTensor(TensorType["interp-points", torch.long]):
+-    pass
++# NOTE: Previously this module defined a collection of TensorType-based
++# shape/dtype annotations via the third-party "torchtyping" package.
++# To remove that dependency while keeping the public API stable and
++# TorchScript-friendly, we now provide plain aliases for torch.Tensor.
++# The rest of the code only relies on these for type hints and does
++# not depend on any runtime behaviour from torchtyping.
++
++DataTensor = torch.Tensor
++NormTensor = torch.Tensor
++SolutionDataTensor = torch.Tensor
++TimeTensor = torch.Tensor
++EvaluationTimesTensor = torch.Tensor
++AcceptTensor = torch.Tensor
++StatusTensor = torch.Tensor
++InterpTimeTensor = torch.Tensor
++InterpDataTensor = torch.Tensor
++SampleIndexTensor = torch.Tensor

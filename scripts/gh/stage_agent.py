@@ -28,6 +28,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from make_references import match_line_endings  # noqa: E402
 
 
 def main():
@@ -63,7 +64,7 @@ def main():
     FIELDS = ["instance_id", "metadata", "language", "act_command", "ci_file",
               "patch", "build_files", "env_specs"]
 
-    staged, skipped = [], []
+    staged, skipped, relined = [], [], []
     for d in sorted((run / "python").iterdir()):
         patch_file = d / "patch.diff"
         if not patch_file.exists():
@@ -89,12 +90,27 @@ def main():
         if not (repo_data / "python" / base).is_dir():
             skipped.append(f"{mid}: no repo data for {base}")
             continue
-        chk = subprocess.run(["git", "apply", "--check", str(patch_file.resolve())],
-                             cwd=repo_data / "python" / base,
-                             capture_output=True, text=True)
-        if chk.returncode != 0:
-            skipped.append(f"{mid}: does not apply: {chk.stderr.strip()[:90]}")
-            continue
+        def applies(text: str) -> tuple:
+            r = subprocess.run(["git", "apply", "--check", "-"],
+                               cwd=repo_data / "python" / base,
+                               input=text, capture_output=True, text=True)
+            return r.returncode == 0, r.stderr.strip()[:90]
+
+        ok, err = applies(patch)
+        if not ok:
+            # A patch written against a checkout whose CRLF was normalised will
+            # not apply to one that kept it; git compares context bytes. That
+            # is an artifact of moving the patch between checkouts, not a
+            # defect in the change, so match the endings and retry rather than
+            # scoring the attempt as a failure.
+            fixed = match_line_endings(patch, repo_data / "python" / base)
+            ok2, err2 = applies(fixed)
+            if ok2:
+                patch = fixed
+                relined.append(mid)
+            else:
+                skipped.append(f"{mid}: does not apply: {err}")
+                continue
         subset = pool_rows[(base, dep)].get("subset", "regular")
         set_name = a.set + ("_large" if (a.split_subsets and subset == "large") else "")
         if not a.dry_run:
@@ -115,7 +131,8 @@ def main():
                 for r in rows_out:
                     f.write(json.dumps(r) + "\n")
 
-    print(f"staged {len(staged)}, skipped {len(skipped)}")
+    print(f"staged {len(staged)}, skipped {len(skipped)}"
+          + (f", line endings matched to the checkout for {len(relined)}" if relined else ""))
     for set_name, rows_out in sorted(by_set.items()):
         print(f"  {set_name}: {len(rows_out)}")
     for sk in skipped:

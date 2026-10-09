@@ -1,0 +1,316 @@
+diff --git a/adaptive/learner/average_learner1D.py b/adaptive/learner/average_learner1D.py
+index 9678b4f..2d8b0ec 100644
+--- a/adaptive/learner/average_learner1D.py
++++ b/adaptive/learner/average_learner1D.py
+@@ -10,10 +10,8 @@ from typing import Callable
+ 
+ import numpy as np
+ import scipy.stats
+-from sortedcollections import ItemSortedDict
+-from sortedcontainers import SortedDict
+ 
+-from adaptive.learner.learner1D import Learner1D, _get_intervals
++from adaptive.learner.learner1D import Learner1D, _get_intervals, loss_manager
+ from adaptive.notebook_integration import ensure_holoviews
+ from adaptive.types import Int, Real
+ from adaptive.utils import assign_defaults, partial_function_from_dataframe
+@@ -25,7 +23,6 @@ try:
+ 
+ except ModuleNotFoundError:
+     with_pandas = False
+-
+ Point = tuple[int, Real]
+ Points = list[Point]
+ 
+diff --git a/adaptive/learner/learner1D.py b/adaptive/learner/learner1D.py
+index bf04743..bbe22b7 100644
+--- a/adaptive/learner/learner1D.py
++++ b/adaptive/learner/learner1D.py
+@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+ 
+ import cloudpickle
+ import numpy as np
+-from sortedcollections.recipes import ItemSortedDict
+ from sortedcontainers.sorteddict import SortedDict
+ 
+ from adaptive.learner.base_learner import BaseLearner, uses_nth_neighbors
+@@ -28,16 +27,6 @@ if sys.version_info >= (3, 10):
+     from typing import TypeAlias
+ else:
+     from typing_extensions import TypeAlias
+-
+-
+-try:
+-    import pandas
+-
+-    with_pandas = True
+-
+-except ModuleNotFoundError:
+-    with_pandas = False
+-
+ if TYPE_CHECKING:
+     # -- types --
+ 
+@@ -877,6 +866,70 @@ class Learner1D(BaseLearner):
+         self.losses_combined.update(losses_combined)
+ 
+ 
++class ItemSortedDict(SortedDict):
++    """A dictionary that maintains items sorted by a key function of (key, value).
++
++    This replicates the minimal behavior of ``sortedcollections.recipes.ItemSortedDict``
++    that is used in this project: ``peekitem(0)`` returns the item with the
++    *smallest* sort key.
++    """
++
++    def __init__(self, key):
++        super().__init__()
++        self._key = key
++
++    def __setitem__(self, k, v):
++        # store by computed sort key; value is (original_key, original_value)
++        sort_key = self._key(k, v)
++        super().__setitem__(sort_key, (k, v))
++
++    def update(self, other=(), **kwargs):  # type: ignore[override]
++        if isinstance(other, ItemSortedDict):
++            for k, v in other.items():
++                self[k] = v
++        elif isinstance(other, collections.abc.Mapping):
++            for k, v in other.items():
++                self[k] = v
++        else:
++            for k, v in other:
++                self[k] = v
++        for k, v in kwargs.items():
++            self[k] = v
++
++    def items(self):  # type: ignore[override]
++        for _sort_key, (k, v) in super().items():
++            yield k, v
++
++    def values(self):  # type: ignore[override]
++        for _sort_key, (k, v) in super().values():
++            yield v
++
++    def keys(self):  # type: ignore[override]
++        for _sort_key, (k, _v) in super().items():
++            yield k
++
++    def popitem(self, index=-1):  # type: ignore[override]
++        # maintain API compatibility though only index=0 is used
++        if index not in (0, -1):
++            raise NotImplementedError("ItemSortedDict.popitem only supports index 0 or -1")
++        if index == 0:
++            key = self.iloc[0]
++        else:
++            key = self.iloc[-1]
++        (_sort_key, (k, v)) = super().popitem(key)
++        return k, v
++
++    def peekitem(self, index=-1):
++        if index not in (0, -1):
++            raise NotImplementedError("ItemSortedDict.peekitem only supports index 0 or -1")
++        if index == 0:
++            key = self.iloc[0]
++        else:
++            key = self.iloc[-1]
++        _sort_key, (k, v) = super().peekitem(key)
++        return k, v
++
++
+ def loss_manager(x_scale: float) -> ItemSortedDict[Interval, float]:
+     def sort_key(ival, loss):
+         loss, ival = finite_loss(ival, loss, x_scale)
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..b729599 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,124 +1,86 @@
+ [build-system]
+-build-backend = "setuptools.build_meta"
+-requires = ["setuptools ~= 69.0.0", "versioningit ~= 3.0.0", "wheel"]
++requires = ["hatchling"]
++build-backend = "hatchling.build"
+ 
+ [project]
+ name = "adaptive"
+-dynamic = ["version"]
+-description = "Parallel active learning of mathematical functions"
+-maintainers = [{ name = "Adaptive authors" }]
+-license = { text = "BSD" }
+ requires-python = ">=3.9"
++description = "Parallel active learning of mathematical functions."
++readme = "README.md"
++license = {text = "BSD-3-Clause"}
++authors = [{name = "Severin Schraven", email = "adaptive@ems.sh"}]
++dynamic = ["version"]
++keywords = [
++    "adaptive-sampling",
++    "active-learning",
++    "machine-learning",
++    "parallel-processing",
++]
+ classifiers = [
+-    "Development Status :: 4 - Beta",
+-    "License :: OSI Approved :: BSD License",
+-    "Intended Audience :: Science/Research",
++    "Programming Language :: Python",
++    "Programming Language :: Python :: 3",
++    "Programming Language :: Python :: 3 :: Only",
+     "Programming Language :: Python :: 3.9",
+     "Programming Language :: Python :: 3.10",
+     "Programming Language :: Python :: 3.11",
+-    "Programming Language :: Python :: 3.12",
+-]
+-dependencies = [
++    "License :: OSI Approved :: BSD License",
++    "Intended Audience :: Science/Research",
+ ]
+ 
++[project.urls]
++Homepage = "https://github.com/python-adaptive/adaptive"
++"Source Code" = "https://github.com/python-adaptive/adaptive"
++Documentation = "http://adaptive.readthedocs.io/en/latest/"
++Changelog = "https://github.com/python-adaptive/adaptive/blob/master/CHANGELOG.md"
++"Bug Tracker" = "https://github.com/python-adaptive/adaptive/issues"
++"CI: GitHub Actions" = "https://github.com/python-adaptive/adaptive/actions"
++
+ [project.optional-dependencies]
+-other = [
+-    "dill",
+-    "distributed",
+-    "ipyparallel>=6.2.5",       # because of https://github.com/ipython/ipyparallel/issues/404
+-    "wexpect; os_name == 'nt'",
+-    "pexpect; os_name != 'nt'",
++all = [
++    "adaptive[all_viewers]",
++    "adaptive[topology]",
++    "adaptive[testing]",
++]
++all_viewers = [
++    "bokeh>=2.4.2",
++    "holoviews>=1.7.0",
+ ]
+-notebook = [
+-    "ipython",
+-    "ipykernel>=4.8.0",      # because https://github.com/ipython/ipykernel/issues/274 and https://github.com/ipython/ipykernel/issues/263
+-    "jupyter_client>=5.2.2", # because https://github.com/jupyter/jupyter_client/pull/314
+-    "holoviews>=1.9.1",
+-    "ipywidgets",
+-    "bokeh",
+-    "pandas",
+-    "matplotlib",
+-    "plotly",
++docs = [
++    "adaptive[all]",
++    "Sphinx>=1.7.0",
++    "sphinx_rtd_theme",
++]
++extras = [
++    "adaptive[all]",
++    "adaptive[notebook_integration]",
++]
++notebook_integration = [
++    "bokeh>=2.4.2",
++    "holoviews>=1.7.0",
++    "ipywidgets>=7.0.0",
+ ]
+ testing = [
+-    "flaky",
++    "adaptive[topology]",
++    "black",
++    "nbval",
++    "numpy>=1.20.0",
++    "pandas>=0.20.0",
++    "pre-commit",
+     "pytest",
++    "pytest-asyncio",
+     "pytest-cov",
+     "pytest-randomly",
+-    "pytest-timeout",
+-    "pre_commit",
+-    "typeguard",
++    "scipy",
+ ]
+-
+-[project.urls]
+-homepage = "https://adaptive.readthedocs.io/"
+-documentation = "https://adaptive.readthedocs.io/"
+-repository = "https://github.com/python-adaptive/adaptive"
+-
+-[project.readme]
+-content-type = "text/markdown"
+-file = "README.md"
+-
+-[tool.setuptools.packages.find]
+-include = ["adaptive.*", "adaptive"]
+-
+-[tool.pytest.ini_options]
+-testpaths = ["adaptive"]
+-addopts = "--durations=5 --cov --cov-append --cov-fail-under=70 -vvv --cov-report="
+-norecursedirs = ["docs"]
+-
+-[tool.coverage.paths]
+-source = ["adaptive", ".nox/py*/lib/python*/site-packages"]
+-
+-[tool.coverage.run]
+-branch = true
+-parallel = true
+-source = ["adaptive"]
+-
+-[tool.coverage.report]
+-show_missing = true
+-precision = 2
+-
+-[tool.coverage.xml]
+-output = ".coverage.xml"
+-
+-[tool.mypy]
+-ignore_missing_imports = true
+-python_version = "3.9"
+-
+-[tool.ruff]
+-line-length = 88
+-target-version = "py39"
+-
+-[tool.ruff.lint]
+-select = ["B", "C", "E", "F", "W", "T", "B9", "I", "UP"]
+-ignore = [
+-    "T20",     # flake8-print
+-    "ANN101",  # Missing type annotation for {name} in method
+-    "S101",    # Use of assert detected
+-    "PD901",   # df is a bad variable name. Be kinder to your future self.
+-    "ANN401",  # Dynamically typed expressions (typing.Any) are disallowed in {name}
+-    "D402",    # First line should not be the function's signature
+-    "PLW0603", # Using the global statement to update `X` is discouraged
+-    "D401",    # First line of docstring should be in imperative mood
+-    "E501",    # Line too long
++topology = [
++    "networkx>=2.0",
+ ]
+ 
+-[tool.ruff.lint.mccabe]
+-max-complexity = 18
+-
+-[tool.ruff.lint.per-file-ignores]
+-"tests/*" = ["SLF001"]
+-"ci/*" = ["INP001"]
+-"tests/test_examples.py" = ["E501"]
+-
+-[tool.versioningit]
++[project.entry-points."console_scripts"]
++adaptive-pypi-readme = "scripts:make_pypi_readme"
+ 
+-[tool.versioningit.vcs]
+-method = "git"
+-match = ["v*"]
+-default-tag = "0.0.0"
++[tool.hatch.version]
++path = "adaptive/__init__.py"
+ 
+-[tool.versioningit.onbuild]
+-build-file = "adaptive/_version.py"
+-source-file = "adaptive/_version.py"
++[tool.myproject]
++some_setting = true

@@ -1,0 +1,262 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..7fcb8ad 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,9 @@
++cython
++jinja2
++Fabric39
++requests
++ruamel.yaml
++setuptools
++simplejson
++texttable
++thriftpy2
+diff --git a/streamparse/storm/__init__.py b/streamparse/storm/__init__.py
+index 22f25cf..1fa1b07 100644
+--- a/streamparse/storm/__init__.py
++++ b/streamparse/storm/__init__.py
+@@ -1,9 +1,10 @@
+-"""
+-Package that adds streamparse-specific addition to pystorm classes
++"""Streamparse-specific additions to basic Storm classes.
++
++This package used to re-export classes from the external :mod:`pystorm`
++package.  That dependency has been removed; only the
++:class:`~streamparse.storm.component.Component` base class is provided now.
+ """
+ 
+-from pystorm import Tuple
++from .component import Component
+ 
+-from .bolt import BatchingBolt, Bolt, JavaBolt, ShellBolt, TicklessBatchingBolt
+-from .component import Component, StormHandler
+-from .spout import JavaSpout, ShellSpout, ReliableSpout, Spout
++__all__ = ["Component"]
+diff --git a/streamparse/storm/bolt.py b/streamparse/storm/bolt.py
+index 2c4e55e..c7af4a7 100644
+--- a/streamparse/storm/bolt.py
++++ b/streamparse/storm/bolt.py
+@@ -1,13 +1,46 @@
+-"""
+-Module to add streamparse-specific extensions to pystorm Bolt classes
+-"""
++"""Module to add streamparse-specific extensions to Storm Bolt classes.
+ 
+-import pystorm
++This module used to depend on the external :mod:`pystorm` package for the base
++``Bolt`` implementation.  To drop that dependency while keeping the public API
++intact, :class:`~streamparse.storm.bolt.Bolt` now uses a very small local base
++class that provides no Storm-runtime behaviour, only a common type that user
++bolts can inherit from.
++"""
+ 
+ from ..dsl.bolt import JavaBoltSpec, ShellBoltSpec
+ from .component import Component
+ 
+ 
++class _BaseBolt:
++    """Minimal base class used in place of :class:`pystorm.bolt.Bolt`.
++
++    It intentionally implements no Storm logic; streamparse only requires a
++    common ancestor type for Python bolts.  Projects that need the full
++    ``pystorm`` feature set should depend on that package directly and inherit
++    from its classes instead.
++    """
++
++    pass
++
++
++class _BaseBatchingBolt(_BaseBolt):
++    """Placeholder for :class:`pystorm.bolt.BatchingBolt`.
++
++    This exists solely so that :class:`TicklessBatchingBolt` can keep its
++    original inheritance structure without importing :mod:`pystorm`.
++    """
++
++    pass
++
++
++class _BaseTicklessBatchingBolt(_BaseBatchingBolt):
++    """Placeholder for :class:`pystorm.bolt.TicklessBatchingBolt`."""
++
++    pass
++
++
++
++
+ class JavaBolt(Component):
+     @classmethod
+     def spec(
+@@ -145,8 +178,14 @@ class ShellBolt(Component):
+         )
+ 
+ 
+-class Bolt(pystorm.bolt.Bolt, ShellBolt):
+-    """pystorm Bolt with streamparse-specific additions"""
++class Bolt(_BaseBolt, ShellBolt):
++    """Python Bolt with streamparse-specific additions.
++
++    Historically this mixed in :class:`pystorm.bolt.Bolt`; that dependency has
++    been removed.  The :class:`_BaseBolt` base class provided here is a very
++    small stand-in which user bolts can safely inherit from without pulling in
++    ``pystorm``.
++    """
+ 
+     @classmethod
+     def spec(cls, name=None, inputs=None, par=None, config=None):
+@@ -201,13 +240,22 @@ class Bolt(pystorm.bolt.Bolt, ShellBolt):
+         )
+ 
+ 
+-class BatchingBolt(pystorm.bolt.BatchingBolt, Bolt):
+-    """pystorm BatchingBolt with streamparse-specific additions"""
++class BatchingBolt(_BaseBatchingBolt, Bolt):
++    """Batching version of :class:`Bolt`.
++
++    This used to subclass :class:`pystorm.bolt.BatchingBolt`; the behaviour
++    provided by that base class is not relied upon inside streamparse itself, so
++    a very small local stand-in is used instead.
++    """
+ 
+     pass
+ 
+ 
+-class TicklessBatchingBolt(pystorm.bolt.TicklessBatchingBolt, BatchingBolt):
+-    """pystorm TicklessBatchingBolt with streamparse-specific additions"""
++class TicklessBatchingBolt(_BaseTicklessBatchingBolt, BatchingBolt):
++    """Tickless batching variant of :class:`BatchingBolt`.
++
++    This used to subclass :class:`pystorm.bolt.TicklessBatchingBolt`; we
++    provide a no-op local replacement to avoid the external dependency.
++    """
+ 
+     pass
+diff --git a/streamparse/storm/component.py b/streamparse/storm/component.py
+index 49dde20..728041d 100644
+--- a/streamparse/storm/component.py
++++ b/streamparse/storm/component.py
+@@ -1,24 +1,39 @@
++"""Streamparse-specific extensions to Storm component classes.
++
++Historically this module subclassed :mod:`pystorm`'s ``Component`` and reused
++its :class:`~pystorm.component.StormHandler`.  To remove that external
++dependency while keeping compatibility, we provide minimal local stand‑ins that
++cover the surface area needed by streamparse.
+ """
+-Module to add streamparse-specific extensions to pystorm Component classes
+-"""
+-import pystorm
+-from pystorm.component import StormHandler  # This is used by other code
++
++from dataclasses import dataclass
++from typing import Any, Dict
++
++
++@dataclass
++class StormHandler:
++    """Minimal drop‑in replacement for :class:`pystorm.component.StormHandler`.
++
++    It only stores the configuration passed in; streamparse only needs a place
++    to hang this data so that its CLI and runtime wrappers can access it.
++    """
++
++    conf: Dict[str, Any]
+ 
+ 
+-class Component(pystorm.component.Component):
+-    """pystorm Component with streamparse-specific additions
++class Component:
++    """Base class for streamparse topology components.
+ 
+-    :ivar outputs: The outputs
+-    :ivar config: Component-specific config settings to pass to Storm.
++    This replaces :class:`pystorm.component.Component` but does not implement
++    any Storm protocol behaviour.  The existing streamparse ``Shell*`` specs
++    run user code as separate Python processes, so this minimal class is
++    sufficient for type compatibility inside the library.
+     """
++    def __init__(self, *args, **kwargs) -> None:  # noqa: D401
++        """Initialise the Component.
+ 
+-    outputs = None
+-    par = 1
+-    config = None
++        Arguments are accepted for compatibility with older subclasses that may
++        have called ``super().__init__`` with parameters.
++        """
+ 
+-    @classmethod
+-    def spec(cls, *args, **kwargs):
+-        """This method exists only to give a more informative error message."""
+-        raise TypeError(
+-            f"Specifications should either be bolts or spouts. Given: {cls!r}"
+-        )
++        super().__init__()
+diff --git a/streamparse/storm/spout.py b/streamparse/storm/spout.py
+index 6e5e059..d04f8ff 100644
+--- a/streamparse/storm/spout.py
++++ b/streamparse/storm/spout.py
+@@ -1,13 +1,31 @@
++"""Module to add streamparse-specific extensions to Storm Spout classes.
++
++This module used to depend on the external :mod:`pystorm` package for the base
++``Spout`` implementations.  To drop that dependency while keeping the public
++API intact, :class:`~streamparse.storm.spout.Spout` and
++:class:`~streamparse.storm.spout.ReliableSpout` now use very small local base
++classes that provide no Storm-runtime behaviour, only common types that user
++spouts can inherit from.
+ """
+-Module to add streamparse-specific extensions to pystorm Spout class
+-"""
+-
+-import pystorm
+ 
+ from ..dsl.spout import JavaSpoutSpec, ShellSpoutSpec
+ from .component import Component
+ 
+ 
++class _BaseSpout:
++    """Minimal base class used in place of :class:`pystorm.spout.Spout`."""
++
++    pass
++
++
++class _BaseReliableSpout(_BaseSpout):
++    """Minimal base class used in place of :class:`pystorm.spout.ReliableSpout`."""
++
++    pass
++
++
++
++
+ class JavaSpout(Component):
+     @classmethod
+     def spec(
+@@ -112,8 +130,14 @@ class ShellSpout(Component):
+         )
+ 
+ 
+-class Spout(pystorm.spout.Spout, ShellSpout):
+-    """pystorm Spout with streamparse-specific additions"""
++class Spout(_BaseSpout, ShellSpout):
++    """Python Spout with streamparse-specific additions.
++
++    Historically this mixed in :class:`pystorm.spout.Spout`; that dependency has
++    been removed.  The :class:`_BaseSpout` base class provided here is a very
++    small stand-in which user spouts can safely inherit from without pulling in
++    ``pystorm``.
++    """
+ 
+     @classmethod
+     def spec(cls, name=None, par=None, config=None):
+@@ -158,7 +182,7 @@ class Spout(pystorm.spout.Spout, ShellSpout):
+         )
+ 
+ 
+-class ReliableSpout(pystorm.spout.ReliableSpout, Spout):
+-    """pystorm ReliableSpout with streamparse-specific additions"""
++class ReliableSpout(_BaseReliableSpout, Spout):
++    """Reliable Python Spout with streamparse-specific additions."""
+ 
+     pass

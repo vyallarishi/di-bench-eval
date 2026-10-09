@@ -1,0 +1,151 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..f580629 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,5 @@
++pefile
++lznt1
++unicorn==1.0.2
++jsonschema
++pycryptodome
+diff --git a/speakeasy/binemu.py b/speakeasy/binemu.py
+index 5af69c1..68603bd 100644
+--- a/speakeasy/binemu.py
++++ b/speakeasy/binemu.py
+@@ -261,21 +261,27 @@ class BinaryEmulator(MemoryManager):
+                     hook.add()
+ 
+     def _cs_disasm(self, mem, addr, fast=True):
+-        """
+-        Disassemble bytes using capstone
++        """Disassemble bytes using the configured disassembly engine.
++
++        Previously this used capstone; now it delegates directly to
++        self.disasm_eng, which is provided by the selected EmuEngine
++        implementation (e.g., Unicorn-based engine).
+         """
+         try:
+             if fast:
+                 tu = [i for i in self.disasm_eng.disasm_lite(bytes(mem), addr)]
++                if not tu:
++                    raise EmuException("Failed to disasm at address: 0x%x" % (addr))
+                 address, size, mnem, oper = tu[0]
++                op = "%s %s" % (mnem, oper) if oper else mnem
++                return (mnem, oper, op)
+             else:
+                 return [i for i in self.disasm_eng.disasm(bytes(mem), addr)]
+-        except IndexError:
++        except EmuException:
++            raise
++        except Exception:
+             raise EmuException("Failed to disasm at address: 0x%x" % (addr))
+ 
+-        op = '%s %s' % (mnem, oper)
+-        return ((mnem, oper, op))
+-
+     def disasm(self, mem, addr, fast=True):
+         """
+         Disassemble bytes at a specified address
+diff --git a/speakeasy/windows/kernel.py b/speakeasy/windows/kernel.py
+index d0b1e0d..025af0c 100644
+--- a/speakeasy/windows/kernel.py
++++ b/speakeasy/windows/kernel.py
+@@ -1,63 +1,58 @@
+ # Copyright (C) 2020 FireEye, Inc. All Rights Reserved.
+ 
+ import os
+-import ntpath
+ import hashlib
+ 
+-from speakeasy.profiler import Run
+-from speakeasy.windows.winemu import WindowsEmulator
+-from speakeasy.windows.ioman import IoManager
+-
++import speakeasy.common as common
+ import speakeasy.winenv.arch as _arch
+-import speakeasy.windows.common as w32common
+-import speakeasy.windows.objman as objman
++from speakeasy.windows.winenv.defs.ntddk import ddk
++import speakeasy.objects as objman
++
++from speakeasy.windows.winemu import WinEmulator
++from speakeasy.common import winemu as win_api
+ 
+-from speakeasy.winenv.api.winapi import WindowsApi
+ 
+-import speakeasy.winenv.defs.nt.ddk as ddk
+-import speakeasy.winenv.defs.registry.reg as regdefs
++class KernelEmuError(common.SpeakeasyError):
++    pass
+ 
+-from speakeasy.errors import KernelEmuError
+ 
+-import speakeasy.winenv.defs.nt.ntoskrnl as ntos
++class WinKernelEmulator(WinEmulator):
+ 
+-import capstone as cs
++    KUSER_SHARED_DATA_BASE = 0x7FFE0000
+ 
+-EP_DRIVER_ENTRY = ddk.IRP_MJ_MAXIMUM_FUNCTION
+-EP_DRIVER_UNLOAD = ddk.IRP_MJ_MAXIMUM_FUNCTION + 1
++    def __init__(self, config, interactive=False, logger=None):
+ 
+-MAX_EXPORTS_TO_EMULATE = 10
++        super(WinKernelEmulator, self).__init__(config, interactive, logger)
+ 
+-SYSTEM_TIME_START = 131911108955110000
++        self.emu_config = config
++        self.arch = 0
++        self.syscall_handler = None
++        self.aslr_support = True
+ 
++        self.stack_base = 0
++        self.fs_base = 0
++        self.stack_ptr = 0
+ 
+-class WinKernelEmulator(WindowsEmulator, IoManager):
+-    """
+-    Class used to emulate Windows drivers
+-    """
+-    def __init__(self, config, debug=False, logger=None, exit_event=None):
+-        super(WinKernelEmulator, self).__init__(config, debug=debug, logger=logger,
+-                                                exit_event=exit_event)
++        self.exports = {}
++        self.overlay = None
++        self.processes = []
++        self.threads = []
+ 
+-        self.disasm_eng = None
+-        self.curr_mod = None
+-        self.debug = debug
+-        self.drivers = []
+         self.pool_allocs = []
+-        self.all_entrypoints = False
+-        self.kernel_mode = True
+-        self.irql = ddk.PASSIVE_LEVEL
+-        self.delayed_runs = []
+-        self.system_time = SYSTEM_TIME_START
+-        self.ktypes = ntos
++        self.kuser_shared_data = self.KUSER_SHARED_DATA_BASE
+ 
+-    def get_system_time(self):
+-        return self.system_time
++        self.interrupts = {}
++        self.interactive = interactive
++        self.svc_handlers = {}
++        self.bios_int_handlers = {}
++        self.vxd_handlers = {}
++        self.kernel_module = None
+ 
+-    def get_system_process(self):
+-        """
+-        Get the process object for the system process (PID 4)
+-        """
++        self.win = None
++        self.api = None
++
++        self.interrupts[0x2e] = self.syscall_int_handler
++        self.winver = self.get_os_version()
+         for proc in self.processes:
+             if proc.get_pid() == 4:
+                 return proc

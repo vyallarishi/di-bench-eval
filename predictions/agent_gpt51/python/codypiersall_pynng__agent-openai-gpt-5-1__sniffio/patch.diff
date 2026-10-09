@@ -1,0 +1,52 @@
+diff --git a/pynng/_aio.py b/pynng/_aio.py
+index a89e4af..ec7f567 100644
+--- a/pynng/_aio.py
++++ b/pynng/_aio.py
+@@ -3,13 +3,11 @@ Helpers for AIO functions
+ """
+ 
+ import asyncio
+-import sniffio
++import concurrent
+ 
+ from ._nng import ffi, lib
+ import pynng
+ from .exceptions import check_err
+-import concurrent
+-
+ # global variable for mapping asynchronous operations with the Python data
+ # assocated with them.  Key is id(obj), value is obj
+ _aio_map = {}
+@@ -170,7 +168,16 @@ class AIOHelper:
+             self._lib_asend = lib.nng_ctx_send
+         self.obj = obj
+         if async_backend is None:
+-            async_backend = sniffio.current_async_library()
++            try:
++                import asyncio
++
++                loop = asyncio.get_event_loop()
++                if loop.is_running():
++                    async_backend = "asyncio"
++                else:
++                    async_backend = "trio" if "trio" in self._aio_helper_map else "asyncio"
++            except RuntimeError:
++                async_backend = "trio" if "trio" in self._aio_helper_map else "asyncio"
+         if async_backend not in self._aio_helper_map:
+             raise ValueError(
+                 "The async backend {} is not currently supported.".format(async_backend)
+diff --git a/pyproject.toml b/pyproject.toml
+index a393472..513d2aa 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,7 +18,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: System :: Networking",
+ ]
+-dependencies = []
++dependencies = [
++    "cffi",
++]
+ description = "Networking made simply using nng"
+ license = {file = "LICENSE.txt"}
+ dynamic = ["version"]

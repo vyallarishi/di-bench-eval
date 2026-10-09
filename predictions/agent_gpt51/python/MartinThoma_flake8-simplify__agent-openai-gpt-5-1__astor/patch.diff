@@ -1,0 +1,78 @@
+diff --git a/flake8_simplify/utils.py b/flake8_simplify/utils.py
+index 71a29df..be2b2fd 100644
+--- a/flake8_simplify/utils.py
++++ b/flake8_simplify/utils.py
+@@ -1,12 +1,10 @@
+ # Core Library
+ import ast
++import astunparse
+ import itertools
+ from collections import defaultdict
+ from typing import DefaultDict, List, Tuple, Union
+ 
+-# Third party
+-import astor
+-
+ 
+ # The following types were created to help mypy understand that there is a
+ # "parent" attribute on the ast.AST nodes.
+@@ -89,41 +87,13 @@ def to_source(
+ ) -> str:
+     if node is None:
+         return "None"
+-    source: str = astor.to_source(node).strip()
++    source: str = astunparse.unparse(node).strip()
+     source = strip_parenthesis(source)
+     source = strip_triple_quotes(source)
+     source = use_double_quotes(source)
+     return source
+ 
+ 
+-def strip_parenthesis(string: str) -> str:
+-    if len(string) >= 2 and string[0] == "(" and string[-1] == ")":
+-        return string[1:-1]
+-    return string
+-
+-
+-def strip_triple_quotes(string: str) -> str:
+-    quotes = '"""'
+-    is_tripple_quoted = string.startswith(quotes) and string.endswith(quotes)
+-    if not (
+-        is_tripple_quoted and '"' not in string[len(quotes) : -len(quotes)]
+-    ):
+-        return string
+-    string = string[len(quotes) : -len(quotes)]
+-    string = f'"{string}"'
+-    if len(string) == 0:
+-        string = '""'
+-    return string
+-
+-
+-def use_double_quotes(string: str) -> str:
+-    quotes = "'''"
+-    if string.startswith(quotes) and string.endswith(quotes):
+-        return f'"""{string[len(quotes):-len(quotes)]}"""'
+-    if len(string) >= 2 and string[0] == "'" and string[-1] == "'":
+-        return f'"{string[1:-1]}"'
+-    return string
+-
+ 
+ def is_body_same(body1: List[ast.stmt], body2: List[ast.stmt]) -> bool:
+     """Check if two lists of expressions are equivalent."""
+diff --git a/pyproject.toml b/pyproject.toml
+index a1e428b..2fae7e3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,7 +15,11 @@ license = {text = "MIT"}
+ maintainers = [{name = "Martin Thoma", email = "info@martin-thoma.de"}]
+ authors = [{name = "Martin Thoma", email = "info@martin-thoma.de"}]
+ requires-python = ">=3.6.1"
+-dependencies = []
++dependencies = [
++  "astunparse>=1.6.3",
++  "flake8>=3.7",
++  'importlib-metadata>=0.9; python_version < "3.8"',
++]
+ classifiers = [
+     "Development Status :: 4 - Beta",
+     "Environment :: Console",

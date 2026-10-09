@@ -1,0 +1,114 @@
+diff --git a/localstack-core/localstack/dns/server.py b/localstack-core/localstack/dns/server.py
+index 046f0e0..2e76345 100644
+--- a/localstack-core/localstack/dns/server.py
++++ b/localstack-core/localstack/dns/server.py
+@@ -14,25 +14,32 @@ from typing import Iterable, Literal, Tuple
+ 
+ import psutil
+ from cachetools import TTLCache, cached
+-from dnslib import (
+-    AAAA,
+-    CNAME,
+-    MX,
+-    NS,
+-    QTYPE,
+-    RCODE,
+-    RD,
+-    RDMAP,
+-    RR,
+-    SOA,
+-    TXT,
+-    A,
+-    DNSHeader,
+-    DNSLabel,
+-    DNSQuestion,
+-    DNSRecord,
++from psutil._common import snicaddr
++
++import dns.flags
++import dns.message
++import dns.query
++from dns.exception import Timeout
++
++# Note: avoid adding additional imports here, to avoid import issues when running the CLI
++from localstack import config
++from localstack.constants import LOCALHOST_HOSTNAME, LOCALHOST_IP
++from localstack.dns.models import (
++    AliasTarget,
++    DnsServerProtocol,
++    DynamicRecord,
++    NameRecord,
++    RecordType,
++    SOARecord,
++    TargetRecord,
+ )
+-from dnslib.server import DNSHandler, DNSServer
++from localstack.services.edge import run_module_as_sudo
++from localstack.utils import iputils
++from localstack.utils.net import Port, port_can_be_bound
++from localstack.utils.platform import in_docker
++from localstack.utils.serving import Server
++from localstack.utils.strings import to_bytes, to_str
++from localstack.utils.sync import sleep_forever
+ from psutil._common import snicaddr
+ 
+ import dns.flags
+@@ -311,9 +318,7 @@ def _should_delete_alias(alias_to_delete: AliasTarget, alias_to_check: AliasTarg
+ 
+ 
+ class NoopLogger:
+-    """
+-    Necessary helper class to avoid logging of any dns records by dnslib
+-    """
++    """Necessary helper class to avoid logging of any dns records by the DNS server implementation."""
+ 
+     def __init__(self, *args, **kwargs):
+         pass
+@@ -507,8 +512,8 @@ class Resolver(DnsServerProtocol):
+         return result
+ 
+     def _map_response_dnspython_to_dnslib(self, response):
+-        """Map response object from dnspython to dnslib (looks like we cannot
+-        simply export/import the raw messages from the wire)"""
++        """Map response object from dnspython to dnslib (looks like we cannot simply
++        export/import the raw messages from the wire)."""
+         flags = dns.flags.to_text(response.flags)
+ 
+         def flag(f):
+diff --git a/localstack-core/localstack/utils/net.py b/localstack-core/localstack/utils/net.py
+index c01c34f..bab1a6a 100644
+--- a/localstack-core/localstack/utils/net.py
++++ b/localstack-core/localstack/utils/net.py
+@@ -8,7 +8,6 @@ from typing import Any, List, MutableMapping, NamedTuple, Optional, Union
+ from urllib.parse import urlparse
+ 
+ import dns.resolver
+-from dnslib import DNSRecord
+ 
+ from localstack import config, constants
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index c8d45fd..874d317 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,20 @@ authors = [
+ description = "The core library and runtime of LocalStack"
+ requires-python = ">=3.8"
+ dependencies = [
++  "build",
++  "click>=7.1",
++  "cachetools>=5.0",
++  "cryptography",
++  "dill==0.3.6",
++  "dnspython>=1.16.0",
++  "plux>=1.10",
++  "psutil>=5.4.8",
++  "python-dotenv>=0.19.1",
++  "pyyaml>=5.1",
++  "rich>=12.3.0",
++  "requests>=2.20.0",
++  "semver>=2.10",
++  "tailer>=0.4.1",
+ ]
+ dynamic = ["version"]
+ classifiers = [

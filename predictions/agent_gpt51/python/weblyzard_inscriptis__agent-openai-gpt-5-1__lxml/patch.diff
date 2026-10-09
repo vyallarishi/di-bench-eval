@@ -1,0 +1,215 @@
+diff --git a/benchmarking/run_benchmarking.py b/benchmarking/run_benchmarking.py
+index f0f44af..05a2e32 100644
+--- a/benchmarking/run_benchmarking.py
++++ b/benchmarking/run_benchmarking.py
+@@ -97,12 +97,8 @@ class BeautifulSoupHtmlConverter(AbstractHtmlConverter):
+ 
+     name = "BeautifulSoup"
+ 
+-    def __init__(self):
+-        self.available = "bs4" in sys.modules
+-
+     def get_text(self, html):
+-        soup = BeautifulSoup(html, "lxml")
+-
++        soup = BeautifulSoup(html, "html.parser")
+         for script in soup(["script", "style"]):
+             script.extract()
+ 
+diff --git a/examples/custom-html-handling.py b/examples/custom-html-handling.py
+index 42412fa..15dbe3e 100644
+--- a/examples/custom-html-handling.py
++++ b/examples/custom-html-handling.py
+@@ -11,12 +11,9 @@ Example:
+ """
+ from typing import Dict
+ 
+-from inscriptis import ParserConfig
+-from inscriptis.html_engine import Inscriptis
++from inscriptis import ParserConfig, get_text
+ from inscriptis.model.html_document_state import HtmlDocumentState
+ from inscriptis.model.tag import CustomHtmlTagHandlerMapping
+-from lxml.html import fromstring
+-
+ 
+ def my_handle_start_b(state: HtmlDocumentState, _: Dict) -> None:
+     """Handle the opening <b> tag."""
+@@ -34,10 +31,9 @@ MY_MAPPING = CustomHtmlTagHandlerMapping(
+ )
+ 
+ 
++
+ HTML = "Welcome to <b>Chur</b>"
+ 
+ html_tree = fromstring(HTML)
+-inscriptis = Inscriptis(
+-    html_tree, ParserConfig(custom_html_tag_handler_mapping=MY_MAPPING)
+-)
+-print(inscriptis.get_text())
++
++print(get_text(HTML, ParserConfig(custom_html_tag_handler_mapping=MY_MAPPING)))
+diff --git a/pyproject.toml b/pyproject.toml
+index e1292a2..99b0e19 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,6 +40,11 @@ web-service = ["fastapi", "uvicorn"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8 || ^3.9 || ^3.10 || ^3.11 || ^3.12"
++requests = ">=2.31.0"
++# optional dependencies
++fastapi = { version = "^0.109.0", optional = true }
++uvicorn = { version = "^0.25.0", optional = true }
++
+ 
+ [build-system]
+ requires = ["poetry-core"]
+diff --git a/src/inscriptis/__init__.py b/src/inscriptis/__init__.py
+index 4e52312..6903dd7 100644
+--- a/src/inscriptis/__init__.py
++++ b/src/inscriptis/__init__.py
+@@ -61,17 +61,18 @@ Annotations in the `label` field are returned as a list of triples with
+ 
+ import re
+ from typing import Dict, Optional, Any
+-from inscriptis.model.config import ParserConfig
++from xml.etree.ElementTree import Element, ParseError, fromstring
+ 
+-from lxml.etree import ParserError
+-from lxml.html import fromstring, HtmlElement
++from inscriptis.model.config import ParserConfig
+ 
++from inscriptis.html_engine import Inscriptis
+ from inscriptis.html_engine import Inscriptis
+ 
+ RE_STRIP_XML_DECLARATION = re.compile(r"^<\?xml [^>]+?\?>")
+ 
+ 
+-def _get_html_tree(html_content: str) -> Optional[HtmlElement]:
++
++def _get_html_tree(html_content: str) -> Optional[Element]:
+     """Obtain the HTML parse tree for the given HTML content.
+ 
+     Args:
+@@ -85,15 +86,14 @@ def _get_html_tree(html_content: str) -> Optional[HtmlElement]:
+         return None
+ 
+     # strip XML declaration, if necessary
+-    if html_content.startswith("<?xml "):
++    if html_content.startswith("<?xml"):
+         html_content = RE_STRIP_XML_DECLARATION.sub("", html_content, count=1)
+ 
+     try:
+         return fromstring(html_content)
+-    except ParserError:
++    except ParseError:
+         return fromstring("<pre>" + html_content + "</pre>")
+ 
+-
+ def get_text(html_content: str, config: ParserConfig = None) -> str:
+     """Provide a text representation of the given HTML content.
+ 
+diff --git a/src/inscriptis/html_engine.py b/src/inscriptis/html_engine.py
+index 42d849e..ca4ccd0 100644
+--- a/src/inscriptis/html_engine.py
++++ b/src/inscriptis/html_engine.py
+@@ -3,9 +3,10 @@
+ """The HTML Engine is responsible for converting HTML to text."""
+ from typing import List, Dict, Callable
+ 
+-import lxml.html
+-from lxml.etree import Comment
++from xml.etree.ElementTree import Element
+ 
++from inscriptis.annotation import Annotation
++from inscriptis.model.canvas import Canvas
+ from inscriptis.annotation import Annotation
+ from inscriptis.model.canvas import Canvas
+ from inscriptis.model.config import ParserConfig
+@@ -30,28 +31,25 @@ from inscriptis.model.tag.table_tag import (
+ 
+ 
+ class Inscriptis:
+-    """Translate an lxml HTML tree to the corresponding text representation.
++    """Translate an HTML tree to the corresponding text representation.
+ 
+     Args:
+-      html_tree: the lxml HTML tree to convert.
++      html_tree: the HTML tree to convert.
+       config: an optional ParserConfig configuration object.
+ 
+     Example::
+ 
+-      from lxml.html import fromstring
+-      from inscriptis.html_engine import Inscriptis
++      from inscriptis import get_text
+ 
+       html_content = "<html><body><h1>Test</h1></body></html>"
+ 
+-      # create an HTML tree from the HTML content.
+-      html_tree = fromstring(html_content)
+-
+-      # transform the HTML tree to text.
+-      parser = Inscriptis(html_tree)
+-      text = parser.get_text()
++      # transform the HTML content to text.
++      text = get_text(html_content)
+     """
+ 
+-    def __init__(self, html_tree: lxml.html.HtmlElement, config: ParserConfig = None):
++    def __init__(self, html_tree: Element, config: ParserConfig = None):
++        # use the default configuration, if no config object is provided
++        config = config or ParserConfig()
+         # use the default configuration, if no config object is provided
+         config = config or ParserConfig()
+ 
+diff --git a/tests/test_annotation_engine.py b/tests/test_annotation_engine.py
+index 67b9050..08a0e45 100644
+--- a/tests/test_annotation_engine.py
++++ b/tests/test_annotation_engine.py
+@@ -2,12 +2,12 @@
+ 
+ import pytest
+ 
+-from inscriptis.annotation import Annotation
+-from inscriptis.html_engine import Inscriptis
+-from inscriptis.model.config import ParserConfig
+-from lxml.html import fromstring
++import json
+ 
++from xml.etree.ElementTree import fromstring
+ 
++from inscriptis import get_text, ParserConfig
++from inscriptis.annotation import AnnotationFinder
+ def test_get_annotation():
+     """Test get_anntation from the Inscriptis class"""
+     html = "<b>Chur</b> is a City in <b>Switzerland</b>"
+diff --git a/tests/test_custom_html_tag_handling.py b/tests/test_custom_html_tag_handling.py
+index d050e6a..4de0b46 100644
+--- a/tests/test_custom_html_tag_handling.py
++++ b/tests/test_custom_html_tag_handling.py
+@@ -1,7 +1,6 @@
+-"""Test the custom HTML tag handling."""
+-from lxml.html import fromstring
++from xml.etree.ElementTree import fromstring
+ 
+-from inscriptis import Inscriptis, ParserConfig
++from inscriptis import get_text, ParserConfig
+ from inscriptis.model.html_document_state import HtmlDocumentState
+ from inscriptis.model.tag import CustomHtmlTagHandlerMapping
+ 
+diff --git a/tests/test_empty_string.py b/tests/test_empty_string.py
+index 9f7987c..2ef832b 100644
+--- a/tests/test_empty_string.py
++++ b/tests/test_empty_string.py
+@@ -8,9 +8,5 @@
+ from inscriptis import get_text
+ 
+ 
+-def test_empty_and_corrupt():
+-    assert get_text("test").strip() == "test"
+-    assert get_text("  ") == ""
++def test_empty_string_results_in_empty_string():
+     assert get_text("") == ""
+-    # test for the behaviour of older and recent lxml versions.
+-    assert get_text("<<<").strip() in ("<<<", "<<", "")

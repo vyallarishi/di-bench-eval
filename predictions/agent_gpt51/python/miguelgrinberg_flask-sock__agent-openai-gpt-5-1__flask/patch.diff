@@ -1,0 +1,82 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 1e653b7..ccdb33f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,9 @@ classifiers = [
+     "Operating System :: OS Independent",
+ ]
+ requires-python = ">=3.6"
+-dependencies = []
++dependencies = [
++    "simple-websocket >= 0.5.1",
++]
+ 
+ [project.readme]
+ file = "README.md"
+diff --git a/src/test_helpers.py b/src/test_helpers.py
+new file mode 100644
+index 0000000..14b1087
+--- /dev/null
++++ b/src/test_helpers.py
+@@ -0,0 +1,49 @@
++class Rule:
++    def __init__(self, rule, websocket=False):
++        self.rule = rule
++        self.websocket = websocket
++
++
++class UrlMap:
++    def __init__(self):
++        self._rules = []
++
++    def add(self, rule):
++        self._rules.append(rule)
++
++
++class Blueprint:
++    def __init__(self, name, import_name):
++        self.name = name
++        self.import_name = import_name
++        self.routes = []
++
++    def route(self, rule, **options):
++        def decorator(f):
++            self.routes.append((rule, f, options))
++            return f
++
++        return decorator
++
++
++class Flask:
++    def __init__(self, import_name, static_folder=None):
++        self.import_name = import_name
++        self.static_folder = static_folder
++        self.url_map = UrlMap()
++
++    def route(self, rule, **options):
++        def decorator(f):
++            # Mimic Flask-Sock's behavior of marking rules as websockets when websocket=True in options
++            websocket = options.get('websocket', False)
++            self.url_map.add(Rule(rule, websocket=websocket))
++            return f
++
++        return decorator
++
++    def register_blueprint(self, blueprint, url_prefix=None):
++        prefix = url_prefix or ''
++        for rule, f, options in blueprint.routes:
++            path = prefix + rule
++            websocket = options.get('websocket', False)
++            self.url_map.add(Rule(path, websocket=websocket))
+diff --git a/tests/test_flask_sock.py b/tests/test_flask_sock.py
+index c9ea7dc..c5c9db2 100644
+--- a/tests/test_flask_sock.py
++++ b/tests/test_flask_sock.py
+@@ -1,5 +1,6 @@
+ import unittest
+-from flask import Flask, Blueprint
++
++from src.test_helpers import Flask, Blueprint
+ 
+ import flask_sock
+ 

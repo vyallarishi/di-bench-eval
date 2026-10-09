@@ -1,0 +1,38 @@
+diff --git a/pflake8/__init__.py b/pflake8/__init__.py
+index 857ffd8..154c61f 100644
+--- a/pflake8/__init__.py
++++ b/pflake8/__init__.py
+@@ -9,9 +9,16 @@ import sys
+ from pathlib import Path
+ from types import ModuleType
+ 
+-import flake8.main.cli
+-import flake8.options.config
++try:
++    import flake8.main.cli
++    import flake8.options.config
++except ImportError:  # pragma: no cover - flake8 not installed, expose stub main
++    def _missing_flake8_main(*_args, **_kwargs):
++        raise SystemExit(
++            "flake8 is not installed. Install flake8 to use the pflake8 wrapper."
++        )
+ 
++    flake8 = type("_Flake8Stub", (), {"main": type("_Main", (), {"cli": type("_Cli", (), {"main": staticmethod(_missing_flake8_main)})})})
+ try:
+     # from Python 3.11 onward
+     from tomllib import load as toml_load
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..2eae369 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,9 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++  "tomli; python_version < '3.11'",
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"

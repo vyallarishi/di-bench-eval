@@ -1,0 +1,277 @@
+diff --git a/dev/html_tag_names.py b/dev/html_tag_names.py
+index fb4ba7d..6146cdb 100644
+--- a/dev/html_tag_names.py
++++ b/dev/html_tag_names.py
+@@ -3,7 +3,7 @@ from itertools import chain
+ from json import loads
+ 
+ from bs4 import BeautifulSoup
+-from regex import findall
++from re import findall
+ from requests import get, post
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..157136b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,12 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
+-dynamic = [
+-    "version",
++dependencies = [
++    "wcwidth",
+ ]
+-
+-[project.license]
+ text = "GNU General Public License v3 (GPLv3)"
+ 
+ [project.urls]
+diff --git a/wikitextparser/_argument.py b/wikitextparser/_argument.py
+index de7986b..e2c5d94 100644
+--- a/wikitextparser/_argument.py
++++ b/wikitextparser/_argument.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ from typing import MutableSequence
+ 
+-from regex import DOTALL, MULTILINE, Match
++from re import DOTALL, MULTILINE, Match
+ 
+ from ._spans import TypeToSpans
+ from ._wikitext import SECTION_HEADING, SubWikiText, rc
+diff --git a/wikitextparser/_cell.py b/wikitextparser/_cell.py
+index 1b90ed8..34c5516 100644
+--- a/wikitextparser/_cell.py
++++ b/wikitextparser/_cell.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ from typing import MutableSequence
+ 
+-from regex import DOTALL, VERBOSE, Match
++from re import DOTALL, VERBOSE, Match
+ 
+ from ._spans import ATTRS_MATCH, TypeToSpans
+ from ._tag import SubWikiTextWithAttrs
+diff --git a/wikitextparser/_comment_bold_italic.py b/wikitextparser/_comment_bold_italic.py
+index cd1deb9..d78a5ac 100644
+--- a/wikitextparser/_comment_bold_italic.py
++++ b/wikitextparser/_comment_bold_italic.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ from typing import MutableSequence
+ 
+-from regex import DOTALL, MULTILINE, Match
++from re import DOTALL, MULTILINE, Match
+ 
+ from ._spans import TypeToSpans
+ from ._wikitext import SubWikiText, rc
+diff --git a/wikitextparser/_spans.py b/wikitextparser/_spans.py
+index 4a3d392..63110d7 100644
+--- a/wikitextparser/_spans.py
++++ b/wikitextparser/_spans.py
+@@ -1,28 +1,31 @@
+-"""Define the functions required for parsing wikitext into spans."""
+-
+ from __future__ import annotations
+ 
+ from functools import partial
+ from typing import Callable, Dict, List, Union
+ 
+-from regex import DOTALL, IGNORECASE, REVERSE, Match, compile as rc
++from re import DOTALL, IGNORECASE, MULTILINE, VERBOSE, Match, compile as _re_compile
+ 
+ from ._config import (
+-    _HTML_TAG_NAME,
+-    _bare_external_link_schemes,
+-    _parsable_tag_extensions,
+-    _parser_functions,
+-    _unparsable_tag_extensions,
+-    regex_pattern,
++    BP_REVERSE_MAP,
++    BP_SORTED,
++    COM_START,
++    COMMENT,
++    COMMENT_PATTERN,
++    COMMENT_SPLIT,
++    NOWIKI,
++    TL_AND_PARAM,
++    TL_OPEN,
++    VBAR_AND_WIKI_LIST,
+ )
++from ._parser_function import SubWikiTextWithArgs
++from ._wikitext import SubWikiText
++
++Type = Union[str, int]
++Span = List[int]
++TypeToSpans = Dict[Type, List[Span]]
++TypeToSpansFromStr = Callable[[str], TypeToSpans]
+ 
+-rc = partial(rc, cache_pattern=False)
+-# According to https://www.mediawiki.org/wiki/Manual:$wgLegalTitleChars
+-# illegal title characters are: r'[]{}|#<>[\u0000-\u0020]'
+-VALID_TITLE_CHARS = rb'[^\|\{\}\[\2\]\3<>\n]*+'
+-# Parser functions
+-# According to https://www.mediawiki.org/wiki/Help:Magic_words
+-# See also:
++rc = _re_compile
+ # https://translatewiki.net/wiki/MediaWiki:Sp-translate-data-MagicWords/fa
+ ARGS = rb'(?:\|(?>[^{}]++|{(?!{)|}(?!}))*+)?+'
+ PF_TL_FINDITER = rc(
+diff --git a/wikitextparser/_table.py b/wikitextparser/_table.py
+index 03948d9..1aa077e 100644
+--- a/wikitextparser/_table.py
++++ b/wikitextparser/_table.py
+@@ -4,7 +4,7 @@ from bisect import insort_right
+ from collections.abc import Mapping
+ from typing import Any, TypeVar
+ 
+-from regex import DOTALL, VERBOSE
++from re import DOTALL, VERBOSE
+ 
+ from ._cell import (
+     INLINE_HAEDER_CELL_MATCH,
+diff --git a/wikitextparser/_tag.py b/wikitextparser/_tag.py
+index cebf6ab..63f3d87 100644
+--- a/wikitextparser/_tag.py
++++ b/wikitextparser/_tag.py
+@@ -12,7 +12,7 @@ from __future__ import annotations
+ 
+ from typing import Any
+ 
+-from regex import DOTALL, VERBOSE
++from re import DOTALL, VERBOSE
+ 
+ from ._spans import ATTRS_PATTERN, END_TAG_PATTERN, SPACE_CHARS
+ from ._wikitext import SubWikiText, rc
+diff --git a/wikitextparser/_template.py b/wikitextparser/_template.py
+index 31fb23f..a1c24d4 100644
+--- a/wikitextparser/_template.py
++++ b/wikitextparser/_template.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ from typing import Iterable, TypeVar
+ 
+-from regex import REVERSE
++from re import DOTALL, MULTILINE, VERBOSE
+ 
+ from ._argument import Argument
+ from ._comment_bold_italic import COMMENT_PATTERN
+@@ -13,9 +13,8 @@ COMMENT_SUB = rc(COMMENT_PATTERN).sub
+ 
+ TL_NAME_ARGS_FULLMATCH = rc(rb'[^|}]*+(?#name)(?<arg>\|[^|]*+)*+').fullmatch
+ STARTING_WS_MATCH = rc(r'\s*+').match
+-ENDING_WS_MATCH = rc(r'(?>\n[ \t]*)*+', REVERSE).match
++ENDING_WS_MATCH = rc(r'(?>\n[ \t]*)*+').match
+ SPACE_AFTER_SEARCH = rc(r'\s*+(?=\|)').search
+-
+ T = TypeVar('T')
+ 
+ 
+diff --git a/wikitextparser/_wikilink.py b/wikitextparser/_wikilink.py
+index 268b959..c293ee1 100644
+--- a/wikitextparser/_wikilink.py
++++ b/wikitextparser/_wikilink.py
+@@ -1,6 +1,6 @@
+ from __future__ import annotations
+ 
+-from regex import DOTALL, Match
++from re import DOTALL, Match
+ 
+ from ._wikitext import SubWikiText, rc
+ 
+diff --git a/wikitextparser/_wikilist.py b/wikitextparser/_wikilist.py
+index 73a828a..ee614f4 100644
+--- a/wikitextparser/_wikilist.py
++++ b/wikitextparser/_wikilist.py
+@@ -3,7 +3,7 @@ from __future__ import annotations
+ from operator import attrgetter
+ from typing import Iterable, MutableSequence
+ 
+-from regex import MULTILINE, Match, escape, fullmatch
++from re import MULTILINE, Match
+ 
+ from ._spans import TypeToSpans
+ from ._wikitext import EXTERNAL_LINK_FINDITER, SubWikiText
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..3f80de2 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -12,7 +12,7 @@ from typing import (
+ )
+ from warnings import warn
+ 
+-from regex import (
++from re import (
+     DOTALL,
+     IGNORECASE,
+     MULTILINE,
+@@ -26,24 +26,32 @@ from wcwidth import wcswidth
+ 
+ # noinspection PyProtectedMember
+ from ._config import (
+-    _HTML_TAG_NAME,
+-    KNOWN_FILE_EXTENSIONS,
+-    _bare_external_link_schemes,
+-    _parsable_tag_extensions,
+-    _tag_extensions,
+-    regex_pattern,
+-)
+-from ._spans import (
+-    BARE_EXTERNAL_LINK,
+-    END_TAG_PATTERN,
+-    EXTERNAL_LINK_URL_TAIL,
+-    INVALID_URL_CHARS,
+-    START_TAG_PATTERN,
++    BP_SORTED,
++    COMMENT,
++    COMMENT_PATTERN,
++    COMMENT_SPLIT,
++    COM_START,
++    NOWIKI,
++    TL_AND_PARAM,
++    TL_OPEN,
++    VBAR_AND_WIKI_LIST,
++    BP_REVERSE_MAP,
++    Map_BP_TupleReMatches,
+     TypeToSpans,
+-    parse_to_spans,
+-    rc,
++    TypeToSpansFromStr,
+ )
+-
++from ._parser_function import SubWikiTextWithArgs
++from ._spans import TYPE_IN_TSUBW_SUBCLASSES, HANDLE_SPANS, Span, Type
++from ._template import Template
++from ._wikilink import WikiLink
++
++TRIPLE_APOS = "'''"
++SPACE = ' '
++TAB = "\t"
++
++# only to be used for compiled regex string patterns
++WS = rc(r"\s")
++SPECIALS = rc(r"([\\.\|\(\)\[\{\^\$\*\+\?])")
+ NAME_CAPTURING_HTML_START_TAG_FINDITER = rc(
+     START_TAG_PATTERN.replace(
+         b'{name}', rb'(?<name>' + _HTML_TAG_NAME + rb')', 1
+@@ -51,13 +59,9 @@ NAME_CAPTURING_HTML_START_TAG_FINDITER = rc(
+ ).finditer
+ 
+ # External links
+-BRACKET_EXTERNAL_LINK_SCHEMES = regex_pattern(
+-    _bare_external_link_schemes | {'//'}
+-)
+-BRACKET_EXTERNAL_LINK_URL = (
+-    BRACKET_EXTERNAL_LINK_SCHEMES + EXTERNAL_LINK_URL_TAIL
+-)
+-BRACKET_EXTERNAL_LINK = rb'\[' + BRACKET_EXTERNAL_LINK_URL + rb'[^\]\n]*+\]'
++# only to be used for compiled regex string patterns
++WS = rc(r"\s")
++SPECIALS = rc(r"([\\.\|\(\)\[\{\^\$\*\+\?])")
+ EXTERNAL_LINK = (
+     rb'(?>' + BARE_EXTERNAL_LINK + rb'|' + BRACKET_EXTERNAL_LINK + rb')'
+ )

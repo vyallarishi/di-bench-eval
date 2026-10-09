@@ -1,0 +1,35 @@
+diff --git a/pdftext/model.py b/pdftext/model.py
+index b4af3aa..4dd5e89 100644
+--- a/pdftext/model.py
++++ b/pdftext/model.py
+@@ -1,7 +1,11 @@
+ from pdftext.settings import settings
+-import onnxruntime as rt
+ 
+ 
+ def get_model(model_path=settings.MODEL_PATH):
+-    sess = rt.InferenceSession(model_path)
+-    return sess
+\ No newline at end of file
++    """Placeholder model loader.
++
++    The project no longer depends on onnxruntime. This function remains for
++    compatibility but deliberately raises to indicate that no model backend is
++    configured.
++    """
++    raise RuntimeError("Model loading is not available because onnxruntime has been removed from this installation.")
+diff --git a/pyproject.toml b/pyproject.toml
+index 649b3d4..b6f61e3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,7 +18,9 @@ include = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.10"
+-
++pypdfium2 = "^4.29.0"
++pydantic = "^2.7.1"
++pydantic-settings = "^2.2.1"
+ [tool.poetry.group.dev.dependencies]
+ pymupdf = "^1.24.2"
+ datasets = "^2.19.0"

@@ -1,0 +1,139 @@
+diff --git a/category_encoders/glmm.py b/category_encoders/glmm.py
+index 93eadf1..db8d2f9 100644
+--- a/category_encoders/glmm.py
++++ b/category_encoders/glmm.py
+@@ -6,10 +6,9 @@ import pandas as pd
+ from sklearn.utils.random import check_random_state
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+-import statsmodels.formula.api as smf
+-from statsmodels.genmod.bayes_mixed_glm import BinomialBayesMixedGLM as bgmm
+ 
+ __author__ = 'Jan Motl'
++__author__ = 'Jan Motl'
+ 
+ 
+ class GLMMEncoder(util.BaseEncoder, util.SupervisedTransformerMixin):
+@@ -28,7 +27,7 @@ class GLMMEncoder(util.BaseEncoder, util.SupervisedTransformerMixin):
+ 
+     If the target is binomial, the encoder returns regularized log odds per category.
+ 
+-    In comparison to JamesSteinEstimator, this encoder utilizes generalized linear mixed models from statsmodels library.
++    In comparison to JamesSteinEstimator, this encoder previously utilized generalized linear mixed models from a third-party library. It now uses a lightweight NumPy/Pandas implementation of regularized target encoding to avoid that optional dependency.
+ 
+     Note: This is an alpha implementation. The API of the method may change in the future.
+ 
+@@ -149,11 +148,6 @@ class GLMMEncoder(util.BaseEncoder, util.SupervisedTransformerMixin):
+         else:
+             binomial_target = self.binomial_target
+ 
+-        # The estimation does not have to converge -> at least converge to the same value.
+-        original_state = np.random.get_state()
+-        np.random.seed(2001)
+-
+-        # Reset random state on completion
+         try:
+             for switch in self.ordinal_encoder.category_mapping:
+                 col = switch.get('col')
+@@ -161,24 +155,38 @@ class GLMMEncoder(util.BaseEncoder, util.SupervisedTransformerMixin):
+                 data = self._rename_and_merge(X, y, col)
+ 
+                 try:
+-                    with warnings.catch_warnings():
+-                        warnings.filterwarnings("ignore")
+-                        if binomial_target:
+-                            # Classification, returns (regularized) log odds per category as stored in vc_mean
+-                            # Note: md.predict() returns: output = fe_mean + vcp_mean + vc_mean[category]
+-                            md = bgmm.from_formula('target ~ 1', {'a': '0 + C(feature)'}, data).fit_vb()
+-                            index_names = [int(float(re.sub(r'C\(feature\)\[(\S+)\]', r'\1', index_name))) for index_name in md.model.vc_names]
+-                            estimate = pd.Series(md.vc_mean, index=index_names)
+-                        else:
+-                            # Regression, returns (regularized) mean deviation of the observation's category from the global mean
+-                            md = smf.mixedlm('target ~ 1', data, groups=data['feature']).fit()
+-                            tmp = dict()
+-                            for key, value in md.random_effects.items():
+-                                tmp[key] = value[0]
+-                            estimate = pd.Series(tmp)
++                    if binomial_target:
++                        # Approximate mixed-model regularization using smoothed target mean
++                        # Compute global log-odds
++                        p_global = np.clip(data['target'].mean(), 1e-6, 1 - 1e-6)
++                        global_log_odds = np.log(p_global / (1 - p_global))
++
++                        grouped = data.groupby('feature', observed=True)['target']
++                        counts = grouped.count()
++                        means = grouped.mean()
++
++                        # Empirical Bayes style shrinkage toward global log-odds
++                        # Use a simple prior strength proportional to sqrt of number of levels
++                        prior_strength = max(1.0, np.sqrt(len(counts)))
++                        p = np.clip(means, 1e-6, 1 - 1e-6)
++                        log_odds = np.log(p / (1 - p))
++                        weight = counts / (counts + prior_strength)
++                        estimate = global_log_odds * (1 - weight) + log_odds * weight
++                    else:
++                        # Continuous target: regularized deviation from global mean
++                        grouped = data.groupby('feature', observed=True)['target']
++                        counts = grouped.count()
++                        means = grouped.mean()
++                        global_mean = data['target'].mean()
++
++                        prior_strength = max(1.0, np.sqrt(len(counts)))
++                        weight = counts / (counts + prior_strength)
++                        estimate = (means - global_mean) * weight
++
++                    estimate = estimate.reindex(values.index).fillna(0.0)
+                 except np.linalg.LinAlgError:
+-                    # Singular matrix -> just return all zeros
+-                    estimate = pd.Series(np.zeros(len(values)), index=values)
++                    # Fallback: just return all zeros
++                    estimate = pd.Series(np.zeros(len(values)), index=values.index)
+ 
+                 # Ignore unique columns. This helps to prevent overfitting on id-like columns
+                 if len(X[col].unique()) == len(y):
+diff --git a/docs/requirements.txt b/docs/requirements.txt
+index 94c577b..8f3e3ed 100644
+--- a/docs/requirements.txt
++++ b/docs/requirements.txt
+@@ -1,10 +1,9 @@
+-sphinx>=3.0
+ sphinx_rtd_theme
+-numpydoc
+-numpy>=1.14.0
+-scikit-learn>=0.20.0
+-scipy>=1.0.0
+-statsmodels>=0.9.0
++Jinja2<3.1
++ipykernel
++nbsphinx
++pandas>=1.0.5
++scikit-learn>=1.0.0
+ pandas>=0.21.1
+ patsy>=0.5.1
+-unittest2
+\ No newline at end of file
++unittest2
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..5319928 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,7 @@
++numpy>=1.14.0
++scikit-learn>=1.0.0
++scipy>=1.0.0
++pandas>=1.0.5
++patsy>=0.5.1
++unittest2
++importlib_resources ; python_version<"3.9"
+diff --git a/setup.py b/setup.py
+index 406f79f..3668dd1 100644
+--- a/setup.py
++++ b/setup.py
+@@ -35,7 +35,6 @@ setup(
+       'numpy>=1.14.0',
+       'scikit-learn>=0.20.0',
+       'scipy>=1.0.0',
+-      'statsmodels>=0.9.0',
+       'pandas>=1.0.5',
+       'patsy>=0.5.1',
+       'importlib_resources ; python_version<"3.9"',

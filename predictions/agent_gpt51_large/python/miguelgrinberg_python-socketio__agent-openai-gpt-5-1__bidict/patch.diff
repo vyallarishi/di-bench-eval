@@ -1,0 +1,86 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index cb7e925..28b36fb 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,6 +14,7 @@ classifiers = [
+ ]
+ requires-python = ">=3.8"
+ dependencies = [
++    "python-engineio >= 4.8.0",
+ ]
+ 
+ [project.readme]
+diff --git a/src/socketio/base_manager.py b/src/socketio/base_manager.py
+index ca4b0b9..0c07194 100644
+--- a/src/socketio/base_manager.py
++++ b/src/socketio/base_manager.py
+@@ -1,7 +1,6 @@
+ import itertools
+ import logging
+ 
+-from bidict import bidict, ValueDuplicationError
+ 
+ default_logger = logging.getLogger('socketio')
+ 
+@@ -10,7 +9,9 @@ class BaseManager:
+     def __init__(self):
+         self.logger = None
+         self.server = None
+-        self.rooms = {}  # self.rooms[namespace][room][sio_sid] = eio_sid
++        # self.rooms[namespace][room][sio_sid] = eio_sid
++        # rooms are dicts that support value lookup via a reverse mapping
++        self.rooms = {}
+         self.eio_to_sid = {}
+         self.callbacks = {}
+         self.pending_disconnect = {}
+@@ -32,11 +33,11 @@ class BaseManager:
+         """Return an iterable with the active participants in a room."""
+         ns = self.rooms.get(namespace, {})
+         if hasattr(room, '__len__') and not isinstance(room, str):
+-            participants = ns[room[0]]._fwdm.copy() if room[0] in ns else {}
++            participants = ns[room[0]].copy() if room[0] in ns else {}
+             for r in room[1:]:
+-                participants.update(ns[r]._fwdm if r in ns else {})
++                participants.update(ns[r] if r in ns else {})
+         else:
+-            participants = ns[room]._fwdm.copy() if room in ns else {}
++            participants = ns[room].copy() if room in ns else {}
+         for sid, eio_sid in participants.items():
+             yield sid, eio_sid
+ 
+@@ -63,14 +64,20 @@ class BaseManager:
+         return False
+ 
+     def sid_from_eio_sid(self, eio_sid, namespace):
+-        try:
+-            return self.rooms[namespace][None]._invm[eio_sid]
+-        except KeyError:
+-            pass
++        ns_rooms = self.rooms.get(namespace, {})
++        none_room = ns_rooms.get(None)
++        if none_room is None:
++            return
++        for sid, val in none_room.items():
++            if val == eio_sid:
++                return sid
+ 
+     def eio_sid_from_sid(self, sid, namespace):
+-        if namespace in self.rooms:
+-            return self.rooms[namespace][None].get(sid)
++        ns_rooms = self.rooms.get(namespace, {})
++        none_room = ns_rooms.get(None)
++        if none_room is not None:
++            return none_room.get(sid)
++
+ 
+     def pre_disconnect(self, sid, namespace):
+         """Put the client in the to-be-disconnected list.
+@@ -107,7 +114,7 @@ class BaseManager:
+         if namespace not in self.rooms:
+             self.rooms[namespace] = {}
+         if room not in self.rooms[namespace]:
+-            self.rooms[namespace][room] = bidict()
++            self.rooms[namespace][room] = {}
+         if eio_sid is None:
+             eio_sid = self.rooms[namespace][None][sid]
+         self.rooms[namespace][room][sid] = eio_sid

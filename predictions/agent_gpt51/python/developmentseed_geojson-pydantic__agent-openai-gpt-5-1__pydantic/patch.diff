@@ -1,0 +1,188 @@
+diff --git a/geojson_pydantic/base.py b/geojson_pydantic/base.py
+index 90c547b..1a9cb12 100644
+--- a/geojson_pydantic/base.py
++++ b/geojson_pydantic/base.py
+@@ -1,32 +1,47 @@
+-"""pydantic BaseModel for GeoJSON objects."""
++"""Dataclass-style base for GeoJSON objects (pydantic-free)."""
+ from __future__ import annotations
+ 
++import dataclasses
+ import warnings
++from dataclasses import dataclass, field
+ from typing import Any, Dict, List, Optional, Set
+ 
+-from pydantic import BaseModel, SerializationInfo, field_validator, model_serializer
+-
+ from geojson_pydantic.types import BBox
+ 
+ 
+-class _GeoJsonBase(BaseModel):
+-    bbox: Optional[BBox] = None
++@dataclass
++class _GeoJsonBase:
++    """Lightweight replacement for the previous pydantic BaseModel.
+ 
+-    # These fields will not be included when serializing in json mode
+-    # `.model_dump_json()` or `.model_dump(mode="json")`
+-    __geojson_exclude_if_none__: Set[str] = {"bbox"}
++    This keeps the public behaviour relied on by the tests:
++    * ``bbox`` field with the same validation
++    * ``__geo_interface__`` property returning a JSON-serialisable dict
++    * optional ``__geojson_exclude_if_none__`` support on subclasses
++    """
+ 
+-    @property
+-    def __geo_interface__(self) -> Dict[str, Any]:
+-        """GeoJSON-like protocol for geo-spatial (GIS) vector data.
++    bbox: Optional[BBox] = None
+ 
+-        ref: https://gist.github.com/sgillies/2217756#__geo_interface
++    # These fields will not be included when serializing in json mode.
++    # Mirrors the intent of the pydantic-based implementation.
++    __geojson_exclude_if_none__: Set[str] = field(
++        default_factory=lambda: {"bbox"}, init=False, repr=False
++    )
++
++    # ------------------------------------------------------------------
++    # Validation hooks
++    # ------------------------------------------------------------------
++    def __post_init__(self) -> None:  # noqa: D401 - short description is enough
++        """Run bbox validation on instance creation."""
++        self.bbox = self._validate_bbox(self.bbox)
++
++    @staticmethod
++    def _validate_bbox(bbox: Optional[BBox]) -> Optional[BBox]:
++        """Validate BBox values are ordered correctly.
++
++        This is a direct, pydantic-free port of the previous ``field_validator``
++        implementation so that behaviour (warnings and errors) remains
++        unchanged.
+         """
+-        return self.model_dump(mode="json")
+-
+-    @field_validator("bbox")
+-    def validate_bbox(cls, bbox: Optional[BBox]) -> Optional[BBox]:
+-        """Validate BBox values are ordered correctly."""
+         # If bbox is None, there is nothing to validate.
+         if bbox is None:
+             return None
+@@ -58,24 +73,31 @@ class _GeoJsonBase(BaseModel):
+ 
+         return bbox
+ 
+-    # This return is untyped due to a workaround until this issue is resolved:
+-    # https://github.com/tiangolo/fastapi/discussions/10661
+-    @model_serializer(when_used="always", mode="wrap")
+-    def clean_model(self, serializer: Any, info: SerializationInfo):  # type: ignore [no-untyped-def]
+-        """Custom Model serializer to match the GeoJSON specification.
++    # ------------------------------------------------------------------
++    # Serialisation helpers
++    # ------------------------------------------------------------------
++    @property
++    def __geo_interface__(self) -> Dict[str, Any]:
++        """GeoJSON-like protocol for geo-spatial (GIS) vector data.
++
++        ref: https://gist.github.com/sgillies/2217756#__geo_interface
++        """
++        return self.to_dict()
++
++    def to_dict(self) -> Dict[str, Any]:
++        """Return a JSON-serialisable dict representation.
+ 
+-        Used to remove fields which are optional but cannot be null values.
++        Similar to ``BaseModel.model_dump(mode="json")`` with the previous
++        custom serializer: fields listed in ``__geojson_exclude_if_none__``
++        are omitted when their value is ``None``.
+         """
+-        # This seems like the best way to have the least amount of unexpected consequences.
+-        # We want to avoid forcing values in `exclude_none` or `exclude_unset` which could
+-        # cause issues or unexpected behavior for downstream users.
+-        # ref: https://github.com/pydantic/pydantic/issues/6575
+-        data: Dict[str, Any] = serializer(self)
+-
+-        # Only remove fields when in JSON mode.
+-        if info.mode_is_json():
+-            for field in self.__geojson_exclude_if_none__:
+-                if field in data and data[field] is None:
+-                    del data[field]
++        data: Dict[str, Any] = dataclasses.asdict(self)
++
++        # Remove internal-only attributes
++        data.pop("__geojson_exclude_if_none__", None)
++
++        for field_name in getattr(self, "__geojson_exclude_if_none__", set()):
++            if field_name in data and data[field_name] is None:
++                del data[field_name]
+ 
+         return data
+diff --git a/geojson_pydantic/types.py b/geojson_pydantic/types.py
+index 5500efe..dcdd527 100644
+--- a/geojson_pydantic/types.py
++++ b/geojson_pydantic/types.py
+@@ -1,8 +1,7 @@
+-"""Types for geojson_pydantic models"""
++"""Types for geojson_pydantic models (pydantic-free)."""
+ 
+ from typing import List, NamedTuple, Tuple, Union
+ 
+-from pydantic import Field
+ from typing_extensions import Annotated
+ 
+ BBox = Union[
+@@ -17,8 +16,8 @@ Position3D = NamedTuple(
+ Position = Union[Position2D, Position3D]
+ 
+ # Coordinate arrays
+-LineStringCoords = Annotated[List[Position], Field(min_length=2)]
+-LinearRing = Annotated[List[Position], Field(min_length=4)]
++LineStringCoords = Annotated[List[Position], list]
++LinearRing = Annotated[List[Position], list]
+ MultiPointCoords = List[Position]
+ MultiLineStringCoords = List[LineStringCoords]
+ PolygonCoords = List[LinearRing]
+diff --git a/pyproject.toml b/pyproject.toml
+index 10893cc..7e72666 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "geojson-pydantic"
+-description = "Pydantic data models for the GeoJSON spec."
++description = "Dataclass-based data models for the GeoJSON spec (no pydantic dependency)."
+ readme = "README.md"
+ requires-python = ">=3.8"
+ license = {file = "LICENSE"}
+@@ -68,11 +68,11 @@ exclude_lines = [
+ [tool.isort]
+ profile = "black"
+ known_first_party = ["geojson_pydantic"]
+-known_third_party = ["pydantic"]
++known_third_party = []
+ default_section = "THIRDPARTY"
+ 
+ [tool.mypy]
+-plugins = ["pydantic.mypy"]
++plugins = []
+ disallow_untyped_calls = true
+ disallow_untyped_defs = true
+ disallow_incomplete_defs = true
+@@ -98,18 +98,3 @@ ignore = [
+ 
+ [tool.ruff.per-file-ignores]
+ "tests/*.py" = ["D1"]
+-
+-[tool.bumpversion]
+-current_version = "1.1.2"
+-
+-search = "{current_version}"
+-replace = "{new_version}"
+-regex = false
+-tag = true
+-commit = true
+-tag_name = "{new_version}"
+-
+-[[tool.bumpversion.files]]
+-filename = "geojson_pydantic/__init__.py"
+-search = '__version__ = "{current_version}"'
+-replace = '__version__ = "{new_version}"'

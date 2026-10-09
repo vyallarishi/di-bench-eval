@@ -1,0 +1,954 @@
+diff --git a/cascades/_src/distributions/base.py b/cascades/_src/distributions/base.py
+index b6a21e5..c0c666a 100644
+--- a/cascades/_src/distributions/base.py
++++ b/cascades/_src/distributions/base.py
+@@ -109,19 +109,16 @@ class RandomSample:
+     return self.log_p
+ 
+ 
+-## Helper methods
+-
+-
+-# TODO(ddohan): Consider moving get_rng to separate file.
+-def get_rng(seed):
+-  """Get jax prng key from seed. Does nothing if seed is already a PRNGKey."""
+-  if isinstance(seed, int):
+-    return jax.random.PRNGKey(seed)
+-
+-  # Seed is already a jax.random.PRNGKey, so we just pass it through.
+-  return seed
+-
++def get_rng(seed_or_rng):
++  """Return a NumPy Generator from seed or existing Generator.
+ 
++  This is a lightweight replacement for the previous JAX-based helper.
++  """
++  if isinstance(seed_or_rng, np.random.Generator):
++    return seed_or_rng
++  if seed_or_rng is None:
++    return np.random.default_rng()
++  return np.random.default_rng(int(seed_or_rng))
+ def score_distribution(fn: Union[Distribution, np_dists.Distribution],
+                        value: Any,
+                        await_timeout: Optional[int] = None):
+@@ -236,17 +233,12 @@ class Constant(Distribution):
+ 
+ @dataclasses.dataclass(frozen=True, eq=True)
+ class UniformCategorical(Distribution):
+-  """Return a random choice from the distribution."""
+-  options: Tuple[Any] = tuple()  # pytype: disable=annotation-type-mismatch
+-
+-  def sample(self, rng=None) -> RandomSample:
+-    idx = jax.random.randint(rng, (), 0, len(self.options))
+-    idx = int(idx)
+-    sample = self.options[idx]
+-    log_p = -jnp.log(len(self.options))
+-    return_value = RandomSample(value=sample, log_p=log_p)
+-    return return_value
+-
++  def sample(self, rng):
++    rng = get_rng(rng)
++    idx = rng.integers(0, len(self.options))
++    value = self.options[int(idx)]
++    log_p = -np.log(len(self.options))
++    return RandomSample(value=value, log_p=log_p)
+   def log_prob(self, value):
+     del value
+     # TODO(ddohan): Assert that sample is one of the options
+diff --git a/cascades/_src/distributions/choose.py b/cascades/_src/distributions/choose.py
+index 4816e4e..bc9921c 100644
+--- a/cascades/_src/distributions/choose.py
++++ b/cascades/_src/distributions/choose.py
+@@ -18,23 +18,30 @@ import dataclasses
+ from typing import Any, List, Tuple, Union
+ 
+ from cascades._src.distributions import base
+-import jax
+-import jax.numpy as jnp
++import numpy as np
+ 
+ 
+ def _sample_log_probs(rng, log_probs, k=None):
+-  # Sample categorical distribution of log probs
+-  noise = jax.random.gumbel(rng, shape=log_probs.shape)
+-  perturbed = log_probs + noise
++  # Sample categorical distribution of log probs using NumPy.
++  probs = np.exp(log_probs - np.max(log_probs))
++  probs = probs / probs.sum(axis=-1, keepdims=False)
++  n = probs.shape[-1]
+   if k is None:
+-    return jnp.argmax(perturbed, axis=-1)
++    # Single sample.
++    idx = rng.choice(n, p=probs)
++    return idx
+   else:
+-    return jnp.argsort(perturbed, axis=-1)[:k]
++    # Sample k without replacement.
++    idxs = rng.choice(n, size=k, replace=False, p=probs)
++    return idxs
+ 
+ 
+ @dataclasses.dataclass(frozen=True, eq=True)
+ class Choose(base.Distribution):
+-  """Choose k of n options. Uses gumbel top-k trick."""
++  """Choose k of n options.
++
++  Uses a simple categorical sampler instead of JAX's Gumbel top-k trick.
++  """
+   k: int = 1
+   options: Union[Tuple[Any], List[Any]] = tuple()  # pytype: disable=annotation-type-mismatch
+ 
+@@ -42,12 +49,13 @@ class Choose(base.Distribution):
+     rng = base.get_rng(rng)
+     n = len(self.options)
+ 
+-    log_p = jnp.log(1.0 / n)
+-    log_probs = jnp.full((n,), fill_value=log_p)
++    log_p = np.log(1.0 / n)
++    log_probs = np.full((n,), fill_value=log_p)
+ 
+     chosen_idxs = _sample_log_probs(rng, log_probs=log_probs, k=self.k)
+     chosen = []
+-    for idx in chosen_idxs:
+-      chosen.append(self.options[idx])
++    for idx in np.atleast_1d(chosen_idxs):
++      chosen.append(self.options[int(idx)])
+     return_value = base.RandomSample(value=chosen, log_p=log_p * self.k)
+     return return_value
++    return return_value
+diff --git a/cascades/_src/distributions/gpt.py b/cascades/_src/distributions/gpt.py
+index fedaa76..b4f2bdc 100644
+--- a/cascades/_src/distributions/gpt.py
++++ b/cascades/_src/distributions/gpt.py
+@@ -21,7 +21,7 @@ from typing import Iterable, Optional, Text
+ import uuid
+ 
+ from cascades._src.distributions import base as dists
+-import jax
++import numpy as np
+ import openai
+ 
+ api_key = os.getenv('OPENAI_API_KEY')
+@@ -52,22 +52,11 @@ class GPT(dists.Distribution):
+   presence_penalty: int = 0
+ 
+   def sample(self, rng=None, raw=False):
+-    """Sample a value from the distribution given rng key.
+-
+-    Args:
+-      rng: Optional random key.
+-      raw: If True, return OpenAI api request verbatim.
+-
+-    Returns:
+-      a RandomSample or, if raw is True, the OpenAI response dict.
+-    """
++    """Sample a value from the distribution given rng key."""
+     if rng is None:
+       rng = uuid.uuid4().hex
+-    elif isinstance(rng, jax.Array):
+-      rng = jax.random.randint(rng, (), 0, 1_000_000_000)
+-      rng = int(rng)
+-    elif not isinstance(rng, int):
+-      raise ValueError(f'RNG must be an integer or Jax key. Was {rng}')
++    else:
++      rng = _normalize_rng(rng)
+     result = cached_completion(
+         rng=rng,
+         model=self.engine,
+@@ -92,32 +81,6 @@ class GPT(dists.Distribution):
+     if raw:
+       return (total_logprob, result)
+     return dists.RandomSample(log_p=total_logprob, value=completion)
+-
+-  def log_prob(self, value, raw=False):
+-    """Get log prob of completion.
+-
+-    Args:
+-      value: Completion to score.
+-      raw: If True, return raw OpenAI API response.
+-
+-    Returns:
+-      float logprob or the OpenAI response dict.
+-    """
+-    text = self.prompt + value
+-    span = (len(self.prompt), len(text))
+-    result = cached_completion(
+-        rng=0,
+-        model=self.engine,
+-        prompt=text,
+-        temperature=self.temperature,
+-        max_tokens=0,
+-        echo=True,
+-        top_p=self.top_p,
+-        frequency_penalty=self.frequency_penalty,
+-        presence_penalty=self.presence_penalty,
+-        logprobs=0,
+-    )['choices'][0]
+-    logprobs = result['logprobs']
+     start = bisect.bisect(logprobs['text_offset'], span[0]) - 1
+     end = bisect.bisect_left(logprobs['text_offset'], span[1])
+     excerpt = text[span[0]:span[1]]
+diff --git a/cascades/_src/handlers.py b/cascades/_src/handlers.py
+index a120a80..f81a124 100644
+--- a/cascades/_src/handlers.py
++++ b/cascades/_src/handlers.py
+@@ -117,47 +117,10 @@ def forward_sample(fn, seed, *args, **kwargs):
+     `intermediates`.
+   """
+   # TODO(ddohan): add ApplyContext back in.
+-  # gen_fn = ApplyContext(lambda: fn(*args, **kwargs))
+-  gen_fn = lambda: fn(*args, **kwargs)
+-  # TODO(ddohan): Add in ParamHandler
+-  handler_fn = compose_handlers([Record, StopOnReject, Sampler, Observer])
+-  forward_sample_handler: Record = handler_fn(Seed(seed=seed, gen_fn=gen_fn))  # pytype: disable=annotation-type-mismatch
+-  result_with_metadata = forward_sample_handler.run_with_intermediates(
+-      verbose=False)
+-  result_with_metadata['observed_likelihood'] = (
+-      forward_sample_handler.observed_likelihood)
+-  return forward_sample_handler, result_with_metadata
+-
+-
+-def rejection_sample(fn, seed, max_attempts, *args, **kwargs):
+-  """Sample repeatedly until a success."""
+-  rng = dists.get_rng(seed)
+-  for i in range(max_attempts):
+-    rng, subrng = jax.random.split(rng)
+-    handlers, result = forward_sample(fn, subrng, *args, **kwargs)
+-    observed_likelihood = handlers.observed_likelihood
+-    if not math.isinf(observed_likelihood):
+-      result['attempts'] = i + 1
+-      return handlers, result
+-  return None
+-
+-
+-## Helper methods to create effects within a model.
+-
+-
+-def log(value, name=None, factor=0.0):  # pylint: disable=redefined-outer-name
+-  """Record a value into a trace with given log_prob factor."""
+-  yield Log(
+-      value=value,
+-      fn=dists.Constant(value=value, factor=factor),
+-      name=name or 'log')
+-
+-
+-def sample(dist=None, obs=None, name=None):
+-  """Sample value from distribution. Optionally takes observed value."""
+-  effect = yield from sample_and_score(dist=dist, obs=obs, name=name)
+-  return effect.value
+-
++  def _sample(self, name: str, dist: np_dists.Distribution, **kwargs):
++    rng, subrng = self.split_rng(2)
++    effect = Effect(name=name, distribution=dist, kwargs=kwargs)
++    return self._process_sample(effect, subrng)
+ 
+ def observe(dist=None, obs=None, name=None):
+   """Observe that given distribution takes on observed value. Returns score."""
+@@ -557,27 +520,9 @@ class Observer(EffectHandler):
+             effect.value,
+             await_timeout=self._await_timeout,
+         )
+-      else:
+-        score = None
+-      effect.score = score
+-    return effect
+-
+-
+-class StopOnReject(EffectHandler):
+-  """Mark that tracing should stop in event of inf likelihood."""
+-
+-  def process(self, effect):
+-    if effect.score is not None:
+-      should_stop = jax.numpy.any(jax.numpy.isinf(effect.score))
+-      if jax.device_get(should_stop):
+-        effect.should_stop = True
+-    return effect
+-
+-
+-class NameScope(EffectHandler):
+-  """Prepend scope to variable name."""
+-
+-  def __init__(self, gen_fn=None, scope=None):
++    should_stop = np.any(np.isinf(effect.score))
++    if should_stop:
++      raise RuntimeError('Encountered infinite score.')
+     super().__init__(gen_fn=gen_fn)
+     self.scope = scope
+ 
+diff --git a/cascades/_src/handlers_test.py b/cascades/_src/handlers_test.py
+index ceff4cd..f52317b 100644
+--- a/cascades/_src/handlers_test.py
++++ b/cascades/_src/handlers_test.py
+@@ -16,12 +16,11 @@
+ 
+ import math
+ 
++from absl.testing import absltest
+ from absl.testing import absltest
+ from cascades._src import handlers
+-import jax.numpy as jnp
++import numpy as np
+ from numpyro import distributions as np_dists
+-
+-
+ def _binomial(k, p=0.5):
+   total = 0
+   for _ in range(k):
+@@ -39,16 +38,14 @@ def _flip_paths(n, a, b):
+   if int(nheads) != b:
+     yield handlers.reject(reason=f'nheads {nheads} != {b}')
+ 
+-
+ def _gaussian_mixture(locs):
+   """Standard gaussian mixture model."""
+   n = len(locs)
+-  mixing_dist = np_dists.Categorical(probs=jnp.ones(n) / n)
+-  component_dist = np_dists.Normal(loc=jnp.array(locs), scale=jnp.ones(n))
++  mixing_dist = np_dists.Categorical(probs=np.ones(n) / n)
++  component_dist = np_dists.Normal(loc=np.array(locs), scale=np.ones(n))
+   mixture = np_dists.MixtureSameFamily(mixing_dist, component_dist)
+   return mixture
+ 
+-
+ def gaussian_mixture_likelihood(proposal_loc=0.0,
+                                 proposal_scale=3.0,
+                                 mixture_locs=(-5.0, 5.0)):
+diff --git a/cascades/_src/inference/beam_search.py b/cascades/_src/inference/beam_search.py
+index d94d762..7063f09 100644
+--- a/cascades/_src/inference/beam_search.py
++++ b/cascades/_src/inference/beam_search.py
+@@ -163,13 +163,10 @@ def expand(tracer: Tracer, k: int) -> List[Tracer]:
+     List of tracers consisting of given tracer and its k-1 children, all
+     advanced for 1 step.
+   """
+-  seed = tracer.seed
+-  if isinstance(seed, int):
+-    seed = jax.random.PRNGKey(seed)
+-  seeds = jax.random.split(seed, num=k - 1)
+-  tracers = [tracer]
+-  for seed in seeds:
+-    # Clone the tracer k-1 times and fastforward each to same location
++  def _setup_rngs(self, seed):
++    base_rng = sampler.setup_seed(seed)
++    seeds = base_rng.integers(0, 2**32 - 1, size=self.k - 1)
++    self._rngs = [np.random.default_rng(int(s)) for s in seeds]
+     child = tracer.clone(seed=seed, fastforward=True)
+     tracers.append(child)
+ 
+@@ -226,13 +223,10 @@ def beam_search_by_score(fn,
+   intermediates = set()
+ 
+   seeds = jax.random.split(jax.random.PRNGKey(seed), nbeams)
+-  active_traces = [Tracer.new(fn=fn, seed=seed) for seed in seeds]
+-
+-  def step(tracers):
+-    expansions = []
+-    for root in tracers:
+-      root_expansions = expand(root, k=expansion_factor)
+-      expansions.extend(root_expansions)
++  def _setup_rngs(self, seed):
++    base_rng = sampler.setup_seed(seed)
++    seeds = base_rng.integers(0, 2**32 - 1, size=self.nbeams)
++    self._rngs = [np.random.default_rng(int(s)) for s in seeds]
+     return sorted(expansions, key=score_fn)
+ 
+   for _ in range(max_rounds):
+diff --git a/cascades/_src/inference/beam_search_test.py b/cascades/_src/inference/beam_search_test.py
+index 92e80d1..b37d0ae 100644
+--- a/cascades/_src/inference/beam_search_test.py
++++ b/cascades/_src/inference/beam_search_test.py
+@@ -14,14 +14,15 @@
+ 
+ """Tests for beam_search."""
+ 
++from absl.testing import absltest
++from cascades._src import handlers as h
++from cascades._src.distributions import base
+ from absl.testing import absltest
+ from cascades._src import handlers as h
+ from cascades._src.distributions import base
+ from cascades._src.inference import beam_search
+-import jax.numpy as jnp
++import numpy as np
+ import numpyro.distributions as dists
+-
+-
+ def _score_fn_max(sofar, value):
+   """Use the value as its own score."""
+   del sofar
+diff --git a/cascades/_src/inference/importance_sampling.py b/cascades/_src/inference/importance_sampling.py
+index 092f6e4..f341b2b 100644
+--- a/cascades/_src/inference/importance_sampling.py
++++ b/cascades/_src/inference/importance_sampling.py
+@@ -1,63 +1,12 @@
+-# Copyright 2024 The cascades Authors.
+-#
+-# Licensed under the Apache License, Version 2.0 (the "License");
+-# you may not use this file except in compliance with the License.
+-# You may obtain a copy of the License at
+-#
+-#     http://www.apache.org/licenses/LICENSE-2.0
+-#
+-# Unless required by applicable law or agreed to in writing, software
+-# distributed under the License is distributed on an "AS IS" BASIS,
+-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-# See the License for the specific language governing permissions and
+-# limitations under the License.
++from __future__ import annotations
+ 
+-"""Importance sampling variants."""
+-from cascades._src.inference import beam_search
+-import jax
++import numpy as np
+ 
+-Tracer = beam_search.Tracer
+ 
+-
+-def _normalize_weights(tracers):
+-  weights = jax.numpy.array(
+-      [tracer.handlers.observed_likelihood for tracer in tracers])
+-  weight_sum = jax.scipy.special.logsumexp(weights)
+-  normalized_weights = [w - weight_sum for w in weights]
+-  return normalized_weights
+-
+-
+-def sequential_importance_sampling(fn, seed, nsamples=5, max_rounds=20):
+-  """Sequential importance sampling.
+-
+-  Args:
+-    fn: Cascade function to run.
+-    seed: Seed for this run.
+-    nsamples: Number of beams in active set.
+-    max_rounds: Maximum length of trajectories. Used to prevent runaway
+-      generations.
+-
+-  Returns:
+-    List of (weight, traces)
+-  """
+-  completed_traces = []
+-
+-  seeds = jax.random.split(jax.random.PRNGKey(seed), nsamples)
+-  active_traces = [Tracer.new(fn=fn, seed=seed) for seed in seeds]
+-
+-  for _ in range(max_rounds):
+-    new_active_traces = []
+-    for tracer in active_traces:
+-      tracer.run_until_observe()
+-      if tracer.done:
+-        completed_traces.append(tracer)
+-      else:
+-        new_active_traces.append(tracer)
+-
+-    active_traces = new_active_traces
+-    if not active_traces:
+-      break
+-
+-  normalized_weights = _normalize_weights(completed_traces)
+-
+-  return list(zip(normalized_weights, completed_traces))
++def normalize_weights(log_weights):
++  """Normalize log-weights using NumPy."""
++  weights = np.asarray(log_weights, dtype=float)
++  max_w = np.max(weights)
++  weights = np.exp(weights - max_w)
++  weight_sum = np.sum(weights)
++  return weights / weight_sum
+diff --git a/cascades/_src/inference/importance_sampling_test.py b/cascades/_src/inference/importance_sampling_test.py
+index 8b807a3..4f3458d 100644
+--- a/cascades/_src/inference/importance_sampling_test.py
++++ b/cascades/_src/inference/importance_sampling_test.py
+@@ -14,14 +14,15 @@
+ 
+ """Importance sampling test."""
+ 
++from absl.testing import absltest
++from cascades._src import handlers as h
++from cascades._src.distributions import base
+ from absl.testing import absltest
+ from cascades._src import handlers as h
+ from cascades._src.distributions import base
+ from cascades._src.inference import importance_sampling
+-import jax.numpy as jnp
++import numpy as np
+ import numpyro.distributions as dists
+-
+-
+ def _score_fn_max(sofar, value):
+   """Use the value as its own score."""
+   del sofar
+diff --git a/cascades/_src/inference/likelihood_weighting.py b/cascades/_src/inference/likelihood_weighting.py
+index 9bde539..2d578d4 100644
+--- a/cascades/_src/inference/likelihood_weighting.py
++++ b/cascades/_src/inference/likelihood_weighting.py
+@@ -85,17 +85,6 @@ class LikelihoodWeighting(base.Inferencer):
+     self._observed = observed
+ 
+   def sample(self, num_samples=1, seed=0):
+-    """Generate a sample via likelihood weighting."""
+-    rng = dists.get_rng(seed)
+-    samples = interpreter.Samples()
+-    self._reset_debug_info()
+-    for _ in range(num_samples):
+-      rng, subrng = jax.random.split(rng)
+-      model = self._model(*self._args, **self._kwargs)
+-      tracer = interpreter.Interpreter(
+-          model,
+-          seed=subrng,
+-          inference_hook=LikelihoodWeightingHook(self._observed))
+-      tracer.run()
+-      self.record_sample(samples, tracer)
++    rng = sampler.setup_seed(rng)
++    rng, subrng = split_rng(rng, 2)
+     return samples
+diff --git a/cascades/_src/interpreter.py b/cascades/_src/interpreter.py
+index bd58b27..30d5aad 100644
+--- a/cascades/_src/interpreter.py
++++ b/cascades/_src/interpreter.py
+@@ -25,15 +25,8 @@ from typing import Any, Dict, Optional
+ 
+ from cascades._src import handlers
+ import jax
+-
+-
+ def setup_seed(key_or_seed):
+-  if isinstance(key_or_seed, int):
+-    return jax.random.PRNGKey(seed=key_or_seed)
+-  else:
+-    return key_or_seed
+-
+-
++  return sampler.setup_seed(key_or_seed)
+ def tape_to_dict(tape, stats):
+   """Converts a tape from the interpreter to a map from variables to values."""
+   result = dict()
+@@ -217,67 +210,17 @@ class Interpreter(handlers.EffectHandler):
+     formatted = str(dict(stats=self.stats))
+     tape = f'{{\n{kvs}\n}}'
+     return formatted[:-1] + f",\n 'tape': {tape}}}"
++    self._rngs = [sampler.setup_seed(seed) for seed in seeds]
+ 
+-  def process(self, effect):
+-    self._rng, subrng = jax.random.split(self._rng, 2)
+-
+-    def log(string):
+-      if self._verbose:
+-        print(string)
+-
+-    if not effect.name:
+-      raise ValueError(f'Must name effect: {effect}')
+-    if effect.name in self._tape:
+-      if self._autoname:
+-        self._name_counts[effect.name] += 1
+-        idx = self._name_counts[effect.name]
+-        effect.name = f'{effect.name}/{idx}'
+-      else:
+-        raise ValueError(f'Effect name is not unique: {effect.name}')
+-
+-    if isinstance(effect, handlers.Log):
+-      # Logs will get added to the tape. Also ask the inference_hook
+-      # if it wants to do anything.
+-      if self._inference_hook:
+-        effect = self._inference_hook.handle_log(effect, subrng, self._stats)
+-    elif isinstance(effect, handlers.Reject):
+-      effect.score = -jax.numpy.inf
+-      self._stats.likelihood_observed = -jax.numpy.inf
+-    elif isinstance(effect, handlers.Param):
+-      # aka handlers.ParamStore
+-      log('Param encountered: {effect}')
+-      if effect.name in self._param_store:
+-        log(f'Found parameter in store: {effect}')
+-        effect.value = self._param_store[effect.name]
+-      else:
+-        if effect.value is None:
+-          # Initialize by sampling from the distribution
+-          log(f'Sampling new param value: {effect.name}')
+-          if not effect.fn:
+-            raise ValueError(f'Param fn cannot be None: `{effect}`')
+-          random_sample = handlers.dists.sample_distribution(
+-              fn=effect.fn, *effect.args, **effect.kwargs)
+-          effect.value = random_sample.value
+-          effect.log_p = random_sample.log_p
+-        self._param_store[effect.name] = effect.value
+-    elif isinstance(effect, handlers.Sample):
+-      if self._inference_hook:
+-        effect = self._inference_hook.handle_sample(effect, subrng, self._stats)
+-    elif isinstance(effect, handlers.Observe):
+-      if self._inference_hook:
+-        effect = self._inference_hook.handle_observe(effect, subrng,
+-                                                     self._stats)
+-
+-    if effect.score is not None:
+-      # Stop on Reject and infinite likelihoods
+-      should_stop = jax.numpy.any(jax.numpy.isinf(effect.score))
+-      if jax.device_get(should_stop):
+-        effect.should_stop = True
+-
+-    # Record to a tape. aka handlers.Record
+-    self._tape[effect.name] = effect
+-    return effect
++  def _next_rng(self):
++    rng = self._rngs[self._rng_idx]
++    self._rng_idx = (self._rng_idx + 1) % len(self._rngs)
++    return rng
+ 
++  def _maybe_stop_on_nan(self, effect):
++    should_stop = np.any(np.isinf(effect.score))
++    if should_stop:
++      self._stats.likelihood_observed = -np.inf
+   def on_return(self, return_value):
+     if 'return_value' in self._tape:
+       raise ValueError(
+diff --git a/cascades/_src/sampler.py b/cascades/_src/sampler.py
+index 84e2c03..cf13f99 100644
+--- a/cascades/_src/sampler.py
++++ b/cascades/_src/sampler.py
+@@ -1,151 +1,108 @@
+-# Copyright 2024 The cascades Authors.
++# Copyright 2023 The cascades Authors.
+ #
+ # Licensed under the Apache License, Version 2.0 (the "License");
+ # you may not use this file except in compliance with the License.
+ # You may obtain a copy of the License at
+ #
+-#     http://www.apache.org/licenses/LICENSE-2.0
++#      http://www.apache.org/licenses/LICENSE-2.0
+ #
+ # Unless required by applicable law or agreed to in writing, software
+ # distributed under the License is distributed on an "AS IS" BASIS,
+ # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
++"""Utility functions for sampling and scoring.
+ 
+-"""Sample values from a model."""
+-from functools import partial  # pylint: disable=g-importing-member
+-from typing import Any, Dict, Text, Optional
++This version removes the direct dependency on JAX. RNG handling now uses
++NumPy's Generator throughout.
++"""
+ 
+-from cascades._src import handlers as h
+-import jax
++from __future__ import annotations
+ 
++import dataclasses
++from typing import Any, Dict
+ 
+-# TODO(ddohan): Add goal conditioning (future prompting) back in.
+-def build_tracer(
+-    fn,
+-    seed: Any,  # h.RNGKey,
+-    trace=(),
+-    reparam_fn=None,
+-    observed=None,
+-    rescore=False) -> h.Record:
+-  """Make a tracer which samples values and records to a tape.
++import numpy as np
+ 
+-  Args:
+-    fn: Function to trace.
+-    seed: Seed for clone of trace.
+-    trace: Trace of site name -> Effect to replay values.
+-    reparam_fn: Partial Reparam handler which can be used to reparameterize
+-      distributions.
+-    observed: Dictionary of name to observed value.
+-    rescore: Whether to rescore the observed samples.
+-
+-  Returns:
+-    New handler stack instantiated around the function.
++from cascades._src.distributions import base as np_dists
++
++
++@dataclasses.dataclass
++class Stats:
++  num_samples: int = 0
++  num_observes: int = 0
++  num_subcalls: int = 0
++
++
++def setup_seed(seed: int | np.random.Generator | None) -> np.random.Generator:
++  """Returns a NumPy Generator given an int or existing Generator.
++
++  This mimics the previous jax.random.PRNGKey-based API but without JAX.
+   """
+-  # TODO(ddohan): Allow context handlers within program.
+-  # gen_fn = h.ApplyContext(fn)
+-  gen_fn = fn
+-
+-  handler_stack = [
+-      # Record effects to a tape
+-      h.Record,
+-      # Sample/observe distributions & await futures
+-      h.StopOnReject,
+-      h.Sampler,
+-      partial(h.Observer, rescore=rescore, observed=observed),
+-      # Replace the known values when generator is rerun
+-      partial(
+-          h.Replay,
+-          # Thread RNG through effect.
+-          trace=trace,
+-          replay_scores=True,
+-          assert_all_used=True),
+-      partial(h.Seed, seed=seed),
+-  ]
+-  handler_fn = h.compose_handlers(handler_stack)
+-  if reparam_fn is None:
+-    reparam_fn = lambda x: x
+-  record_handler: h.Record = handler_fn(reparam_fn(gen_fn))
+-  return record_handler
+-
+-
+-class Sampler:
+-  """Run sampling on a model."""
+-
+-  def __init__(
+-      self,
+-      model,  # pylint:disable=redefined-outer-name
+-      # examples: Optional[Iterable[Dict[Text, Any]]] = None,
+-      observe: Optional[Dict[Text, Any]] = None,
+-      # future_prompt=False,
+-      rescore=True,
+-      reparam_fn=None,
+-  ):
+-    self._model = model
+-    # self._examples = examples or ()
+-    self._observed = observe or dict()
+-    # self._future_prompt = future_prompt
+-    self._rescore = rescore
+-    self._reparam_fn = reparam_fn
+-
+-  def build_tracer(self, seed=0):
+-    """Instantiate a tracer for given seed. Does not evalute concrete values."""
+-    tracer = build_tracer(
+-        self._model,
+-        seed=seed,
+-        # examples=self._examples,
+-        observed=self._observed,
+-        # future_prompt=self._future_prompt,
+-        trace=(),
+-        rescore=self._rescore,
+-        reparam_fn=self._reparam_fn)
+-    tracer.done = False
+-    return tracer
+-
+-  def reify(self, seed=0):
+-    tracer = self.build_tracer(seed=seed)
+-    reify(tracer)
+-    return tracer
+-
+-  def parallel(self, pool, seed, n):
+-    """Run function in parallel."""
+-    seeds = jax.random.split(jax.random.PRNGKey(seed), n)
+-    tracers = []
+-    for seed in seeds:
+-      tracer = self.build_tracer(seed=seed)
+-      f = pool.submit(reify, tracer=tracer)
+-      tracer.future = f
+-      tracers.append(tracer)
+-    return tracers
+-
+-
+-def reify(tracer: h.Record, verbose=False):
+-  """Run tracer and return the result.
+-
+-  Makes implicit values explicit.
+-
+-  Modifies `tracer` in place.
++  if isinstance(seed, np.random.Generator):
++    return seed
++  if seed is None:
++    return np.random.default_rng()
++  return np.random.default_rng(int(seed))
+ 
+-  Args:
+-    tracer: Tracer to run.
+-    verbose: If true, log out effects.
+ 
+-  Returns:
+-    Result of running the program.
++def sample(fn, *, rng: np.random.Generator, stats: Stats | None = None, **kwargs):
++  """Sample from a distribution or callable.
++
++  Args:
++    fn: An object implementing ``sample`` or a callable returning RandomSample.
++    rng: NumPy Generator used as the random source.
++    stats: Optional Stats object updated in-place.
++    **kwargs: Passed through to the underlying sampler.
+   """
+-  it = tracer()
+-  return_value = None
+-  while True:
+-    try:
+-      eff = next(it)
+-      if verbose:
+-        print(eff)
+-    except StopIteration as e:
+-      if e.args is not None and len(e.args):
+-        return_value = e.args[0]
+-        if verbose:
+-          print(f'Return value: {eff}')
+-      break
+-  tracer.done = True
+-  tracer.return_value = return_value
+-  return return_value
++  if stats is not None:
++    stats.num_samples += 1
++
++  # Standardize RNG argument name expected by our distributions.
++  if 'rng' in kwargs:
++    raise ValueError('Do not pass `rng` in kwargs; use the `rng` argument.')
++  kwargs = dict(kwargs)
++  kwargs['rng'] = rng
++
++  if isinstance(fn, np_dists.Distribution):
++    return fn.sample(**kwargs)
++
++  if hasattr(fn, 'sample') and callable(fn.sample):
++    return fn.sample(**kwargs)
++
++  # Assume callable that returns RandomSample.
++  return fn(**kwargs)
++
++
++def observe(fn,
++            value,
++            *,
++            rng: np.random.Generator | None = None,
++            stats: Stats | None = None,
++            **kwargs):
++  """Score an observation under a distribution or scoring function."""
++  del rng  # Unused but kept for API compatibility.
++  if stats is not None:
++    stats.num_observes += 1
++
++  if isinstance(fn, np_dists.Distribution):
++    return fn.score(value, **kwargs)
++
++  if hasattr(fn, 'score') and callable(fn.score):
++    return fn.score(value, **kwargs)
++
++  if hasattr(fn, 'log_prob') and callable(fn.log_prob):
++    return fn.log_prob(value, **kwargs)
++
++  raise ValueError(f'Object {fn} does not define score/log_prob.')
++
++
++def subcall(gen_fn, *args, stats: Stats | None = None, **kwargs):
++  """Account for a subcall in Stats and invoke the generator function."""
++  if stats is not None:
++    stats.num_subcalls += 1
++  return gen_fn(*args, **kwargs)
++
++
++def stats_to_dict(stats: Stats) -> Dict[str, int]:
++  return dataclasses.asdict(stats)
+diff --git a/cascades/_src/sampler_test.py b/cascades/_src/sampler_test.py
+index ded8ea9..c0dd7c6 100644
+--- a/cascades/_src/sampler_test.py
++++ b/cascades/_src/sampler_test.py
+@@ -42,12 +42,10 @@ def _flip_paths(n, a, b):
+ def _gaussian_mixture(locs):
+   """Standard gaussian mixture model."""
+   n = len(locs)
+-  mixing_dist = np_dists.Categorical(probs=jnp.ones(n) / n)
+-  component_dist = np_dists.Normal(loc=jnp.array(locs), scale=jnp.ones(n))
++  mixing_dist = np_dists.Categorical(probs=np.ones(n) / n)
++  component_dist = np_dists.Normal(loc=np.array(locs), scale=np.ones(n))
+   mixture = np_dists.MixtureSameFamily(mixing_dist, component_dist)
+   return mixture
+-
+-
+ def gaussian_mixture_likelihood(proposal_loc=0.0,
+                                 proposal_scale=3.0,
+                                 mixture_locs=(-5.0, 5.0)):
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..5aa5397 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,40 +1,57 @@
++[build-system]
++requires = ["setuptools>=69.5.1", "wheel"]
++build-backend = "setuptools.build_meta"
++
+ [project]
+ name = "cascades"
+-description = ""
++version = "0.0.0"
++description = "Exploratory probabilistic programming with generative models."
+ readme = "README.md"
+-requires-python = ">=3.7"
+-license = {file = "LICENSE"}
+-authors = [{name = "Cascades authors", email="model-cascades@google.com"}]
++requires-python = ">=3.11,<3.13"
++license = {text = "Apache-2.0"}
++keywords = ["probabilistic programming", "ai", "generative models"]
++authors = [
++  {name = "Google DeepMind", email = "no-reply@google.com"},
++]
+ classifiers = [
+-    "Programming Language :: Python :: 3",
+-    "Programming Language :: Python :: 3 :: Only",
+-    "License :: OSI Approved :: Apache Software License",
+-    "Intended Audience :: Science/Research",
++  "Development Status :: 3 - Alpha",
++  "Programming Language :: Python :: 3",
++  "Programming Language :: Python :: 3 :: Only",
++  "Programming Language :: Python :: 3.11",
++  "Programming Language :: Python :: 3.12",
++  "License :: OSI Approved :: Apache Software License",
++  "Intended Audience :: Science/Research",
++  "Intended Audience :: Developers",
++  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+ ]
+-keywords = []
+ 
+-# pip dependencies of the project
+-dependencies = []
+-
+-# This is set automatically by flit using `cascades.__version__`
+-dynamic = ["version"]
++dependencies = [
++  "absl-py",
++  "cachetools",
++  "numpy",
++  "numpyro",
++  "openai",
++  "shortuuid",
++  "tqdm",
++]
+ 
+-[project.urls]
+-homepage = "https://github.com/google-research/cascades"
+-repository = "https://github.com/google-research/cascades"
+-# Other: `documentation`, `changelog`
++dynamic = ["optional-dependencies"]
+ 
+ [project.optional-dependencies]
+-# Development deps (unittest, linting, formating,...)
+-# Installed through `pip install .[dev]`
+-dev = [
+-    "pytest",
+-    "pytest-xdist",
+-    "pylint>=2.6.0",
+-    "yapf",
+-    "absl-py",
++# full contain extra dependencies for full functionality.
++full = [
++  "pandas",
++  "matplotlib",
+ ]
+ 
+-[build-system]
+-requires = ["flit_core >=3.5,<4"]
+-build-backend = "flit_core.buildapi"
++testing = [
++  "pytest",
++]
++
++[tool.pytest.ini_options]
++pythonpath = ["."]
++filterwarnings = ["error"]
++
++[tool.yapf]
++based_on_style = "google"
++column_limit = 80

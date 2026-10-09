@@ -1,0 +1,339 @@
+diff --git a/adaptive/learner/integrator_learner.py b/adaptive/learner/integrator_learner.py
+index 0fc97df..1f209ee 100644
+--- a/adaptive/learner/integrator_learner.py
++++ b/adaptive/learner/integrator_learner.py
+@@ -1,13 +1,13 @@
+ # Based on an adaptive quadrature algorithm by Pedro Gonnet
+ from __future__ import annotations
+ 
++import dill
+ import sys
+ from collections import defaultdict
+ from math import sqrt
+ from operator import attrgetter
+ from typing import TYPE_CHECKING, Callable
+ 
+-import cloudpickle
+ import numpy as np
+ from scipy.linalg import norm
+ from sortedcontainers import SortedSet
+@@ -17,6 +17,18 @@ from adaptive.learner.base_learner import BaseLearner
+ from adaptive.notebook_integration import ensure_holoviews
+ from adaptive.utils import assign_defaults, cache_latest, restore
+ 
++try:
++    import pandas
++
++    with_pandas = True
++
++except ModuleNotFoundError:
++    with_pandas = False
++from adaptive.learner import integrator_coeffs as coeff
++from adaptive.learner.base_learner import BaseLearner
++from adaptive.notebook_integration import ensure_holoviews
++from adaptive.utils import assign_defaults, cache_latest, restore
++
+ try:
+     import pandas
+ 
+@@ -679,7 +691,7 @@ class IntegratorLearner(BaseLearner):
+ 
+     def __getstate__(self):
+         return (
+-            cloudpickle.dumps(self.function),
++            dill.dumps(self.function),
+             self.bounds,
+             self.tol,
+             self._get_data(),
+@@ -687,6 +699,6 @@ class IntegratorLearner(BaseLearner):
+ 
+     def __setstate__(self, state):
+         function, bounds, tol, data = state
+-        function = cloudpickle.loads(function)
++        function = dill.loads(function)
+         self.__init__(function, bounds, tol)
+         self._set_data(data)
+diff --git a/adaptive/learner/learner2D.py b/adaptive/learner/learner2D.py
+index 58d4f6d..956c904 100644
+--- a/adaptive/learner/learner2D.py
++++ b/adaptive/learner/learner2D.py
+@@ -8,7 +8,7 @@ from copy import copy
+ from math import sqrt
+ from typing import Callable
+ 
+-import cloudpickle
++import dill
+ import numpy as np
+ from scipy import interpolate
+ from scipy.interpolate.interpnd import LinearNDInterpolator
+@@ -23,6 +23,24 @@ from adaptive.utils import (
+     partial_function_from_dataframe,
+ )
+ 
++try:
++    import pandas
++
++    with_pandas = True
++
++except ModuleNotFoundError:
++    with_pandas = False
++
++from adaptive.learner.base_learner import BaseLearner
++from adaptive.learner.triangulation import simplex_volume_in_embedding
++from adaptive.notebook_integration import ensure_holoviews
++from adaptive.types import Bool, Float, Real
++from adaptive.utils import (
++    assign_defaults,
++    cache_latest,
++    partial_function_from_dataframe,
++)
++
+ try:
+     import pandas
+ 
+@@ -897,7 +915,7 @@ class Learner2D(BaseLearner):
+ 
+     def __getstate__(self):
+         return (
+-            cloudpickle.dumps(self.function),
++            dill.dumps(self.function),
+             self.bounds,
+             self.loss_per_triangle,
+             self._stack,
+@@ -906,7 +924,9 @@ class Learner2D(BaseLearner):
+ 
+     def __setstate__(self, state):
+         function, bounds, loss_per_triangle, _stack, data = state
+-        function = cloudpickle.loads(function)
++        function = dill.loads(function)
+         self.__init__(function, bounds, loss_per_triangle)
+         self._set_data(data)
+         self._stack = _stack
++        self._set_data(data)
++        self._stack = _stack
+diff --git a/adaptive/learner/sequence_learner.py b/adaptive/learner/sequence_learner.py
+index c307744..4443be1 100644
+--- a/adaptive/learner/sequence_learner.py
++++ b/adaptive/learner/sequence_learner.py
+@@ -1,12 +1,11 @@
+ from __future__ import annotations
+ 
++import dill
+ import sys
+ from copy import copy
+ from typing import TYPE_CHECKING, Any
+ 
+-import cloudpickle
+ from sortedcontainers import SortedDict, SortedSet
+-
+ from adaptive.learner.base_learner import BaseLearner
+ from adaptive.types import Int
+ from adaptive.utils import (
+@@ -291,13 +290,14 @@ class SequenceLearner(BaseLearner):
+ 
+     def __getstate__(self):
+         return (
+-            cloudpickle.dumps(self._original_function),
++            dill.dumps(self._original_function),
+             self.sequence,
+             self._get_data(),
+         )
+ 
+     def __setstate__(self, state):
+         function, sequence, data = state
+-        function = cloudpickle.loads(function)
++        function = dill.loads(function)
+         self.__init__(function, sequence)
+         self._set_data(data)
++        self._set_data(data)
+diff --git a/adaptive/tests/test_pickling.py b/adaptive/tests/test_pickling.py
+index 9721fd2..f6860fe 100644
+--- a/adaptive/tests/test_pickling.py
++++ b/adaptive/tests/test_pickling.py
+@@ -14,13 +14,6 @@ from adaptive.learner import (
+ )
+ from adaptive.runner import simple
+ 
+-try:
+-    import cloudpickle
+-
+-    with_cloudpickle = True
+-except ModuleNotFoundError:
+-    with_cloudpickle = False
+-
+ try:
+     import dill
+ 
+@@ -75,12 +68,9 @@ learners_pairs = [
+ ]
+ 
+ serializers = [(pickle, pickleable_f)]
+-if with_cloudpickle:
+-    serializers.append((cloudpickle, nonpickleable_f))
+ if with_dill:
+     serializers.append((dill, nonpickleable_f))
+ 
+-
+ learners = [
+     (learner_type, learner_kwargs, serializer, f)
+     for serializer, f in serializers
+diff --git a/adaptive/utils.py b/adaptive/utils.py
+index ff80f62..240401c 100644
+--- a/adaptive/utils.py
++++ b/adaptive/utils.py
+@@ -13,7 +13,7 @@ from functools import wraps
+ from itertools import product
+ from typing import TYPE_CHECKING, Any, Callable, TypeVar
+ 
+-import cloudpickle
++import pickle
+ 
+ if TYPE_CHECKING:
+     from dask.distributed import Client as AsyncDaskClient
+@@ -56,7 +56,7 @@ def save(fname: str, data: Any, compress: bool = True) -> bool:
+     if dirname:
+         os.makedirs(dirname, exist_ok=True)
+ 
+-    blob = cloudpickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
++    blob = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
+     if compress:
+         blob = gzip.compress(blob)
+ 
+@@ -83,7 +83,7 @@ def load(fname: str, compress: bool = True) -> Any:
+     fname = os.path.expanduser(fname)
+     _open = gzip.open if compress else open
+     with _open(fname, "rb") as f:  # type: ignore[operator]
+-        return cloudpickle.load(f)
++        return pickle.load(f)
+ 
+ 
+ def copy_docstring_from(other: Callable) -> Callable:
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..8b13789 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,124 +1 @@
+-[build-system]
+-build-backend = "setuptools.build_meta"
+-requires = ["setuptools ~= 69.0.0", "versioningit ~= 3.0.0", "wheel"]
+ 
+-[project]
+-name = "adaptive"
+-dynamic = ["version"]
+-description = "Parallel active learning of mathematical functions"
+-maintainers = [{ name = "Adaptive authors" }]
+-license = { text = "BSD" }
+-requires-python = ">=3.9"
+-classifiers = [
+-    "Development Status :: 4 - Beta",
+-    "License :: OSI Approved :: BSD License",
+-    "Intended Audience :: Science/Research",
+-    "Programming Language :: Python :: 3.9",
+-    "Programming Language :: Python :: 3.10",
+-    "Programming Language :: Python :: 3.11",
+-    "Programming Language :: Python :: 3.12",
+-]
+-dependencies = [
+-]
+-
+-[project.optional-dependencies]
+-other = [
+-    "dill",
+-    "distributed",
+-    "ipyparallel>=6.2.5",       # because of https://github.com/ipython/ipyparallel/issues/404
+-    "wexpect; os_name == 'nt'",
+-    "pexpect; os_name != 'nt'",
+-]
+-notebook = [
+-    "ipython",
+-    "ipykernel>=4.8.0",      # because https://github.com/ipython/ipykernel/issues/274 and https://github.com/ipython/ipykernel/issues/263
+-    "jupyter_client>=5.2.2", # because https://github.com/jupyter/jupyter_client/pull/314
+-    "holoviews>=1.9.1",
+-    "ipywidgets",
+-    "bokeh",
+-    "pandas",
+-    "matplotlib",
+-    "plotly",
+-]
+-testing = [
+-    "flaky",
+-    "pytest",
+-    "pytest-cov",
+-    "pytest-randomly",
+-    "pytest-timeout",
+-    "pre_commit",
+-    "typeguard",
+-]
+-
+-[project.urls]
+-homepage = "https://adaptive.readthedocs.io/"
+-documentation = "https://adaptive.readthedocs.io/"
+-repository = "https://github.com/python-adaptive/adaptive"
+-
+-[project.readme]
+-content-type = "text/markdown"
+-file = "README.md"
+-
+-[tool.setuptools.packages.find]
+-include = ["adaptive.*", "adaptive"]
+-
+-[tool.pytest.ini_options]
+-testpaths = ["adaptive"]
+-addopts = "--durations=5 --cov --cov-append --cov-fail-under=70 -vvv --cov-report="
+-norecursedirs = ["docs"]
+-
+-[tool.coverage.paths]
+-source = ["adaptive", ".nox/py*/lib/python*/site-packages"]
+-
+-[tool.coverage.run]
+-branch = true
+-parallel = true
+-source = ["adaptive"]
+-
+-[tool.coverage.report]
+-show_missing = true
+-precision = 2
+-
+-[tool.coverage.xml]
+-output = ".coverage.xml"
+-
+-[tool.mypy]
+-ignore_missing_imports = true
+-python_version = "3.9"
+-
+-[tool.ruff]
+-line-length = 88
+-target-version = "py39"
+-
+-[tool.ruff.lint]
+-select = ["B", "C", "E", "F", "W", "T", "B9", "I", "UP"]
+-ignore = [
+-    "T20",     # flake8-print
+-    "ANN101",  # Missing type annotation for {name} in method
+-    "S101",    # Use of assert detected
+-    "PD901",   # df is a bad variable name. Be kinder to your future self.
+-    "ANN401",  # Dynamically typed expressions (typing.Any) are disallowed in {name}
+-    "D402",    # First line should not be the function's signature
+-    "PLW0603", # Using the global statement to update `X` is discouraged
+-    "D401",    # First line of docstring should be in imperative mood
+-    "E501",    # Line too long
+-]
+-
+-[tool.ruff.lint.mccabe]
+-max-complexity = 18
+-
+-[tool.ruff.lint.per-file-ignores]
+-"tests/*" = ["SLF001"]
+-"ci/*" = ["INP001"]
+-"tests/test_examples.py" = ["E501"]
+-
+-[tool.versioningit]
+-
+-[tool.versioningit.vcs]
+-method = "git"
+-match = ["v*"]
+-default-tag = "0.0.0"
+-
+-[tool.versioningit.onbuild]
+-build-file = "adaptive/_version.py"
+-source-file = "adaptive/_version.py"

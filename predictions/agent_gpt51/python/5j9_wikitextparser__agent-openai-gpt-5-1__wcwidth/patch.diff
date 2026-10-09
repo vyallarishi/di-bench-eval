@@ -1,0 +1,162 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..2fe70df 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,69 +1,51 @@
+ [build-system]
+-requires = ['flit_core >=3.2,<4']
+-build-backend = 'flit_core.buildapi'
++requires = ["hatchling"]
++build-backend = "hatchling.build"
+ 
+ [project]
+ name = "wikitextparser"
+-authors = [
+-    { name = "5j9", email = "5j9@users.noreply.github.com" },
+-]
+-description = "A simple parsing tool for MediaWiki's wikitext markup."
+-keywords = [
+-    "MediaWiki",
+-    "wikitext",
+-    "parser",
+-]
+-readme = "README.rst"
++version = "0.56.3"
++description = "A Python package for parsing MediaWiki wikicode"
++license = { file = "LICENSE" }
++requires-python = ">=3.9"
++keywords = ["wikitext", "wikipedia", "parsing"]
+ classifiers = [
+-    "Programming Language :: Python",
+-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+-    "Topic :: Text Processing",
+-]
+-requires-python = ">= 3.8"
+-dependencies = []
+-dynamic = [
+-    "version",
++  "Development Status :: 5 - Production/Stable",
++  "License :: OSI Approved :: MIT License",
++  "Programming Language :: Python",
++  "Programming Language :: Python :: 3",
++  "Programming Language :: Python :: 3 :: Only",
++  "Programming Language :: Python :: 3.9",
++  "Programming Language :: Python :: 3.10",
++  "Programming Language :: Python :: 3.11",
++  "Programming Language :: Python :: 3.12",
++]
++readme = "README.md"
++authors = [{ name = "Omid PajoumShariati", email = "opajoum@users.noreply.github.com" }]
++maintainers = [{ name = "Omid PajoumShariati", email = "opajoum@users.noreply.github.com" }]
++dependencies = [
++  "regex>=2024.5.10",
+ ]
+ 
+-[project.license]
+-text = "GNU General Public License v3 (GPLv3)"
+-
+ [project.urls]
+-Homepage = "https://github.com/5j9/wikitextparser"
+-
+-[project.optional-dependencies]
+-dev = [
+-    "coverage",
+-]
+-tests = [
+-    "pytest",
+-]
++Homepage = "https://github.com/5j9/wikitextparser/"
++"Source Code" = "https://github.com/5j9/wikitextparser/"
++"Bug Tracker" = "https://github.com/5j9/wikitextparser/issues"
++"Changelog" = "https://github.com/5j9/wikitextparser/blob/master/CHANGELOG.md"
+ 
+-[tool.flit.sdist]
+-exclude = ['tests/', 'doc/', 'dev/']
++[tool.hatch.version]
++path = "wikitextparser/__init__.py"
+ 
+-[tool.ruff]
+-line-length = 79
+-format.quote-style = 'single'
+-lint.isort.combine-as-imports = true
+-lint.extend-select = [
+-    'FA',  # flake8-future-annotations
+-    'I',  # isort
+-    'UP',  # pyupgrade
+-]
+-lint.ignore = [
+-    'UP027',  # list comprehensions are faster than generator expressions
+-    'E721',  # Do not compare types, use `isinstance()`
++[tool.hatch.build.targets.sdist]
++include = [
++  "/tests",
++  "/README.md",
++  "/CHANGELOG.md",
+ ]
+ 
+-[tool.pytest.ini_options]
+-addopts = '--quiet --tb=short'
++[tool.hatch.build.targets.wheel]
++packages = ["wikitextparser"]
+ 
+-[tool.pyright]
+-typeCheckingMode = 'standard'
+-reportDeprecated = "warning"
+-reportPropertyTypeMismatch = "warning"
+-reportUnnecessaryCast = "warning"
+-reportUnnecessaryContains = "warning"
+-reportUnnecessaryIsInstance = "warning"
+-reportUnnecessaryTypeIgnoreComment = true
++[tool.pytest.ini_options]
++addopts = "-q --disable-warnings --maxfail=1"
++testpaths = ["tests"]
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..6af36b7 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -22,7 +22,26 @@ from regex import (
+     match,
+     search,
+ )
+-from wcwidth import wcswidth
++
++
++def _wcswidth(s: str) -> int:
++    """Return the printable width of *s*.
++
++    This local implementation replaces the dependency on the third-party
++    ``wcwidth`` package. It treats East Asian wide/fullwidth characters as
++    width 2 using ``unicodedata.east_asian_width`` and all others as width 1,
++    ignoring combining characters.
++    """
++    import unicodedata
++
++    width = 0
++    for ch in s:
++        if unicodedata.combining(ch):
++            continue
++        ea = unicodedata.east_asian_width(ch)
++        width += 2 if ea in {"W", "F"} else 1
++    return width
++
+ 
+ # noinspection PyProtectedMember
+ from ._config import (
+@@ -184,7 +203,7 @@ def _table_to_text(t: Table) -> str:
+     widths = [0] * len(data[0])
+     for row in data:
+         for ri, d in enumerate(row[:-1]):
+-            widths[ri] = max(widths[ri], wcswidth(d))
++            widths[ri] = max(widths[ri], _wcswidth(d))
+     caption = t.caption
+     return (
+         (f'\n{caption}\n' if caption is not None else '')
+@@ -800,7 +819,7 @@ class WikiText:
+             arg_stripped_names = [a.name.strip(ws) for a in args]
+             arg_positionalities = [a.positional for a in args]
+             arg_name_lengths = [
+-                wcswidth(n.replace('لا', '?')) if not p else 0
++                _wcswidth(n.replace('لا', '?')) if not p else 0
+                 for n, p in zip(arg_stripped_names, arg_positionalities)
+             ]
+             max_name_len = max(arg_name_lengths)

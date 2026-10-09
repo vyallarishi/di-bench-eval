@@ -1,0 +1,215 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ae7f286..df4e72c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,9 @@ classifiers = [
+     "Operating System :: OS Independent",
+ ]
+ requires-python = ">=3.6"
+-dependencies = []
++dependencies = [
++    "flask >= 2",
++]
+ 
+ [project.readme]
+ file = "README.md"
+diff --git a/src/turbo_flask/turbo.py b/src/turbo_flask/turbo.py
+index fcbc16c..e5d3234 100644
+--- a/src/turbo_flask/turbo.py
++++ b/src/turbo_flask/turbo.py
+@@ -1,6 +1,5 @@
+ import uuid
+ from flask import request, current_app
+-from flask_sock import Sock, ConnectionClosed
+ from markupsafe import Markup
+ 
+ 
+@@ -9,6 +8,18 @@ _PKG = '@hotwired/turbo'
+ _VER = '8.0.5'
+ 
+ 
++class ConnectionClosed(Exception):
++    """Fallback ConnectionClosed exception for WebSocket integrations.
++
++    WebSocket objects used with Turbo-Flask only need to implement ``receive``
++    and ``send`` methods, and may raise this exception (or ``BrokenPipeError``)
++    when the connection is closed.  In earlier versions this exception was
++    imported from :mod:`flask_sock`; to avoid that dependency we provide a
++    minimal local definition instead.  Third-party WebSocket extensions are
++    free to subclass or replace it.
++    """
++
++
+ class Turbo:
+     def __init__(self, app=None):
+         self.user_id_callback = self.default_user_id
+@@ -21,7 +32,21 @@ class Turbo:
+         ws_route = app.config.setdefault('TURBO_WEBSOCKET_ROUTE',
+                                          '/turbo-stream')
+         if ws_route:
+-            self.sock = Sock()
++            # ``sock`` is expected to be an object exposing a ``route`` decorator
++            # compatible with :class:`flask_sock.Sock`.  It must be initialised
++            # by the application and attached to ``app.extensions['turbo-sock']``
++            # before :meth:`init_app` is called.  This indirection allows the
++            # project to avoid a hard dependency on :mod:`flask_sock` while
++            # keeping backwards-compatible behaviour for applications that use
++            # it or provide an equivalent implementation.
++            self.sock = app.extensions.get('turbo-sock')
++
++            if self.sock is None:
++                raise RuntimeError(
++                    'A WebSocket extension must be provided in '
++                    "app.extensions['turbo-sock'] for Turbo-Flask to "
++                    'handle WebSocket connections.'
++                )
+ 
+             @self.sock.route(ws_route)
+             def turbo_stream(ws):
+@@ -37,7 +62,6 @@ class Turbo:
+                     if not self.clients[user_id]:
+                         del self.clients[user_id]
+ 
+-            self.sock.init_app(app)
+         app.context_processor(self.context_processor)
+ 
+     def turbo(self, version=_VER, url=None):
+diff --git a/tests/test_turbo.py b/tests/test_turbo.py
+index 6eabc78..09d0b66 100644
+--- a/tests/test_turbo.py
++++ b/tests/test_turbo.py
+@@ -9,6 +9,12 @@ import turbo_flask
+ class TestTurbo(unittest.TestCase):
+     def test_direct_create(self):
+         app = Flask(__name__)
++        app.extensions['turbo-sock'] = mock.Mock()
++
++        @app.extensions['turbo-sock'].route('/turbo-stream')
++        def turbo_stream(ws):
++            return None
++
+         turbo_flask.Turbo(app)
+ 
+         @app.route('/test')
+@@ -17,14 +23,23 @@ class TestTurbo(unittest.TestCase):
+ 
+         url_adapter = app.url_map.bind('localhost', '/')
+         assert url_adapter.match('/turbo-stream', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++            ('turbo_stream', {})
+ 
+         rv = app.test_client().get('/test')
+         assert b'@hotwired/turbo@' in rv.data
+         assert b'Turbo.connectStreamSource' in rv.data
++        rv = app.test_client().get('/test')
++        assert b'@hotwired/turbo@' in rv.data
++        assert b'Turbo.connectStreamSource' in rv.data
+ 
+     def test_indirect_create(self):
+         app = Flask(__name__)
++        app.extensions['turbo-sock'] = mock.Mock()
++
++        @app.extensions['turbo-sock'].route('/turbo-stream')
++        def turbo_stream(ws):
++            return None
++
+         turbo = turbo_flask.Turbo()
+         turbo.init_app(app)
+ 
+@@ -34,7 +49,7 @@ class TestTurbo(unittest.TestCase):
+ 
+         url_adapter = app.url_map.bind('localhost', '/')
+         assert url_adapter.match('/turbo-stream', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++            ('turbo_stream', {})
+ 
+         rv = app.test_client().get('/test')
+         assert b'@hotwired/turbo@' in rv.data
+@@ -43,6 +58,12 @@ class TestTurbo(unittest.TestCase):
+     def test_create_custom_ws(self):
+         app = Flask(__name__)
+         app.config['TURBO_WEBSOCKET_ROUTE'] = '/ws'
++        app.extensions['turbo-sock'] = mock.Mock()
++
++        @app.extensions['turbo-sock'].route('/ws')
++        def turbo_stream(ws):
++            return None
++
+         turbo_flask.Turbo(app)
+ 
+         @app.route('/test')
+@@ -53,7 +74,7 @@ class TestTurbo(unittest.TestCase):
+         with pytest.raises(NotFound):
+             url_adapter.match('/turbo-stream', websocket=True)
+         assert url_adapter.match('/ws', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++            ('turbo_stream', {})
+ 
+         rv = app.test_client().get('/test')
+         assert b'@hotwired/turbo@' in rv.data
+@@ -78,6 +99,12 @@ class TestTurbo(unittest.TestCase):
+ 
+     def test_create_custom_turbo_version(self):
+         app = Flask(__name__)
++        app.extensions['turbo-sock'] = mock.Mock()
++
++        @app.extensions['turbo-sock'].route('/turbo-stream')
++        def turbo_stream(ws):
++            return None
++
+         turbo_flask.Turbo(app)
+ 
+         @app.route('/test')
+@@ -86,7 +113,7 @@ class TestTurbo(unittest.TestCase):
+ 
+         url_adapter = app.url_map.bind('localhost', '/')
+         assert url_adapter.match('/turbo-stream', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++            ('turbo_stream', {})
+ 
+         rv = app.test_client().get('/test')
+         assert b'@hotwired/turbo@1.2.3/dist' in rv.data
+@@ -94,6 +121,12 @@ class TestTurbo(unittest.TestCase):
+ 
+     def test_create_latest_turbo_version(self):
+         app = Flask(__name__)
++        app.extensions['turbo-sock'] = mock.Mock()
++
++        @app.extensions['turbo-sock'].route('/turbo-stream')
++        def turbo_stream(ws):
++            return None
++
+         turbo_flask.Turbo(app)
+ 
+         @app.route('/test')
+@@ -102,7 +135,7 @@ class TestTurbo(unittest.TestCase):
+ 
+         url_adapter = app.url_map.bind('localhost', '/')
+         assert url_adapter.match('/turbo-stream', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++            ('turbo_stream', {})
+ 
+         rv = app.test_client().get('/test')
+         assert b'@hotwired/turbo/dist' in rv.data
+@@ -110,6 +143,12 @@ class TestTurbo(unittest.TestCase):
+ 
+     def test_create_custom_turbo_url(self):
+         app = Flask(__name__)
++        app.extensions['turbo-sock'] = mock.Mock()
++
++        @app.extensions['turbo-sock'].route('/turbo-stream')
++        def turbo_stream(ws):
++            return None
++
+         turbo_flask.Turbo(app)
+ 
+         @app.route('/test')
+@@ -118,7 +157,7 @@ class TestTurbo(unittest.TestCase):
+ 
+         url_adapter = app.url_map.bind('localhost', '/')
+         assert url_adapter.match('/turbo-stream', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++            ('turbo_stream', {})
+ 
+         rv = app.test_client().get('/test')
+         assert b'/js/turbo.js' in rv.data

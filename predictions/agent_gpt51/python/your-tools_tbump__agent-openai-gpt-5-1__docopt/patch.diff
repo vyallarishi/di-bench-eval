@@ -1,0 +1,209 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..2a0e6c0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,13 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/cli.py b/tbump/cli.py
+index e2b726e..48601c2 100644
+--- a/tbump/cli.py
++++ b/tbump/cli.py
+@@ -1,3 +1,4 @@
++import argparse
+ import sys
+ import textwrap
+ import urllib.parse
+@@ -8,7 +9,6 @@ from pathlib import Path
+ from typing import Dict, List, Optional, Union, cast
+ 
+ import cli_ui as ui
+-import docopt
+ from packaging.version import InvalidVersion
+ from packaging.version import parse as parse_version
+ 
+@@ -53,40 +53,6 @@ class Canceled(Error):
+         ui.error("Canceled by user")
+ 
+ 
+-@dataclass
+-class BumpOptions:
+-    working_path: Path
+-    new_version: str
+-    interactive: bool = True
+-    dry_run: bool = False
+-    config_path: Optional[Path] = None
+-    tag_message: Optional[str] = None
+-
+-
+-class Command(Enum):
+-    bump = "bump"
+-    init = "init"
+-    current_version = "current_version"
+-    version = "version"
+-
+-
+-def print_diff(filename: str, lineno: int, old: str, new: str) -> None:
+-    # fmt: off
+-    ui.info(
+-        ui.red, "- ", ui.reset,
+-        ui.bold, filename, ":", lineno, ui.reset,
+-        " ", ui.red, old,
+-        sep="",
+-    )
+-    ui.info(
+-        ui.green, "+ ", ui.reset,
+-        ui.bold, filename, ":", lineno,  ui.reset,
+-        " ", ui.green, new,
+-        sep="",
+-    )
+-    # fmt: on
+-
+-
+ @dataclass
+ class GivenCliArguments:
+     """
+@@ -125,16 +91,15 @@ class GivenCliArguments:
+         def _get_bool(key: str) -> bool:
+             return cast(bool, opt_dict[key])
+ 
+-        # docopt has a hard time parsing the commands because run_bump uses that same cli slot for
+-        # the new version. This corrects those issues.
+-        command = Command.bump
+-        new_version = opt_dict["<new_version>"]
+-        if new_version == "init" or opt_dict["init"]:
++        command_str = cast(str, opt_dict["command"])
++        if command_str == "init":
+             command = Command.init
+-        elif new_version == "current-version":
++        elif command_str == "current-version":
+             command = Command.current_version
+-        elif opt_dict["--version"]:
++        elif command_str == "version":
+             command = Command.version
++        else:
++            command = Command.bump
+ 
+         return cls(
+             command=command,
+@@ -153,17 +118,95 @@ class GivenCliArguments:
+         )
+ 
+ 
++class Command(Enum):
++    bump = "bump"
++    init = "init"
++    current_version = "current_version"
++    version = "version"
++
++
++def print_diff(filename: str, lineno: int, old: str, new: str) -> None:
++    # fmt: off
++    ui.info(
++        ui.red, "- ", ui.reset,
++        ui.bold, filename, ":", lineno, ui.reset,
++        " ", ui.red, old,
++        sep="",
++    )
++    ui.info(
++        ui.green, "+ ", ui.reset,
++        ui.bold, filename, ":", lineno,  ui.reset,
++        " ", ui.green, new,
++        sep="",
++    )
++    # fmt: on
++
++
++def build_parser() -> argparse.ArgumentParser:
++    parser = argparse.ArgumentParser(
++        prog="tbump",
++        add_help=False,
++        formatter_class=argparse.RawDescriptionHelpFormatter,
++        description=USAGE.strip(),
++    )
++
++    parser.add_argument("--help", "-h", action="store_true", dest="help")
++    parser.add_argument("--version", "-v", action="store_true", dest="version")
++    parser.add_argument("-C", "--cwd", dest="cwd", metavar="path")
++    parser.add_argument("-c", "--config", dest="config", metavar="path")
++    parser.add_argument("--non-interactive", action="store_true")
++    parser.add_argument("--dry-run", action="store_true")
++    parser.add_argument("--tag-message", metavar="msg")
++    parser.add_argument("--only-patch", action="store_true")
++    parser.add_argument("--no-tag", action="store_true")
++    parser.add_argument("--no-push", action="store_true")
++    parser.add_argument("--no-tag-push", action="store_true")
++
++    subparsers = parser.add_subparsers(dest="command")
++
++    bump_parser = subparsers.add_parser("bump")
++    bump_parser.add_argument("new_version", nargs="?")
++
++    subparsers.add_parser("current-version")
++
++    init_parser = subparsers.add_parser("init")
++    init_parser.add_argument("current_version", nargs="?")
++    init_parser.add_argument("--pyproject", action="store_true")
++
++    return parser
++
++
+ def run(cmd: List[str]) -> None:
+-    opt_dict = docopt.docopt(USAGE, argv=cmd)
+-    arguments = GivenCliArguments.from_opts(opt_dict)
++    parser = build_parser()
++    args_namespace = parser.parse_args(cmd)
++
++    if getattr(args_namespace, "help", False):
++        print(USAGE)
++        return
+ 
+-    if arguments.command == Command.version:
++    if getattr(args_namespace, "version", False):
+         print("tbump", TBUMP_VERSION)
+         return
+ 
+-    # when running `tbump init` (with current_version missing),
+-    # docopt thinks we are running `tbump` with new_version = "init"
+-    # bail out early in this case
++    opt_dict: Dict[str, Union[bool, Optional[str]]] = {
++        "command": args_namespace.command or "bump",
++        "<new_version>": getattr(args_namespace, "new_version", None),
++        "<current_version>": getattr(args_namespace, "current_version", None),
++        "--pyproject": getattr(args_namespace, "pyproject", False),
++        "--cwd": getattr(args_namespace, "cwd", None),
++        "--config": getattr(args_namespace, "config", None),
++        "--non-interactive": getattr(args_namespace, "non_interactive", False),
++        "--dry-run": getattr(args_namespace, "dry_run", False),
++        "--tag-message": getattr(args_namespace, "tag_message", None),
++        "--only-patch": getattr(args_namespace, "only_patch", False),
++        "--no-tag": getattr(args_namespace, "no_tag", False),
++        "--no-push": getattr(args_namespace, "no_push", False),
++        "--no-tag-push": getattr(args_namespace, "no_tag_push", False),
++    }
++
++    arguments = GivenCliArguments.from_opts(opt_dict)
++
++    # when running `tbump init` (with current_version missing), bail out early
+     if arguments.command == Command.init and arguments.init_current_version is None:
+         sys.exit(USAGE)
+ 
+@@ -187,6 +230,7 @@ def run(cmd: List[str]) -> None:
+     run_bump(arguments, working_path, arguments.tag_message)
+ 
+ 
++
+ def run_init(arguments: GivenCliArguments, working_path: Path) -> None:
+     init(
+         working_path,

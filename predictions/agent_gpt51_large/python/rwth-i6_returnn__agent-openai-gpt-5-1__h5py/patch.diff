@@ -1,0 +1,113 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..c6e3dec 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,5 @@
++numpy
++typing
++# Nest alternative, provides `tree`: https://github.com/rwth-i6/returnn/issues/1314
++dm-tree
++dm-tree
+diff --git a/returnn/datasets/hdf.py b/returnn/datasets/hdf.py
+index 91b2d57..e72fecf 100644
+--- a/returnn/datasets/hdf.py
++++ b/returnn/datasets/hdf.py
+@@ -7,12 +7,19 @@ import bisect
+ import typing
+ import collections
+ import gc
+-import h5py
+ import numpy
++try:
++    import h5py
++except ImportError as exc:  # pragma: no cover
++    raise ImportError("h5py is required for HDFDataset functionality but is not installed. "
++                      "Install h5py to use returnn.datasets.hdf.") from exc
+ from .cached import CachedDataset
+ from .cached2 import CachedDataset2
+ from .basic import Dataset, DatasetSeq
+ from returnn.log import log
++from .cached2 import CachedDataset2
++from .basic import Dataset, DatasetSeq
++from returnn.log import log
+ 
+ 
+ # Common attribute names for HDF dataset, which should be used in order to be proceed with HDFDataset class.
+diff --git a/returnn/util/basic.py b/returnn/util/basic.py
+index 26fb244..a87fef1 100644
+--- a/returnn/util/basic.py
++++ b/returnn/util/basic.py
+@@ -10,7 +10,6 @@ from typing import Optional, Union, Any, Generic, TypeVar, Iterable, Tuple, Dict
+ import subprocess
+ from subprocess import CalledProcessError
+ 
+-import h5py
+ from collections import deque
+ import inspect
+ import os
+@@ -23,6 +22,17 @@ import re
+ import time
+ import contextlib
+ import struct
++import inspect
++import os
++import sys
++import shlex
++import math
++import numpy
++import numpy as np
++import re
++import time
++import contextlib
++import struct
+ 
+ try:
+     import thread
+diff --git a/returnn/util/debug_helpers.py b/returnn/util/debug_helpers.py
+index e94345d..8f2f7de 100644
+--- a/returnn/util/debug_helpers.py
++++ b/returnn/util/debug_helpers.py
+@@ -4,8 +4,11 @@ This file is going to be imported by Debug.debug_shell() and available as intera
+ 
+ import sys
+ import numpy
+-import h5py
+ 
++try:
++    import h5py
++except ImportError:  # pragma: no cover
++    h5py = None
+ 
+ def find_obj_in_stack(cls, stack=None, all_threads=True):
+     """
+diff --git a/tests/test_HDFDataset.py b/tests/test_HDFDataset.py
+index 100f43b..2f60a60 100644
+--- a/tests/test_HDFDataset.py
++++ b/tests/test_HDFDataset.py
+@@ -16,16 +16,25 @@ from nose.tools import assert_not_equal
+ from nose.tools import assert_raises
+ from nose.tools import raises
+ import returnn.util.basic as util
+-import h5py
+ import numpy as np
+ import os
+ import unittest
+ from returnn.util import better_exchook
+ 
++try:
++    import h5py
++except ImportError:  # pragma: no cover
++    h5py = None
+ 
+ my_dir = os.path.dirname(os.path.abspath(__file__))
+ 
+ 
++def setUpModule():
++    if h5py is None:
++        raise unittest.SkipTest("h5py not installed; skipping HDFDataset tests")
++my_dir = os.path.dirname(os.path.abspath(__file__))
++
++
+ def test_HDFDataset_init():
+     """
+     This method tests initialization of the HDFDataset class

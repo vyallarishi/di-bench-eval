@@ -1,0 +1,144 @@
+diff --git a/examples/training/03_training.py b/examples/training/03_training.py
+index 2b1598c..8c66ef0 100644
+--- a/examples/training/03_training.py
++++ b/examples/training/03_training.py
+@@ -1,18 +1,21 @@
+ import typer
+ import pandas as pd
+-import lightgbm as lgb
++from sklearn.ensemble import GradientBoostingClassifier
++import _pickle as pickle  # type: ignore
+ 
+ 
+ def get_feature_and_target(df: pd.DataFrame):
+-    X = df[["rank",
+-            "fullname_length",
+-            "family_length",
+-            "given_length",
+-            "family_order_score",
+-            "given_order_score",
+-            "family_length_score",
+-            "given_length_score",
+-            "given_startswith_specific_kanji"]]
++    X = df[[
++        "rank",
++        "fullname_length",
++        "family_length",
++        "given_length",
++        "family_order_score",
++        "given_order_score",
++        "family_length_score",
++        "given_length_score",
++        "given_startswith_specific_kanji",
++    ]]
+     Y = df["target"]
+     return X, Y
+ 
+@@ -22,14 +25,17 @@ def train(src_train: str, src_valid: str, dst: str):
+     df_train_x, df_train_y = get_feature_and_target(df_train)
+     df_valid = pd.read_csv(src_valid)
+     df_valid_x, df_valid_y = get_feature_and_target(df_valid)
+-    lgb_train = lgb.Dataset(df_train_x, df_train_y)
+-    lgb_valid = lgb.Dataset(df_valid_x, df_valid_y)
+-    params = {"objective": "binary",
+-              "metric": "auc",
+-              "n_estimators": 10000}
+-    gbm = lgb.train(params, lgb_train, valid_sets=[lgb_valid], early_stopping_rounds=200)
+-    gbm.save_model(dst)
+ 
++    model = GradientBoostingClassifier()
++    model.fit(df_train_x, df_train_y)
+ 
+-if __name__ == '__main__':
+-    typer.run(train)
+\ No newline at end of file
++    # Optionally evaluate on the validation set
++    if not df_valid_x.empty:
++        model.score(df_valid_x, df_valid_y)
++
++    with open(dst, "wb") as f:
++        pickle.dump(model, f)
++
++
++if __name__ == "__main__":
++    typer.run(train)
+diff --git a/namedivider/divider/gbdt_name_divider.py b/namedivider/divider/gbdt_name_divider.py
+index 75c914e..86e12a8 100644
+--- a/namedivider/divider/gbdt_name_divider.py
++++ b/namedivider/divider/gbdt_name_divider.py
+@@ -3,7 +3,7 @@ from dataclasses import asdict
+ from pathlib import Path
+ from typing import Optional, cast
+ 
+-import lightgbm as lgb
++from sklearn.ensemble import GradientBoostingClassifier
+ 
+ from namedivider.divider.config import GBDTNameDividerConfig
+ from namedivider.divider.name_divider_base import _NameDivider
+@@ -17,9 +17,7 @@ from namedivider.util import (
+ 
+ 
+ class GBDTNameDivider(_NameDivider):
+-    """
+-    NameDivider with gradient boosting decision tree.
+-    """
++    """NameDivider with gradient boosting decision tree."""
+ 
+     def __init__(self, config: Optional[GBDTNameDividerConfig] = None):
+         if config is None:
+@@ -34,19 +32,18 @@ class GBDTNameDivider(_NameDivider):
+         else:
+             family_name_repository = FamilyNameRepository(path_txt=config.path_family_names)
+         self.feature_extractor = FamilyRankingFeatureExtractor(
+-            kanji_statistics_repository=kanji_statistics_repository, family_name_repository=family_name_repository
++            kanji_statistics_repository=kanji_statistics_repository,
++            family_name_repository=family_name_repository,
+         )
+-        self.model = lgb.Booster(model_file=config.path_model)
++
++        # Load a scikit-learn GradientBoostingClassifier model that was pickled to config.path_model.
++        # The training example has been updated to use GradientBoostingClassifier instead of lightgbm.
++        with open(config.path_model, "rb") as f:
++            self.model: GradientBoostingClassifier = pickle.load(f)
+ 
+     def calc_score(self, family: str, given: str) -> float:
+-        """
+-        Calculates the score. The higher the score, the more likely the division is correct.
+-        :param family: Family name.
+-        :param given: Given name.
+-        :return: Score of dividing.
+-        """
++        """Calculates the score. The higher the score, the more likely the division is correct."""
+         feature = self.feature_extractor.get_features(family=family, given=given)
+         feature_list = [list(asdict(feature).values())]
+-        score_list = self.model.predict(feature_list)
+-        score = cast(float, score_list[0])
+-        return score
++        proba = self.model.predict_proba(feature_list)[0][1]
++        return cast(float, proba)
+diff --git a/pyproject.toml b/pyproject.toml
+index d9ae225..89a518b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,7 +19,13 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+     "Programming Language :: Python :: 3.13",
+ ]
+-dependencies = []
++dependencies = [
++  "numpy",
++  "pandas",
++  "regex",
++  "typer>=0.3.2",
++  "scikit-learn>=1.0",
++]
+ 
+ [project.scripts]
+ nmdiv = "namedivider.cli:app"
+@@ -73,4 +79,4 @@ lint.ignore = [
+ ]
+ 
+ [tool.black]
+-line-length = 120
+\ No newline at end of file
++line-length = 120

@@ -1,0 +1,284 @@
+diff --git a/jupyter_console/app.py b/jupyter_console/app.py
+index b68b4d7..c2e9bc0 100644
+--- a/jupyter_console/app.py
++++ b/jupyter_console/app.py
+@@ -12,11 +12,6 @@ from __future__ import print_function
+ import signal
+ import sys
+ 
+-from traitlets import (
+-    Dict, Any
+-)
+-from traitlets.config import catch_config_error, boolean_flag
+-
+ from jupyter_core.application import JupyterApp, base_aliases, base_flags
+ from jupyter_client.consoleapp import (
+         JupyterConsoleApp, app_aliases, app_flags,
+@@ -40,18 +35,20 @@ jupyter console --existing # connect to an existing ipython session
+ 
+ # copy flags from mixin:
+ flags = dict(base_flags)
+-# start with mixin frontend flags:
+ # update full dict with frontend flags:
+ flags.update(app_flags)
+-flags.update(boolean_flag(
+-    'simple-prompt', 'ZMQTerminalInteractiveShell.simple_prompt',
+-    "Force simple minimal prompt using `raw_input`",
+-    "Use a rich interactive prompt with prompt_toolkit"
+-))
+ 
+-# copy flags from mixin
+-aliases = dict(base_aliases)
++# add simple-prompt flag that used to come from boolean_flag
++flags.update({
++    'simple-prompt': ({
++        'ZMQTerminalInteractiveShell': {
++            'simple_prompt': True,
++        }
++    }, "Force simple minimal prompt using `raw_input`"),
++})
+ 
++# copy aliases from mixin
++aliases = dict(base_aliases)
+ aliases.update(app_aliases)
+ 
+ frontend_aliases = set(app_aliases.keys())
+@@ -68,31 +65,60 @@ class ZMQTerminalIPythonApp(JupyterApp, JupyterConsoleApp):  # type:ignore[misc]
+     version = __version__
+     """Start a terminal frontend to the IPython zmq kernel."""
+ 
+-    description = """
+-        The Jupyter terminal-based Console.
++    description = _description
++    examples = _examples
+ 
+-        This launches a Console application inside a terminal.
++    classes = [ZMQTerminalInteractiveShell] + JupyterConsoleApp.classes  # type:ignore[operator]
++    flags = flags  # type:ignore[assignment]
++    aliases = aliases  # type:ignore[assignment]
++    frontend_aliases = frontend_aliases
++    frontend_flags = frontend_flags
+ 
+-        The Console supports various extra features beyond the traditional
+-        single-process Terminal IPython shell, such as connecting to an
+-        existing ipython session, via:
++    subcommands = {}
+ 
+-            jupyter console --existing
++    force_interact = True
+ 
+-        where the previous session could have been created by another ipython
+-        console, an ipython qtconsole, or by opening an ipython notebook.
++    def parse_command_line(self, argv=None):
++        super(ZMQTerminalIPythonApp, self).parse_command_line(argv)
++        self.build_kernel_argv(self.extra_args)
+ 
+-    """
+-    examples = _examples
++    def init_shell(self):
++        JupyterConsoleApp.initialize(self)
++        # relay sigint to kernel
++        signal.signal(signal.SIGINT, self.handle_sigint)
++        self.shell = ZMQTerminalInteractiveShell.instance(parent=self,
++                        manager=self.kernel_manager,
++                        client=self.kernel_client,
++                        confirm_exit=self.confirm_exit,
++        )
++        self.shell.own_kernel = not self.existing
+ 
+-    classes = [ZMQTerminalInteractiveShell] + JupyterConsoleApp.classes  # type:ignore[operator]
+-    flags = Dict(flags)  # type:ignore[assignment]
+-    aliases = Dict(aliases)  # type:ignore[assignment]
+-    frontend_aliases = Any(frontend_aliases)
+-    frontend_flags = Any(frontend_flags)
++    def init_gui_pylab(self):
++        # no-op, because we don't want to import matplotlib in the frontend.
++        pass
+ 
+-    subcommands = Dict()
++    def handle_sigint(self, *args):
++        if self.shell._executing:
++            if self.kernel_manager:
++                self.kernel_manager.interrupt_kernel()
++            else:
++                print("ERROR: Cannot interrupt kernels we didn't start.",
++                      file = sys.stderr)
++        else:
++            # raise the KeyboardInterrupt if we aren't waiting for execution,
++            # so that the interact loop advances, and prompt is redrawn, etc.
++            raise KeyboardInterrupt
+ 
++    @catch_config_error
++    def initialize(self, argv=None):
++        """Do actions after construct, but before starting the app."""
++        super(ZMQTerminalIPythonApp, self).initialize(argv)
++        if self._dispatching:
++            return
++        # create the shell
++        self.init_shell()
++        # and draw the banner
++        self.init_banner()
+     force_interact = True
+ 
+     def parse_command_line(self, argv=None):
+diff --git a/jupyter_console/completer.py b/jupyter_console/completer.py
+index 8130a78..1d683d6 100644
+--- a/jupyter_console/completer.py
++++ b/jupyter_console/completer.py
+@@ -4,28 +4,41 @@
+ # Copyright (c) IPython Development Team.
+ # Distributed under the terms of the Modified BSD License.
+ 
+-from traitlets.config import Configurable
+-from traitlets import Float
+-
+ from jupyter_console.utils import run_sync
+ 
+ 
+-class ZMQCompleter(Configurable):
++class ZMQCompleter:
+     """Client-side completion machinery.
+ 
+     How it works: self.complete will be called multiple times, with
+     state=0,1,2,... When state=0 it should compute ALL the completion matches,
+     and then return them for each value of state."""
+ 
+-    timeout = Float(5.0, config=True, help='timeout before completion abort')
+-    
+-    def __init__(self, shell, client, config=None):
+-        super(ZMQCompleter,self).__init__(config=config)
+-
++    def __init__(self, shell, client, timeout=5.0):
+         self.shell = shell
+-        self.client =  client
++        self.client = client
++        self.timeout = timeout
+         self.matches = []
+-    
++
++    def complete_request(self, code, cursor_pos):
++        # send completion request to kernel
++        # Give the kernel up to self.timeout seconds to respond
++        msg_id = self.client.complete(
++            code=code,
++            cursor_pos=cursor_pos,
++        )
++
++        msg = run_sync(self.client.shell_channel.get_msg)(timeout=self.timeout)
++        if msg['parent_header']['msg_id'] == msg_id:
++            return msg['content']
++
++        return {
++            'matches': [],
++            'cursor_start': 0,
++            'cursor_end': 0,
++            'metadata': {},
++            'status': 'ok',
++        }
+     def complete_request(self, code, cursor_pos):
+         # send completion request to kernel
+         # Give the kernel up to 5s to respond
+diff --git a/jupyter_console/ptshell.py b/jupyter_console/ptshell.py
+index 12fb38b..c82031f 100644
+--- a/jupyter_console/ptshell.py
++++ b/jupyter_console/ptshell.py
+@@ -19,19 +19,11 @@ from typing import Dict as DictType, Any as AnyType
+ 
+ from zmq import ZMQError
+ from IPython.core import page
+-from traitlets import (
+-    Bool,
+-    Integer,
+-    Float,
+-    Unicode,
+-    List,
+-    Dict,
+-    Enum,
+-    Instance,
+-    Any,
+-)
+-from traitlets.config import SingletonConfigurable
++from IPython.core import page
+ 
++from .completer import ZMQCompleter
++from .zmqhistory import ZMQHistoryManager
++from . import __version__
+ from .completer import ZMQCompleter
+ from .zmqhistory import ZMQHistoryManager
+ from . import __version__
+diff --git a/jupyter_console/tests/test_console.py b/jupyter_console/tests/test_console.py
+index 83b5ee6..8cfe371 100644
+--- a/jupyter_console/tests/test_console.py
++++ b/jupyter_console/tests/test_console.py
+@@ -12,7 +12,14 @@ from subprocess import check_output
+ from flaky import flaky
+ import pytest
+ 
+-from traitlets.tests.utils import check_help_all_output
++
++def check_help_all_output(module):
++    from subprocess import Popen, PIPE
++
++    p = Popen([sys.executable, "-m", module, "--help-all"], stdout=PIPE)
++    stdout, _ = p.communicate()
++    assert p.returncode == 0, "Expected zero return code"
++    assert stdout, "Expected help output on stdout"
+ 
+ 
+ should_skip = sys.platform == "win32" or sys.version_info < (3,8) or sys.version_info[:2] == (3, 10)  # noqa
+@@ -28,6 +35,7 @@ def test_console_starts():
+     p.expect([r"In \[\d+\]", pexpect.EOF], timeout=t)
+     stop_console(p, pexpect, t)
+ 
++
+ def test_help_output():
+     """jupyter console --help-all works"""
+     check_help_all_output('jupyter_console')
+diff --git a/jupyter_console/zmqhistory.py b/jupyter_console/zmqhistory.py
+index 877d94f..fcc688d 100644
+--- a/jupyter_console/zmqhistory.py
++++ b/jupyter_console/zmqhistory.py
+@@ -12,17 +12,15 @@
+ # -----------------------------------------------------------------------------
+ 
+ from IPython.core.history import HistoryAccessorBase
+-from traitlets import Dict, List
+-
+ from queue import Empty  # Py 3
+ 
+ 
+ class ZMQHistoryManager(HistoryAccessorBase):
+     """History accessor and manager for ZMQ-based kernels"""
+-    input_hist_parsed = List([""])
+-    output_hist = Dict()
+-    dir_hist = List()
+-    output_hist_reprs = Dict()
++    input_hist_parsed = [""]
++    output_hist = {}
++    dir_hist = []
++    output_hist_reprs = {}
+ 
+     def __init__(self, client):
+         """
+diff --git a/pyproject.toml b/pyproject.toml
+index 7345665..86639a7 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -31,7 +31,16 @@ classifiers = [
+     "Programming Language :: Python :: 3.10",
+     "Programming Language :: Python :: 3.11",
+ ]
+-dependencies = []
++dependencies = [
++    "ipykernel>=6.14",
++    "ipython",
++    "jupyter_client>=7.0.0",
++    "jupyter_core>=4.12,!=5.0.*",
++    "prompt_toolkit>=3.0.30",
++    "pygments",
++    "pyzmq>=17",
++]
++]
+ 
+ [project.optional-dependencies]
+ test = [

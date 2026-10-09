@@ -1,0 +1,182 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index cb7e925..e948095 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,6 +14,7 @@ classifiers = [
+ ]
+ requires-python = ">=3.8"
+ dependencies = [
++    "bidict >= 0.21.0",
+ ]
+ 
+ [project.readme]
+diff --git a/src/socketio/packet.py b/src/socketio/packet.py
+index ec1b364..6c708dd 100644
+--- a/src/socketio/packet.py
++++ b/src/socketio/packet.py
+@@ -1,5 +1,5 @@
+ import functools
+-from engineio import json as _json
++import json as _json
+ 
+ (CONNECT, DISCONNECT, EVENT, ACK, CONNECT_ERROR, BINARY_EVENT, BINARY_ACK) = \
+     (0, 1, 2, 3, 4, 5, 6)
+@@ -99,92 +99,86 @@ class Packet(object):
+             q = self.namespace.find('?')
+             if q != -1:
+                 self.namespace = self.namespace[0:q]
+-        if ep and ep[0].isdigit():
+-            i = 1
+-            end = len(ep)
+-            while i < end:
+-                if not ep[i].isdigit() or i >= 100:
+-                    break
++        if ep and ep[0:1].isdigit():
++            i = 0
++            while i < len(ep) and ep[i].isdigit():
+                 i += 1
+-            self.id = int(ep[:i])
++            self.id = int(ep[0:i])
+             ep = ep[i:]
+-            if len(ep) > 0 and ep[0].isdigit():
+-                raise ValueError('id field is too long')
+         if ep:
+             self.data = self.json.loads(ep)
++        if self.packet_type == BINARY_EVENT or \
++                self.packet_type == BINARY_ACK:
++            self.data, _ = self._reconstruct_binary(attachment_count, self.data)
+         return attachment_count
+ 
+     def add_attachment(self, attachment):
+-        if self.attachment_count <= len(self.attachments):
+-            raise ValueError('Unexpected binary attachment')
++        """Add a binary attachment to the packet."""
+         self.attachments.append(attachment)
+-        if self.attachment_count == len(self.attachments):
+-            self.reconstruct_binary(self.attachments)
+-            return True
+-        return False
+-
+-    def reconstruct_binary(self, attachments):
+-        """Reconstruct a decoded packet using the given list of binary
+-        attachments.
+-        """
+-        self.data = self._reconstruct_binary_internal(self.data,
+-                                                      self.attachments)
++        self.attachment_count -= 1
++        if self.attachment_count == 0:
++            attachments = []
++            for attachment in self.attachments:
++                attachments.append(attachment.data)
++            self.data, _ = self._reconstruct_binary(0, self.data, attachments)
+ 
+-    def _reconstruct_binary_internal(self, data, attachments):
+-        if isinstance(data, list):
+-            return [self._reconstruct_binary_internal(item, attachments)
+-                    for item in data]
+-        elif isinstance(data, dict):
+-            if data.get('_placeholder') and 'num' in data:
+-                return attachments[data['num']]
+-            else:
+-                return {key: self._reconstruct_binary_internal(value,
+-                                                               attachments)
+-                        for key, value in data.items()}
+-        else:
+-            return data
++    def _data_is_binary(self, data):
++        has_binary = False
++
++        def _check_binary(item):
++            nonlocal has_binary
++            if not has_binary and isinstance(item, (bytes, bytearray, memoryview)):
++                has_binary = True
++
++        self._traverse_data(data, _check_binary)
++        return has_binary
+ 
+     def _deconstruct_binary(self, data):
+-        """Extract binary components in the packet."""
+         attachments = []
+-        data = self._deconstruct_binary_internal(data, attachments)
++
++        def _attach(item):
++            if isinstance(item, (bytes, bytearray, memoryview)):
++                attachments.append(item)
++                return {'_placeholder_': True, 'num': len(attachments) - 1}
++            return item
++
++        data = self._traverse_data(data, _attach)
+         return data, attachments
+ 
+-    def _deconstruct_binary_internal(self, data, attachments):
+-        if isinstance(data, bytes):
+-            attachments.append(data)
+-            return {'_placeholder': True, 'num': len(attachments) - 1}
+-        elif isinstance(data, list):
+-            return [self._deconstruct_binary_internal(item, attachments)
+-                    for item in data]
+-        elif isinstance(data, dict):
+-            return {key: self._deconstruct_binary_internal(value, attachments)
+-                    for key, value in data.items()}
+-        else:
+-            return data
++    def _reconstruct_binary(self, attachments, data, files=None):
++        """Reconstruct a packet that has binary placeholders.
+ 
+-    def _data_is_binary(self, data):
+-        """Check if the data contains binary components."""
+-        if isinstance(data, bytes):
+-            return True
+-        elif isinstance(data, list):
+-            return functools.reduce(
+-                lambda a, b: a or b, [self._data_is_binary(item)
+-                                      for item in data], False)
++        :param attachments: The number of binary attachments.
++        :param data: The data with placeholders.
++        :param files: The list of attachment binaries.
++        """
++        files = files or []
++
++        def _restore(item):
++            if isinstance(item, dict) and item.get('_placeholder_'):
++                num = item.get('num')
++                if not isinstance(num, int) or num >= attachments:
++                    raise ValueError('invalid attachment index')
++                try:
++                    return files[num]
++                except IndexError:
++                    raise ValueError('missing attachment data')
++            return item
++
++        data = self._traverse_data(data, _restore)
++        return data, attachments
++
++    def _traverse_data(self, data, func):
++        is_list = isinstance(data, list)
++        if is_list or isinstance(data, tuple):
++            new_data = []
++            for item in data:
++                new_data.append(self._traverse_data(item, func))
++            return new_data if is_list else tuple(new_data)
+         elif isinstance(data, dict):
+-            return functools.reduce(
+-                lambda a, b: a or b, [self._data_is_binary(item)
+-                                      for item in data.values()],
+-                False)
++            new_data = {}
++            for key, value in data.items():
++                new_data[key] = self._traverse_data(value, func)
++            return new_data
+         else:
+-            return False
+-
+-    def _to_dict(self):
+-        d = {
+-            'type': self.packet_type,
+-            'data': self.data,
+-            'nsp': self.namespace,
+-        }
+-        if self.id is not None:
+-            d['id'] = self.id
+-        return d
++            return func(data)

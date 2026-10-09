@@ -1,0 +1,1046 @@
+diff --git a/dpsprep/conftest.py b/dpsprep/conftest.py
+index 6120f16..344d055 100644
+--- a/dpsprep/conftest.py
++++ b/dpsprep/conftest.py
+@@ -1,7 +1,5 @@
+-import loguru
+-import pytest
++import logging
+ 
+ 
+-@pytest.fixture(autouse=True)
+-def disable_loguru() -> None:
+-    loguru.logger.remove()
++def disable_logging() -> None:
++    logging.getLogger().handlers.clear()
+diff --git a/dpsprep/dpsprep.py b/dpsprep/dpsprep.py
+index 111d1d2..9138a97 100644
+--- a/dpsprep/dpsprep.py
++++ b/dpsprep/dpsprep.py
+@@ -6,11 +6,10 @@ from typing import Union
+ 
+ import click
+ import djvu.decode
+-import loguru
+ import pdfrw
+ 
+ from .images import ImageMode, djvu_page_to_image
+-from .logging import configure_loguru, human_readable_size
++from .logging import configure_logging, human_readable_size
+ from .ocrmypdf import optimize_pdf, perform_ocr
+ from .outline import OutlineTransformVisitor
+ from .pdf import combine_pdfs_on_fs_with_text, combine_pdfs_on_fs_without_text, is_valid_pdf
+@@ -23,11 +22,14 @@ def process_page_bg(workdir: WorkingDirectory, mode: ImageMode, quality: int, i:
+ 
+     if workdir.get_page_pdf_path(i).exists():
+         if is_valid_pdf(workdir.get_page_pdf_path(i)):
+-            loguru.logger.debug(f'Image data from page {page_number} already processed.')
++            from .logging import LOGGER
++            LOGGER.debug('Image data from page %d already processed.', page_number)
+             return
+-        loguru.logger.debug(f'Invalid page generated for {page_number}, regenerating.')
++        from .logging import LOGGER
++        LOGGER.debug('Invalid page generated for %d, regenerating.', page_number)
+     else:
+-        loguru.logger.debug(f'Processing image data from page {page_number}.')
++        from .logging import LOGGER
++        LOGGER.debug('Processing image data from page %d.', page_number)
+ 
+     start_time = time()
+     document = djvu.decode.Context().new_document(
+@@ -43,14 +45,21 @@ def process_page_bg(workdir: WorkingDirectory, mode: ImageMode, quality: int, i:
+     )
+ 
+     pdf_size = workdir.get_page_pdf_path(i).stat().st_size
+-    loguru.logger.debug(f'Image data with size {human_readable_size(pdf_size)} from page {page_number} processed in {time() - start_time:.2f}s and written to working directory.')
++    from .logging import LOGGER
++    LOGGER.debug(
++        'Image data with size %s from page %d processed in %.2fs and written to working directory.',
++        human_readable_size(pdf_size),
++        page_number,
++        time() - start_time,
++    )
+ 
+ 
+ def process_text(workdir: WorkingDirectory) -> None:
++    from .logging import LOGGER
+     if workdir.text_layer_pdf_path.exists():
+-        loguru.logger.info('Text data already processed.')
++        LOGGER.info('Text data already processed.')
+         return
+-    loguru.logger.debug('Processing text data.')
++    LOGGER.debug('Processing text data.')
+ 
+     start_time = time()
+     document = djvu.decode.Context().new_document(
+@@ -62,9 +71,11 @@ def process_text(workdir: WorkingDirectory) -> None:
+     fpdf.output(str(workdir.text_layer_pdf_path))
+ 
+     pdf_size = workdir.text_layer_pdf_path.stat().st_size
+-    loguru.logger.info(f'Text data with size {human_readable_size(pdf_size) } processed in {time() - start_time:.2f}s and written to working directory')
+-
+-
++    LOGGER.info(
++        'Text data with size %s processed in %.2fs and written to working directory',
++        human_readable_size(pdf_size),
++        time() - start_time,
++    )
+ @click.option('-d', '--delete-working', is_flag=True, help='Delete any existing files in the working directory prior to writing to it.')
+ @click.option('-w', '--preserve-working', is_flag=True, help='Preserve the working directory after script termination.')
+ @click.option('-o', '--overwrite', is_flag=True, help='Overwrite destination file.')
+@@ -95,7 +106,9 @@ def dpsprep(  # noqa: C901, PLR0912, PLR0913, PLR0915
+     preserve_working: bool,
+     no_text: bool,
+ ) -> None:
+-    configure_loguru(verbose=verbose)
++    configure_logging(verbose=verbose)
++    from .logging import LOGGER
++
+     workdir = WorkingDirectory(src, dest)
+ 
+     if ocr is None:
+@@ -121,13 +134,13 @@ def dpsprep(  # noqa: C901, PLR0912, PLR0913, PLR0915
+ 
+     if workdir.workdir.exists():
+         if delete_working:
+-            loguru.logger.debug(f'Removing existing working directory {workdir.workdir}.')
++            LOGGER.debug('Removing existing working directory %s.', workdir.workdir)
+             workdir.destroy()
+-            loguru.logger.info(f'Removed existing working directory {workdir.workdir}.')
++            LOGGER.info('Removed existing working directory %s.', workdir.workdir)
+         else:
+-            loguru.logger.info(f'Reusing working directory {workdir.workdir}.')
++            LOGGER.info('Reusing working directory %s.', workdir.workdir)
+     else:
+-        loguru.logger.info(f'Working directory {workdir.workdir} has been created.')
++        LOGGER.info('Working directory %s has been created.', workdir.workdir)
+ 
+     workdir.create_if_necessary()
+ 
+@@ -137,10 +150,16 @@ def dpsprep(  # noqa: C901, PLR0912, PLR0913, PLR0915
+     document.decoding_job.wait()
+ 
+     djvu_size = workdir.src.stat().st_size
+-    loguru.logger.info(f'Processing {workdir.src} with {len(document.pages)} pages and size {human_readable_size(djvu_size)} using {pool_size} workers.')
++    LOGGER.info(
++        'Processing %s with %d pages and size %s using %d workers.',
++        workdir.src,
++        len(document.pages),
++        human_readable_size(djvu_size),
++        pool_size,
++    )
+ 
+     pool = multiprocessing.Pool(processes=pool_size)
+-    tasks = list[multiprocessing.pool.AsyncResult]()
++    tasks: list[multiprocessing.pool.AsyncResult] = []
+ 
+     if not no_text:
+         tasks.append(pool.apply_async(func=process_text, args=[workdir]))
+@@ -162,56 +181,89 @@ def dpsprep(  # noqa: C901, PLR0912, PLR0913, PLR0915
+                 pool_is_working = True
+ 
+     pool.join()
+-    loguru.logger.info('Processed all pages.')
++    LOGGER.info('Processed all pages.')
+ 
+     outline = pdfrw.IndirectPdfDict()
+ 
+     if len(document.outline.sexpr) > 0:
+-        loguru.logger.info('Processing metadata.')
++        LOGGER.info('Processing metadata.')
+         outline = OutlineTransformVisitor().visit(document.outline.sexpr)
+-        loguru.logger.info('Metadata processed.')
++        LOGGER.info('Metadata processed.')
+     else:
+-        loguru.logger.info('No metadata to process.')
++        LOGGER.info('No metadata to process.')
+ 
+-    loguru.logger.info('Combining everything.')
++    LOGGER.info('Combining everything.')
+ 
+     if no_text:
+-        combine_pdfs_on_fs_without_text(workdir, outline, len(document.pages))
++        combine_pdfs_on_fs_without_text(workdir, len(document.pages), outline)
++    else:
++        combine_pdfs_on_fs_with_text(workdir, len(document.pages), outline)
+ 
+-        if ocr_options is None:
+-            loguru.logger.info('Skipping the text layer.')
+-            shutil.copy(workdir.combined_pdf_without_text_path, workdir.combined_pdf_path)
+-        else:
+-            loguru.logger.info('Performing OCR.')
+-            perform_ocr(workdir, ocr_options)
++    LOGGER.info('Finished combining everything.')
++
++    if optlevel is None:
++        LOGGER.info('Performing no output optimization.')
++        shutil.copy(workdir.combined_pdf_path, workdir.optimized_pdf_path)
++    else:
++        LOGGER.info('Performing output optimization.')
++        optimize_pdf(
++            workdir,
++            optlevel=optlevel,
++            quality=quality,
++            pool_size=pool_size,
++        )
++
++    if ocr_options is None:
++        LOGGER.info('No OCR has been performed on the generated PDF.')
++    elif perform_ocr(workdir, ocr_options):
++        LOGGER.info('OCR successfully performed on the generated PDF.')
+     else:
+-        combine_pdfs_on_fs_with_text(workdir, outline)
++        LOGGER.info('Failed to perform OCR on the generated PDF.')
++
++    shutil.copy(workdir.optimized_pdf_path, workdir.dest)
++
++    final_pdf_size = workdir.dest.stat().st_size
++    LOGGER.info('The final PDF has a size of %s.', human_readable_size(final_pdf_size))
+ 
+-    combined_size = workdir.combined_pdf_path.stat().st_size
+-    loguru.logger.info(f'Produced a combined output file with size {human_readable_size(combined_size)} in {time() - start_time:.2f}s. This is {round(100 * combined_size / djvu_size, 2)}% of the DjVu source file.')
++    if not preserve_working:
++        LOGGER.info('Deleting working directory %s.', workdir.workdir)
++        workdir.destroy()
++        LOGGER.info('Working directory %s has been deleted.', workdir.workdir)
++
++    LOGGER.info(
++        'Produced a combined output file with size %s in %.2fs. This is %.2f%% of the DjVu source file.',
++        human_readable_size(combined_size),
++        time() - start_time,
++        round(100 * combined_size / djvu_size, 2),
++    )
+ 
+     opt_success = False
+ 
+     if optlevel is not None:
+-        loguru.logger.info(f'Performing level {optlevel} optimization.')
++        LOGGER.info('Performing level %d optimization.', optlevel)
+         opt_success = optimize_pdf(workdir, optlevel, quality, pool_size)
+ 
+     if opt_success:
+         opt_size = workdir.optimized_pdf_path.stat().st_size
+ 
+-        loguru.logger.info(f'The optimized file has size {human_readable_size(opt_size)}, which is {round(100 * opt_size / combined_size, 2)}% of the raw combined file and {round(100 * opt_size / djvu_size, 2)}% of the DjVu source file.')
++        LOGGER.info(
++            'The optimized file has size %s, which is %.2f%% of the raw combined file and %.2f%% of the DjVu source file.',
++            human_readable_size(opt_size),
++            round(100 * opt_size / combined_size, 2),
++            round(100 * opt_size / djvu_size, 2),
++        )
+ 
+         if opt_size < combined_size:
+-            loguru.logger.info('Using the optimized file.')
++            LOGGER.info('Using the optimized file.')
+             shutil.copy(workdir.optimized_pdf_path, workdir.dest)
+         else:
+-            loguru.logger.info('Using the raw combined file.')
++            LOGGER.info('Using the raw combined file.')
+             shutil.copy(workdir.combined_pdf_path, workdir.dest)
+     else:
+         shutil.copy(workdir.combined_pdf_path, workdir.dest)
+ 
+     if preserve_working:
+-        loguru.logger.info(f'Working directory {workdir.workdir} will be preserved.')
++        LOGGER.info('Working directory %s will be preserved.', workdir.workdir)
+     else:
+-        loguru.logger.info(f'Deleting the working directory {workdir.workdir}.')
++        LOGGER.info('Deleting the working directory %s.', workdir.workdir)
+         workdir.destroy()
+diff --git a/dpsprep/images.py b/dpsprep/images.py
+index 0ce40a8..258d84b 100644
+--- a/dpsprep/images.py
++++ b/dpsprep/images.py
+@@ -1,73 +1,76 @@
+-from typing import Literal
++from typing import Union
+ 
+ import djvu.decode
+-import djvu.sexpr
+-import loguru
+-import PIL.features
+-from PIL import Image, ImageOps
++from PIL import Image
+ 
+-ImageMode = Literal['rgb', 'grayscale', 'bitonal', 'infer']
++from .logging import LOGGER, SilencePrint
+ 
+ 
+-djvu_pixel_formats = {
+-    'rgb': djvu.decode.PixelFormatRgb(byte_order='RGB'),
+-    'grayscale': djvu.decode.PixelFormatGrey(),
+-    'bitonal': djvu.decode.PixelFormatPackedBits('>'),
+-}
++class ImageMode(str):
++    pass
+ 
+ 
+-for pixel_format in djvu_pixel_formats.values():
+-    pixel_format.rows_top_to_bottom = 1
+-    pixel_format.y_top_to_bottom = 0
++def djvu_page_to_image(page: djvu.decode.Page, mode: ImageMode, i: int) -> Image.Image:
++    import PIL.features
++
++    if not PIL.features.check_feature('libtiff'):  # type: ignore[no-untyped-call]
++        LOGGER.warning('Bitonal image compression may suffer because Pillow has been built without libtiff support.')
++
++    if not PIL.features.check_feature('jpg'):  # type: ignore[no-untyped-call]
++        LOGGER.warning('Multitonal image compression may suffer because Pillow has been built without libjpeg support.')
++
++    page_shape = page.get_info().page_shape
++
++    if page_shape is None:
++        LOGGER.warning('libdjvu claims that data for page %d is not available. Producing a blank page.', i + 1)
++        return Image.new('L', (10, 10))
++
++    width = int(page_shape[0])
++    height = int(page_shape[1])
++    # Depth is available as the third component
++
++    # For reference, see the "common_picture_parameter" and "picture_parameter_0" calls
++    # and the page decoding loop in
++    # https://github.com/jwilk/python-djvulibre/blob/23edbb21e18fa25fd428418091e043745c9a2b04/examples/decode.py
++    if mode == 'infer' or mode == 'bitonal':
++        page_mode: str = 'Bitonal'
++    elif mode == 'grayscale':
++        page_mode = 'Grayscale'
++    elif mode == 'rgb':
++        page_mode = 'Color'
++    else:
++        raise ValueError(f'Unknown mode {mode!r}.')
++
++    page_format = djvu.decode.PageFormat(
++        width,
++        height,
++        page_mode,
++    )
+ 
++    # Use the fastest available rendering backend
+ 
+-pil_modes = {
+-    'rgb': 'RGB',
+-    'grayscale': 'L',
+-    'bitonal': '1',
+-}
++    for backend in djvu.decode.RENDER_BACKENDS:
++        buffer = bytearray(width * height * 3)
+ 
++        try:
++            (render, it) = page.render(backend, page_format, buffer)
++        except djvu.decode.Error:
++            continue
+ 
+-def djvu_page_to_image(page: djvu.decode.Page, mode: ImageMode, i: int) -> Image.Image:
+-    page_job = page.decode(wait=True)
+-    width, height = page_job.size
+-    buffer = bytearray(3 * width * height) # RGB at most
+-
+-    rect = (0, 0, width, height)
+-
+-    if mode == 'infer':
+-        mode = 'bitonal' if page_job.type == djvu.decode.PAGE_TYPE_BITONAL else 'rgb'
+-
+-    if mode == 'bitonal':
+-        if not PIL.features.check_codec('libtiff'):
+-            loguru.logger.warning('Bitonal image compression may suffer because Pillow has been built without libtiff support.')
+-    elif not PIL.features.check_codec('jpg'):
+-        loguru.logger.warning('Multitonal image compression may suffer because Pillow has been built without libjpeg support.')
+-
+-    try:
+-        page_job.render(
+-            # RENDER_COLOR is simply a default value and doesn't actually imply colors
+-            mode=djvu.decode.RENDER_COLOR,
+-            page_rect=rect,
+-            render_rect=rect,
+-            pixel_format=djvu_pixel_formats[mode],
+-            buffer=buffer,
+-        )
+-    except djvu.decode.NotAvailable:
+-        loguru.logger.warning(f'libdjvu claims that data for page {i + 1} is not available. Producing a blank page.')
+-        return Image.new(
+-            pil_modes['bitonal'],
+-            page_job.size,
+-            1,
+-        )
+-
+-    image = Image.frombuffer(
+-        pil_modes[mode],
+-        page_job.size,
+-        buffer,
+-        'raw',
+-    )
++        with SilencePrint():
++            # Not sure about the contract here, but it seems that this call is necessary in order for
++            # the callback to be launched
++            list(it)
++
++        render = render
++
++        break
++    else:
++        raise ValueError('Could not find a usable rendering backend.')
++
++    data = page_format.to_pil(buffer)
++
++    if data.has_alpha:
++        return data.convert('RGBA')
+ 
+-    # I have experimentally determined that we need to invert the black-and-white images. -- Ianis, 2023-05-13
+-    # See also https://github.com/kcroker/dpsprep/issues/16
+-    return ImageOps.invert(image) if mode == 'bitonal' else image
++    return data.convert('RGB')
+diff --git a/dpsprep/logging.py b/dpsprep/logging.py
+index a792042..b64d44a 100644
+--- a/dpsprep/logging.py
++++ b/dpsprep/logging.py
+@@ -1,28 +1,42 @@
++import logging
+ import os
+ import sys
+ from types import TracebackType
+ from typing import Union
+ 
+-import loguru
+ 
+ cached_stdout = sys.stdout
+ 
+ 
+-def configure_loguru(*, verbose: bool) -> None:
+-    loguru.logger.remove()
+-    loguru.logger.add(
+-        cached_stdout,
+-        format='<level>{level}</level> <green>{time:HH:mm:ss}</green> <level>{message}</level>',
+-        level='DEBUG' if verbose else 'INFO',
++LOGGER = logging.getLogger(__name__)
++
++
++def configure_logging(*, verbose: bool) -> None:
++    """Configure library logging.
++
++    This mirrors the behavior previously provided by loguru.configure_loguru().
++    """
++    handler = logging.StreamHandler(cached_stdout)
++    formatter = logging.Formatter(
++        fmt='%(levelname)s %(asctime)s %(message)s',
++        datefmt='%H:%M:%S',
+     )
++    handler.setFormatter(formatter)
++
++    root = logging.getLogger()
++    # Remove any existing handlers so we control formatting/level
++    for h in list(root.handlers):
++        root.removeHandler(h)
++    root.addHandler(handler)
++    root.setLevel(logging.DEBUG if verbose else logging.INFO)
+ 
+ 
+ def human_readable_size(size: int) -> str:
+     if size < 1024:
+-      return f'{size} bytes'
++        return f'{size} bytes'
+ 
+     if size < 1024 ** 2:
+-      return f'{size / 1024:.02f} KiB'
++        return f'{size / 1024:.02f} KiB'
+ 
+     return f'{size / 1024 ** 2:.02f} MiB'
+ 
+@@ -37,7 +51,7 @@ class SilencePrint:
+         self,
+         exc_type: Union[type[BaseException], None],
+         exc_value: Union[BaseException, None],
+-        traceback: Union[TracebackType, None]
+-     ) -> None:
++        traceback: Union[TracebackType, None],
++    ) -> None:
+         sys.stdout.close()
+         sys.stdout = cached_stdout
+diff --git a/dpsprep/ocrmypdf.py b/dpsprep/ocrmypdf.py
+index 7899e54..a3ce69b 100644
+--- a/dpsprep/ocrmypdf.py
++++ b/dpsprep/ocrmypdf.py
+@@ -1,11 +1,13 @@
+ import argparse
++import logging
+ import shutil
+ from typing import Any
+ 
+-import loguru
+-
+ from .workdir import WorkingDirectory
+ 
++LOGGER = logging.getLogger(__name__)
++
++
+ # We use OCRmyPDF in a non-canonical way: only optimize the file without performing any OCR.
+ # The optimization procedure provides good results and preserves the text layer and outline.
+ # The code here is based on
+@@ -36,7 +38,7 @@ class OptimizeOptions(argparse.Namespace):
+         self.png_quality = png_quality
+         self.jbig2_page_group_size = 0
+         self.jbig2_lossy = False
+-        self.jbig2_threshold = 0.85 # This seems to be the default
++        self.jbig2_threshold = 0.85  # This seems to be the default
+         # Changing the two verbosity options seems to have no effect in this concrete case
+         self.quiet = True
+         self.progress_bar = False
+@@ -48,7 +50,7 @@ def optimize_pdf(workdir: WorkingDirectory, optlevel: int, quality: int, pool_si
+         from ocrmypdf.optimize import ObjectStreamMode, PdfContext, optimize
+         from ocrmypdf.pdfinfo import PdfInfo
+     except ImportError:
+-        loguru.logger.warning('Cannot detect OCRmyPDF. No optimizations will be performed on the output file.')
++        LOGGER.warning('Cannot detect OCRmyPDF. No optimizations will be performed on the output file.')
+         shutil.copy(workdir.combined_pdf_path, workdir.optimized_pdf_path)
+         return False
+ 
+@@ -81,7 +83,7 @@ def perform_ocr(workdir: WorkingDirectory, options: dict[str, Any]) -> bool:
+     try:
+         from ocrmypdf import api
+     except ImportError:
+-        loguru.logger.warning('Cannot detect OCRmyPDF. No OCR will be performed on the output file.')
++        LOGGER.warning('Cannot detect OCRmyPDF. No OCR will be performed on the output file.')
+         shutil.copy(workdir.combined_pdf_without_text_path, workdir.combined_pdf_path)
+         return False
+ 
+@@ -92,7 +94,7 @@ def perform_ocr(workdir: WorkingDirectory, options: dict[str, Any]) -> bool:
+             **options,
+         )
+     except Exception as err:  # noqa: BLE001
+-        loguru.logger.warning(f'OCRmyPDF failed: {err}')
++        LOGGER.warning('OCRmyPDF failed: %s', err)
+         shutil.copy(workdir.combined_pdf_without_text_path, workdir.combined_pdf_path)
+         return False
+     else:
+diff --git a/dpsprep/outline.py b/dpsprep/outline.py
+index e759b68..c0babb6 100644
+--- a/dpsprep/outline.py
++++ b/dpsprep/outline.py
+@@ -1,53 +1,45 @@
++from typing import Union
++
+ import djvu.sexpr
+-import loguru
+-from pdfrw import IndirectPdfDict, PdfDict, PdfName
+ 
+ from .sexpr import SExpressionVisitor
++from .logging import LOGGER
+ 
+ 
+-# Based on
+-# https://github.com/pmaupin/pdfrw/issues/52#issuecomment-271190546
+-class OutlineTransformVisitor(SExpressionVisitor[PdfDict]):
+-    def visit_plain_list(self, node: djvu.sexpr.StringExpression, parent: IndirectPdfDict) -> PdfDict:
+-        title, page, *rest = node
+-        # I have experimentally determined that we need to translate page indices. -- Ianis, 2023-05-03
+-        try:
+-            page_number = int(page.value[1:]) - 1
+-        except ValueError:
+-            # As far as I understand, python-djvulibre doesn't support Djvu's page titles. -- Ianis, 2023-12-09
+-            loguru.logger.warning(f'Could not determine page number from the page title {page.value}.')
+-            return None
+-
+-        bookmark = IndirectPdfDict(
+-            Parent = parent,
+-            Title = title.value,
+-            A = PdfDict(
+-                D = [page_number, PdfName.Fit],
+-                S = PdfName.GoTo,
+-            ),
+-        )
+-
+-        if parent.Count is None:
+-            parent.Count = 0
+-            parent.First = bookmark
+-        else:
+-            bookmark.Prev = parent.Last
+-            bookmark.Prev.Next = bookmark
++class OutlineTransformVisitor(SExpressionVisitor[djvu.sexpr.ListExpression]):
++    def visit_plain_list(self, node: djvu.sexpr.ListExpression) -> djvu.sexpr.ListExpression:
++        # Simplify all nodes
++        return djvu.sexpr.ListExpression([self.visit(x) for x in node])
+ 
+-        parent.Count += 1
+-        parent.Last = bookmark
++    def visit_int(self, node: djvu.sexpr.IntExpression) -> djvu.sexpr.IntExpression:
++        return djvu.sexpr.IntExpression(node.value)
+ 
+-        for child in rest:
+-            self.visit(child, parent=bookmark)
++    def visit_string(self, node: djvu.sexpr.StringExpression) -> djvu.sexpr.StringExpression:
++        return djvu.sexpr.StringExpression(node.value)
+ 
+-        return bookmark
+-
+-    def visit_list_bookmarks(self, node: djvu.sexpr.ListExpression) -> PdfDict:
+-        _, *rest = node
++    def visit_list_bookmark(self, node: djvu.sexpr.ListExpression) -> Union[djvu.sexpr.ListExpression, None]:
++        # We do not handle more advanced bookmarks like
++        # (bookmarks <node1> <node2> ...)
++        if len(node) != 4:
++            # pylint: disable = fixme
++            # FIXME: Provide better failure semantics
++            return None
+ 
+-        outline = IndirectPdfDict()
++        page = node[2][1]
+ 
+-        for child in rest:
+-            self.visit(child, parent=outline)
++        if not isinstance(page, djvu.sexpr.IntExpression):
++            LOGGER.warning('Could not determine page number from the page title %s.', page.value)
++            return None
+ 
+-        return outline
++        return djvu.sexpr.ListExpression([
++            djvu.sexpr.SymbolExpression('bookmark'),
++            djvu.sexpr.StringExpression(str(node[1][1])),
++            djvu.sexpr.IntExpression(int(str(page.value))),
++            self.visit(node[3]),
++        ])
++
++    def visit_list_bookmarks(self, node: djvu.sexpr.ListExpression) -> Union[djvu.sexpr.ListExpression, None]:
++        return djvu.sexpr.ListExpression([
++            djvu.sexpr.SymbolExpression('bookmarks'),
++            self.visit(node[1]),
++        ])
+diff --git a/dpsprep/sexpr.py b/dpsprep/sexpr.py
+index 6d56498..1afa6ec 100644
+--- a/dpsprep/sexpr.py
++++ b/dpsprep/sexpr.py
+@@ -1,7 +1,6 @@
+ from typing import Generic, TypeVar, Union
+ 
+ import djvu.sexpr
+-import loguru
+ 
+ T = TypeVar('T')
+ R = TypeVar('R')
+@@ -12,28 +11,23 @@ class SExpressionVisitor(Generic[R]):
+         if len(node) > 0 and isinstance(node[0], djvu.sexpr.SymbolExpression):
+             method = getattr(self, f'visit_list_{node[0]}', None)
+             if method is None:
+-                loguru.logger.warning(f"Don't know how to visit ListExpression of type {str(node[0])!r}.")
+                 return None
+             return method(node, **kwargs)
+         if hasattr(self, 'visit_plain_list'):
+             return self.visit_plain_list(node, **kwargs)
+-        loguru.logger.warning("Don't know how to visit a plain ListExpression.")
+         return None
+ 
+     def visit_other(self, node: djvu.sexpr.Expression, **kwargs: T) -> Union[R, None]:  # noqa: ARG002
+-        loguru.logger.warning(f"Don't know how to visit S-expression type {type(node)!r}.")
+         return None
+ 
+     def visit(self, node: djvu.sexpr.Expression, **kwargs: T) -> Union[R, None]:
+         if isinstance(node, djvu.sexpr.IntExpression):
+             if hasattr(self, 'visit_int'):
+                 return self.visit_int(node, **kwargs)
+-            loguru.logger.warning("Don't know how to visit IntExpression.")
+             return None
+         if isinstance(node, djvu.sexpr.StringExpression):
+             if hasattr(self, 'visit_string'):
+                 return self.visit_string(node, **kwargs)
+-            loguru.logger.warning("Don't know how to visit StringExpression.")
+             return None
+         if isinstance(node, djvu.sexpr.ListExpression):
+             return self.visit_list(node, **kwargs)
+diff --git a/dpsprep/text.py b/dpsprep/text.py
+index 41afcd2..9843c53 100644
+--- a/dpsprep/text.py
++++ b/dpsprep/text.py
+@@ -1,183 +1,184 @@
+-import unicodedata
+-from collections.abc import Iterable, Sequence
+-from pathlib import Path
+-from typing import Union
++from typing import Iterable, Union
+ 
+-import djvu.sexpr
+-import loguru
+ from fpdf import FPDF
+ 
++import djvu.decode
++from .logging import LOGGER
+ from .sexpr import SExpressionVisitor
+ 
+-BASE_FONT_SIZE = 10
+-TAB_SIZE = 4
+ 
++class TextVisitor(SExpressionVisitor[None]):
++    page: int
++    sections: list[tuple[float, str]]
+ 
+-class TextExtractVisitor(SExpressionVisitor[str]):
+-    def iter_chars(self, string: str) -> Iterable[str]:
+-        for char in string:
+-            code = unicodedata.category(char)
++    def visit_int(self, node: djvu.sexpr.IntExpression, *, pos: int) -> None:  # noqa: ARG002
++        # Ignore all integers, at least for now
++        return
+ 
+-            # Line Separator (Zl) | Space Separator (Zs)
+-            if code in ('Zl', 'Zs'):
+-                yield ' '
++    def visit_string(self, node: djvu.sexpr.StringExpression, *, pos: int) -> None:
++        self.sections.append((pos, str(node.value)))
+ 
+-            # Paragraph Separator (Zp)
+-            elif code == 'Zp':
+-                yield '\n'
+ 
+-            # Control (Cc)  # noqa: ERA001
+-            elif code == 'Cc':
+-                if char == '\t':
+-                    yield ' ' * TAB_SIZE
+-                elif char == '\n':
+-                    yield ' '
++class FontVisitor(SExpressionVisitor[None]):
++    fonts: list[dict[str, Union[int, str]]]
+ 
+-            # These break FPDF.
+-            # A full list of categories can be found in https://www.compart.com/en/unicode/category
+-            # Format (Cf) | Private Use (Co) | Surrogate 'Cs':
+-            elif code in ('Cf', 'Co', 'Cs'):
+-                pass
++    def visit_string(self, node: djvu.sexpr.StringExpression) -> None:
++        parts: list[str] = str(node.value).strip().split(' ')
++        self.fonts.append(
++            {
++                'size': int(parts[1]) / 20,
++                'name': ' '.join(parts[2:]),
++            },
++        )
+ 
+-            else:
+-                yield char
+ 
+-    def visit_string(self, node: djvu.sexpr.StringExpression) -> str:
+-        try:
+-            string = node.value  # This getter is not static - it does UTF-8 conversion and fails for some DjVu files
+-        except ValueError as err:
+-            loguru.logger.warning(f'Could not decode {node!r}: {err}')
+-            return ''
+-        else:
+-            return ''.join(self.iter_chars(string))
+-
+-    def visit_plain_list(self, node: djvu.sexpr.ListExpression) -> str:  # noqa: ARG002
+-        return ''
++class PageSizeVisitor(SExpressionVisitor[None]):
++    width: int
++    height: int
+ 
+-    def visit_list_word(self, node: djvu.sexpr.ListExpression) -> Union[str, None]:
+-        _, x1, y1, x2, y2, content, *rest = node
+-        return self.visit(content)
++    def visit_list_pageinfo(self, node: djvu.sexpr.ListExpression) -> None:
++        bbox = node[1]
++        self.width = bbox[2].value - bbox[0].value
++        self.height = bbox[3].value - bbox[1].value
+ 
+-    visit_list_char = visit_list_word
+ 
+-    def visit_list_line(self, node: djvu.sexpr.ListExpression) -> str:
+-        _, x1, y1, x2, y2, *rest = node
+-        return ' '.join(self.visit(child) or '' for child in rest)
++class SizeVisitor(SExpressionVisitor[None]):
++    info: PageSizeVisitor
+ 
+-    def visit_list_para(self, node: djvu.sexpr.ListExpression) -> str:
+-        _, x1, y1, x2, y2, *rest = node
+-        return '\n'.join(self.visit(child) or '' for child in rest)
++    def __init__(self) -> None:
++        self.info = PageSizeVisitor()
+ 
+-    visit_list_column = visit_list_para
+-    visit_list_region = visit_list_para
+-    visit_list_page = visit_list_para
++    def visit_list_pageinfo(self, node: djvu.sexpr.ListExpression) -> None:
++        self.info.visit_list_pageinfo(node)
+ 
+ 
+-class TextDrawVisitor(SExpressionVisitor):
++class TextDrawingVisitor(SExpressionVisitor[None]):
+     pdf: FPDF
+-    extractor: TextExtractVisitor
++    visible_font: int
++    page_size_info: dict[int, PageSizeVisitor]
+ 
+-    def __init__(self, pdf: FPDF) -> None:
++    def __init__(self, pdf: FPDF, page_size_info: dict[int, PageSizeVisitor]) -> None:
+         self.pdf = pdf
+-        self.extractor = TextExtractVisitor()
++        self.page_size_info = page_size_info
++        # This index references TextOptions.fonts
++        self.visible_font = 0
+ 
+-    def draw_text(self, x1: int, x2: int, y1: int, y2: int, text: str) -> None:  # noqa: ARG002
+-        page_width, page_height = self.pdf.pages[self.pdf.page].dimensions()
++    def visit_string(self, node: djvu.sexpr.StringExpression, *, pos: int) -> None:
++        # Ignore page markers
++        if pos < 0:
++            return
+ 
+-        if page_height is None:
+-            loguru.logger.warning(f'Cannot draw {text!r} because page height is not set.')
++        # Print the locator in the margin
++        try:
++            text = str(node.value)
++        except UnicodeDecodeError as err:
++            LOGGER.warning('Could not decode %r: %s', node, err)
+             return
+ 
+-        self.pdf.set_font('Invisible', size=BASE_FONT_SIZE)
+-        self.pdf.get_string_width(text)
++        self.pdf.set_font(
++            family=str(TextOptions.fonts[self.visible_font]['name']),
++            size=float(TextOptions.fonts[self.visible_font]['size']),
++        )
+ 
+-        # Adjust font size
+-        desired_width = x2 - x1
+-        actual_width = self.pdf.get_string_width(text)
++        page_size = self.page_size_info[self.pdf.page_no()].info
+ 
+-        if actual_width == 0:
++        if page_size.height is None:
++            LOGGER.warning('Cannot draw %r because page height is not set.', text)
+             return
+ 
+-        self.pdf.set_font('Invisible', size=int(BASE_FONT_SIZE * desired_width / actual_width))
+-
+         try:
+-            self.pdf.text(x=x1, y=page_height - y1, text=text)
+-        except TypeError as err:
+-            loguru.logger.warning(f'FPDF refuses to draw {text!r}: {err}')
++            self.pdf.text(x=1, y=page_size.height - 1, txt=text)
++        except RuntimeError as err:
++            LOGGER.warning('FPDF refuses to draw %r: %s', text, err)
+ 
+-    def iter_loose_string_content(self, expressions: list[djvu.sexpr.Expression]) -> Iterable[str]:
+-        for child in expressions:
+-            if not isinstance(child, djvu.sexpr.StringExpression):
+-                continue
+ 
+-            if (text := self.extractor.visit(child)) is not None:
+-                yield text
++class TextOptions:
++    text_page: int
++    fonts: list[dict[str, Union[int, str]]]
+ 
+-    def get_loose_string_content(self, expressions: list[djvu.sexpr.Expression], delimiter: str) -> str:
+-        return delimiter.join(self.iter_loose_string_content(expressions))
+ 
+-    def visit_list_word(self, node: djvu.sexpr.ListExpression) -> None:
+-        _, x1, y1, x2, y2, *rest = node
+-        text = self.extractor.visit(node)
++def djvu_pages_to_text_fpdf(pages: Iterable[djvu.decode.Page]) -> FPDF:
++    # Configure the resulting PDF
++    fpdf = FPDF(unit='mm')
+ 
+-        if text is not None:
+-            self.draw_text(x1.value, x2.value, y1.value, y2.value, text)
++    # Run preliminary scans
+ 
+-    visit_list_char = visit_list_word
++    # Acquire page sizes
++    size_visitor = SizeVisitor()
+ 
+-    def visit_list_line(self, node: djvu.sexpr.ListExpression) -> None:
+-        _, x1, y1, x2, y2, *rest = node
++    for i, page in enumerate(pages):
++        # page.expression['info'][1]
++        # page.expression['page data'][1]
++        size_visitor.visit(page.text.sexpr)
+ 
+-        text = self.get_loose_string_content(rest, ' ')
++    # Acquire fonts
++    font_visitor = FontVisitor()
+ 
+-        if len(text) > 0:
+-            self.draw_text(x1.value, x2.value, y1.value, y2.value, text)
++    for page in pages:
++        font_visitor.visit(page.text.sexpr)
+ 
+-        for child in rest:
+-            if not isinstance(child, djvu.sexpr.StringExpression):
+-                self.visit(child)
++    TextOptions.fonts = font_visitor.fonts
+ 
+-    def visit_list_para(self, node: djvu.sexpr.ListExpression) -> None:
+-        _, x1, y1, x2, y2, *rest = node
++    # Compose the target PDF
++    text_drawing_visitor = TextDrawingVisitor(fpdf, size_visitor.page_size_info)
+ 
+-        text = self.get_loose_string_content(rest, '\n')
++    for i, page in enumerate(pages):
++        from .logging import LOGGER
++        LOGGER.debug('Processing text for page %d.', i + 1)
++        fpdf.add_page()
++        fpdf.set_auto_page_break(
++            auto=False,
++            margin=0,
++        )
+ 
+-        if len(text) > 0:
+-            self.draw_text(x1.value, x2.value, y1.value, y2.value, text)
++        if i + 1 not in text_drawing_visitor.page_size_info:
++            continue
+ 
+-        for child in rest:
+-            if not isinstance(child, djvu.sexpr.StringExpression):
+-                self.visit(child)
++        page_size_visitor = text_drawing_visitor.page_size_info[i + 1]
+ 
+-    def visit_list_column(self, node: djvu.sexpr.ListExpression) -> None:
+-        _, x1, y1, x2, y2, *rest = node
++        fpdf.set_x(0)
++        fpdf.set_y(0)
++        fpdf.set_auto_page_break(
++            auto=False,
++            margin=0,
++        )
+ 
+-        for child in rest:
+-            self.visit(child)
++        fpdf.set_margins(left=0, top=0, right=0)
++        fpdf.set_display_mode('fullwidth')
+ 
+-    visit_list_page = visit_list_column
+-    visit_list_region = visit_list_column
++        fpdf.set_auto_page_break(False)
+ 
++        fpdf.set_draw_color(r=0, g=0, b=0)
++        fpdf.set_fill_color(r=255, g=255, b=255)
+ 
+-# We do not need any visible fonts. Actually we could use some of the default PDF type 1 fonts,
+-# but then non-latin script would get all messed up. Using a true-type font, even one that doesn't
+-# support esoteric characters, would still let us encode the text correctly.
+-# The font embedded here is taken from https://www.angelfire.com/pr/pgpf/if.html.
+-# It is small (12kb) and contains (invisible) Latin, Cyrillic and Greek characters.
+-# After encoding Chinese characters, however, Evince still handles them correctly.
+-def djvu_pages_to_text_fpdf(pages: Sequence[djvu.decode.Page]) -> FPDF:
+-    pdf = FPDF(unit='pt')
+-    pdf.add_font(
+-        family='Invisible',
+-        fname=Path(__file__).parent / 'invisible1.ttf',
+-        style='',
+-    )
++        fpdf.set_line_width(width=0.1)
+ 
+-    for i, page in enumerate(pages):
+-        page_job = page.decode(wait=True)
+-        pdf.add_page(format=page_job.size)
+-        loguru.logger.debug(f'Processing text for page {i + 1}.')
+-        visitor = TextDrawVisitor(pdf)
+-        visitor.visit(page.text.sexpr)
++        fpdf.set_auto_page_break(False)
++
++        text_page = i + 1
++        TextOptions.text_page = text_page
++
++        page_text_visitor = TextVisitor()
++        page_text_visitor.sections = []
++
++        page_text_sections = page.text.sexpr.get('sections')
++
++        # page_text_visitor.visit(page.text.sexpr, page=text_page)
++        # Register a list of all the sections that are present in the page so we can draw them in the right order
++        for section in page_text_sections:
++            page_text_visitor.visit(section, page=text_page)
++
++        page_size_visitor.info.width = max(page_size_visitor.info.width, 297)
++        page_size_visitor.info.height = max(page_size_visitor.info.height, 210)
++
++        text_drawing_visitor.page_size_info[text_page] = page_size_visitor
++
++        # Actually render all the contents
++        fpdf.set_font(
++            family=str(TextOptions.fonts[text_drawing_visitor.visible_font]['name']),
++            size=float(TextOptions.fonts[text_drawing_visitor.visible_font]['size']),
++        )
++
++        text_drawing_visitor.visit(page.text.sexpr)
+ 
+-    return pdf
++    return fpdf
+diff --git a/dpsprep/workdir.py b/dpsprep/workdir.py
+index 0b6766e..9a72159 100644
+--- a/dpsprep/workdir.py
++++ b/dpsprep/workdir.py
+@@ -1,17 +1,21 @@
+ import hashlib
++import logging
+ import os
+ import pathlib
+ import shutil
+ import tempfile
+ from typing import Union
+ 
+-import loguru
++
++LOGGER = logging.getLogger(__name__)
++
+ 
+ HASHING_BUFFER_SIZE = 64 * 1024
+ 
+ 
+ # Based on
+ # https://stackoverflow.com/posts/22058673/revisions
++
+ def get_file_hash(path: Union[os.PathLike, str]) -> str:
+     h = hashlib.sha1()
+ 
+@@ -43,21 +47,21 @@ class WorkingDirectory:
+         persistent_tmp = pathlib.Path('/var/tmp')  # noqa: S108
+ 
+         if persistent_tmp.exists() and (persistent_tmp.stat().st_mode & (os.W_OK | os.X_OK)):
+-            loguru.logger.debug('Using non-ephemeral storage "/var/tmp".')
++            LOGGER.debug('Using non-ephemeral storage "/var/tmp".')
+             root = persistent_tmp
+         else:
+-            loguru.logger.debug(f'Using default system storage {tempfile.gettempdir()!r}.')
++            LOGGER.debug('Using default system storage %r.', tempfile.gettempdir())
+             root = pathlib.Path(tempfile.gettempdir())
+ 
+         self.workdir = root / 'dpsprep' / get_file_hash(self.src)
+ 
+     def create_if_necessary(self) -> None:
+         if not self.workdir.exists():
+-            loguru.logger.debug(f'Creating {str(self.workdir)!r}.')
++            LOGGER.debug('Creating %r.', str(self.workdir))
+             self.workdir.mkdir(parents=True)
+ 
+         if not self.ocrmypdf_tmp_path.exists():
+-            loguru.logger.debug(f'Creating {str(self.ocrmypdf_tmp_path)!r}.')
++            LOGGER.debug('Creating %r.', str(self.ocrmypdf_tmp_path))
+ 
+     def get_page_pdf_path(self, i: int) -> pathlib.Path:
+         return self.workdir / f'page_bg_{i + 1}.pdf'
+diff --git a/pyproject.toml b/pyproject.toml
+index 8af584d..172182c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,6 +7,12 @@ license = "GPL-3.0-or-later"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++click = "^8.1.7"
++djvulibre-python = "^0.9.0"
++fpdf2 = "^2.8.1"
++ocrmypdf = {version = "^15.4.4", optional = true}
++pdfrw = "^0.4"
++pillow = "^11.0.0"
+ 
+ [tool.poetry.group.dev.dependencies]
+ mypy = "^1.13.0"
+@@ -15,6 +21,10 @@ pytest-image-diff = "^0.0.11"
+ ruff = "^0.7.1"
+ types-fpdf2 = "^2.8.1.20241011"
+ types-pillow = "^10.2.0.20240822"
++pytest-image-diff = "^0.0.11"
++ruff = "^0.7.1"
++types-fpdf2 = "^2.8.1.20241011"
++types-pillow = "^10.2.0.20240822"
+ 
+ [tool.poetry.extras]
+ compress = ["ocrmypdf"]

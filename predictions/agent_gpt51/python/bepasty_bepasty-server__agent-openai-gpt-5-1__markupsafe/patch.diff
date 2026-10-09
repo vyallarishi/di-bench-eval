@@ -1,0 +1,54 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c7b34c0..0590513 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,7 +29,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "werkzeug",
++    "Flask",
++    "Pygments>=2.12.0",
++    "xstatic",
++    "XStatic-asciinema-player",
++    "xstatic-bootbox>=5.4.0",
++    "xstatic-bootstrap>=4.0.0.0,<5.0.0.0",
++    "xstatic-font-awesome<5.0",
++    "xstatic-jquery",
++    "xstatic-jquery-ui",
++    "xstatic-jquery-file-upload",
++    "xstatic-pygments",
++]
+ 
+ [project.scripts]
+ bepasty-server = "bepasty.cli.server:main"
+diff --git a/src/bepasty/app.py b/src/bepasty/app.py
+index dbc09a9..fe0b0a5 100644
+--- a/src/bepasty/app.py
++++ b/src/bepasty/app.py
+@@ -9,7 +9,8 @@ from flask import (
+     render_template,
+     session,
+ )
+-from markupsafe import Markup
++
++from flask import Markup
+ 
+ from .apis import blueprint as blueprint_apis
+ from .storage import create_storage
+diff --git a/src/bepasty/views/display.py b/src/bepasty/views/display.py
+index 7f5b78f..2ae2c9d 100644
+--- a/src/bepasty/views/display.py
++++ b/src/bepasty/views/display.py
+@@ -2,8 +2,8 @@ import errno
+ import time
+ 
+ from flask import current_app, render_template, url_for, request
++from flask import Markup
+ from flask.views import MethodView
+-from markupsafe import Markup
+ from werkzeug.exceptions import NotFound, Forbidden
+ from pygments import highlight
+ from pygments.lexers import get_lexer_for_mimetype

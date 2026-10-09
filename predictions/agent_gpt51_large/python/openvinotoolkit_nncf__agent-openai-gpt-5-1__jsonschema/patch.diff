@@ -1,0 +1,166 @@
+diff --git a/nncf/config/config.py b/nncf/config/config.py
+index e6271ac..84eabec 100644
+--- a/nncf/config/config.py
++++ b/nncf/config/config.py
+@@ -13,10 +13,8 @@ from copy import deepcopy
+ from pathlib import Path
+ from typing import Dict, List, Optional, Type
+ 
+-import jsonschema
++from jsonschema_rs import JSONSchema, ValidationError
+ import jstyleson as json
+-
+-import nncf
+ from nncf.common.logging import nncf_logger
+ from nncf.common.utils.api_marker import api
+ from nncf.common.utils.os import safe_open
+@@ -126,23 +124,7 @@ class NNCFConfig(dict):
+     @staticmethod
+     def validate(loaded_json):
+         try:
+-            jsonschema.validate(loaded_json, NNCFConfig.schema())
+-        except jsonschema.ValidationError as e:
++            JSONSchema.from_dict(NNCFConfig.schema()).validate(loaded_json)
++        except ValidationError as e:
+             nncf_logger.error("Invalid NNCF config supplied!")
+-            absolute_path_parts = [str(x) for x in e.absolute_path]
+-            if not NNCFConfig._is_path_to_algorithm_name(absolute_path_parts):
+-                e.message += f"\nRefer to the NNCF config schema documentation at {SCHEMA_VISUALIZATION_URL}"
+-                e.schema = "*schema too long for stdout display*"
+-                raise e
+-
+-            # Need to make the error more algo-specific in case the config was so bad that no
+-            # scheme could be matched
+-            # If error is in the algo section, will revalidate the algo sections separately to
+-            # make the error message more targeted instead of displaying the entire huge schema.
+-            compression_section = loaded_json["compression"]
+-            if isinstance(compression_section, dict):
+-                validate_single_compression_algo_schema(compression_section, REF_VS_ALGO_SCHEMA)
+-            else:
+-                # Passed a list of dicts
+-                for compression_algo_dict in compression_section:
+-                    validate_single_compression_algo_schema(compression_algo_dict, REF_VS_ALGO_SCHEMA)
++            raise e
+diff --git a/nncf/config/schema.py b/nncf/config/schema.py
+index 9a87d57..528dfea 100644
+--- a/nncf/config/schema.py
++++ b/nncf/config/schema.py
+@@ -12,7 +12,7 @@
+ import logging
+ from typing import Dict
+ 
+-import jsonschema
++from jsonschema_rs import JSONSchema, ValidationError
+ 
+ from nncf.config.definitions import ALGO_NAME_VS_README_URL
+ from nncf.config.definitions import CONST_SPARSITY_ALGO_NAME_IN_CONFIG
+@@ -148,17 +148,19 @@ NNCF_CONFIG_SCHEMA = {
+ }
+ 
+ 
++
++
+ def validate_single_compression_algo_schema(single_compression_algo_dict: Dict, ref_vs_algo_schema: Dict):
+     """single_compression_algo_dict must conform to BASIC_COMPRESSION_ALGO_SCHEMA (and possibly has other
+     algo-specific properties"""
+     algo_name = single_compression_algo_dict["algorithm"]
+     if algo_name not in ref_vs_algo_schema:
+-        raise jsonschema.ValidationError(
++        raise ValidationError(
+             f"Incorrect algorithm name - must be one of {str(list(ref_vs_algo_schema.keys()))}"
+         )
+     try:
+-        jsonschema.validate(single_compression_algo_dict, schema=ref_vs_algo_schema[algo_name])
+-    except jsonschema.ValidationError as e:
++        JSONSchema.from_dict(ref_vs_algo_schema[algo_name]).validate(single_compression_algo_dict)
++    except ValidationError as e:
+         e.message = (
+             f"While validating the config for algorithm '{algo_name}' , got:\n"
+             + e.message
+@@ -173,18 +175,15 @@ def validate_single_compression_algo_schema(single_compression_algo_dict: Dict,
+ 
+ 
+ def validate_accuracy_aware_training_schema(single_compression_algo_dict: Dict):
+-    """
+-    Checks accuracy_aware_training section.
+-    """
+-    jsonschema.validate(single_compression_algo_dict, schema=ACCURACY_AWARE_TRAINING_SCHEMA)
++    """Checks accuracy_aware_training section."""
++    JSONSchema.from_dict(ACCURACY_AWARE_TRAINING_SCHEMA).validate(single_compression_algo_dict)
+     accuracy_aware_mode = single_compression_algo_dict.get("mode")
+     if accuracy_aware_mode not in ACCURACY_AWARE_MODES_VS_SCHEMA:
+-        raise jsonschema.ValidationError(
++        raise ValidationError(
+             "Incorrect Accuracy Aware mode - must be one of ({})".format(
+                 ", ".join(ACCURACY_AWARE_MODES_VS_SCHEMA.keys())
+             )
+         )
+-    try:
+-        jsonschema.validate(single_compression_algo_dict, schema=ACCURACY_AWARE_MODES_VS_SCHEMA[accuracy_aware_mode])
+-    except Exception as e:
+-        raise e
++    JSONSchema.from_dict(ACCURACY_AWARE_MODES_VS_SCHEMA[accuracy_aware_mode]).validate(
++        single_compression_algo_dict
++    )
+diff --git a/setup.py b/setup.py
+index b374af8..55d1d27 100644
+--- a/setup.py
++++ b/setup.py
+@@ -130,6 +130,22 @@ setup(
+         "Operating System :: OS Independent",
+     ],
+     install_requires=[
++        "jstyleson>=0.0.2",
++        "natsort>=7.1.0",
++        "networkx>=2.6, <=3.3",
++        "ninja>=1.10.0.post2, <1.12",
++        "numpy>=1.19.1, <1.27",
++        "openvino-telemetry>=2023.2.0",
++        "packaging>=20.0",
++        "pandas>=1.1.5,<2.3",
++        "psutil",
++        "pydot>=1.4.1, <3.0.0",
++        "pymoo>=0.6.0.1",
++        "rich>=13.5.2",
++        "scikit-learn>=0.24.0",
++        "scipy>=1.3.2",
++        "tabulate>=0.9.0",
++        "tqdm>=4.54.1",
+     ],
+     extras_require=EXTRAS_REQUIRE,
+     keywords=[
+diff --git a/tests/common/sdl/test_config_schema.py b/tests/common/sdl/test_config_schema.py
+index d3e1183..969fe8d 100644
+--- a/tests/common/sdl/test_config_schema.py
++++ b/tests/common/sdl/test_config_schema.py
+@@ -10,10 +10,10 @@
+ # limitations under the License.
+ 
+ from collections import namedtuple
+-from pathlib import Path
+-from typing import List
++import json
++import pathlib
+ 
+-import jsonschema
++import jsonschema_rs as jsonschema
+ import pytest
+ 
+ from nncf.config import NNCFConfig
+diff --git a/tests/common/sdl/test_schema.py b/tests/common/sdl/test_schema.py
+index 862da16..ea1bb81 100644
+--- a/tests/common/sdl/test_schema.py
++++ b/tests/common/sdl/test_schema.py
+@@ -8,10 +8,10 @@
+ # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+-
++import json
+ import re
+ 
+-import jsonschema
++import jsonschema_rs as jsonschema
+ import pytest
+ 
+ from nncf.config.schema import validate_accuracy_aware_training_schema

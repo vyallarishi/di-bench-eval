@@ -1,0 +1,49 @@
+diff --git a/cgen/__init__.py b/cgen/__init__.py
+index 862425c..92a4061 100644
+--- a/cgen/__init__.py
++++ b/cgen/__init__.py
+@@ -27,7 +27,7 @@ from typing import Any
+ 
+ import numpy
+ 
+-from pytools import memoize, memoize_method
++import functools
+ 
+ 
+ try:
+@@ -36,11 +36,10 @@ except ImportError:
+     import struct as _struct
+ 
+ 
+-@memoize
++@functools.lru_cache(maxsize=None)
+ def is_long_64_bit():
+     return _struct.calcsize("l") == 8
+ 
+-
+ def dtype_to_ctype(dtype):
+     if dtype is None:
+         raise ValueError("dtype may not be None")
+diff --git a/pyproject.toml b/pyproject.toml
+index c384ee2..499e435 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: Utilities",
+ ]
+-dependencies = []
++dependencies = [
++    "numpy>=1.6",
++]
+ 
+ [project.optional-dependencies]
+ test = [
+@@ -78,6 +80,6 @@ multiline-quotes = "double"
+ 
+ [tool.ruff.lint.isort]
+ combine-as-imports = true
+-known-first-party = [ "pytools" ]
+ known-local-folder = [ "cgen" ]
+ lines-after-imports = 2
++lines-after-imports = 2

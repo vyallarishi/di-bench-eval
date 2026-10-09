@@ -1,0 +1,153 @@
+diff --git a/docs/conf.py b/docs/conf.py
+index 4436aec..43c9f20 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -37,7 +37,7 @@ extensions = [
+ 
+ hoverxref_auto_ref = True
+ hoverxref_domains = ['py']
+-hoverxref_intersphinx = ['aiohttp', 'requests', 'requests_oauthlib']
++hoverxref_intersphinx = ['aiohttp', 'requests']
+ 
+ autoclass_content = "both"
+ 
+@@ -45,9 +45,6 @@ intersphinx_mapping = {
+   'python': ('https://docs.python.org/3', None),
+   'aiohttp': ('https://docs.aiohttp.org/en/stable/', None),
+   'requests': ('https://requests.readthedocs.io/en/stable/', None),
+-  'requests_oauthlib': (
+-    'https://requests-oauthlib.readthedocs.io/en/latest/', None
+-  )
+ }
+ 
+ rst_prolog = """
+diff --git a/setup.py b/setup.py
+index bc7c614..f66d217 100644
+--- a/setup.py
++++ b/setup.py
+@@ -34,7 +34,9 @@ setup(
+     download_url="https://pypi.org/project/tweepy/",
+     packages=find_packages(),
+     install_requires=[
+-    ],
++         "oauthlib>=3.2.0,<4",
++         "requests>=2.27.0,<3",
++     ],
+     extras_require={
+         "async": [
+             "aiohttp>=3.7.3,<4",
+diff --git a/tweepy/_auth_helpers.py b/tweepy/_auth_helpers.py
+new file mode 100644
+index 0000000..e403a7e
+--- /dev/null
++++ b/tweepy/_auth_helpers.py
+@@ -0,0 +1,61 @@
++import requests
++from urllib.parse import parse_qs
++
++from oauthlib.oauth1 import SIGNATURE_HMAC, Client as OAuth1Client
++from oauthlib.oauth2 import WebApplicationClient as OAuth2Client
++
++from tweepy.errors import TweepyException
++
++
++class OAuth1UserAuth(requests.auth.AuthBase):
++    def __init__(self, consumer_key, consumer_secret, access_token=None, access_token_secret=None):
++        self.client = OAuth1Client(
++            client_key=consumer_key,
++            client_secret=consumer_secret,
++            resource_owner_key=access_token,
++            resource_owner_secret=access_token_secret,
++            signature_method=SIGNATURE_HMAC,
++            decoding=None,
++        )
++
++    def __call__(self, r):
++        uri, headers, body = self.client.sign(
++            r.url,
++            http_method=r.method,
++            body=r.body,
++            headers=r.headers,
++        )
++        r.url = uri
++        r.headers.update(headers)
++        return r
++
++
++class OAuth2UserSession:
++    def __init__(self, client_id, redirect_uri, scope):
++        self.client = OAuth2Client(client_id=client_id, redirect_uri=redirect_uri, scope=scope)
++
++    def create_authorization_url(self):
++        code_verifier = self.client.create_code_verifier(128)
++        code_challenge = self.client.create_code_challenge(code_verifier, "S256")
++        uri, state = self.client.prepare_request_uri(
++            "https://twitter.com/i/oauth2/authorize",
++            code_challenge=code_challenge,
++            code_challenge_method="S256",
++        )
++        self.code_verifier = code_verifier
++        return uri
++
++    def fetch_token(self, authorization_response, auth=None):
++        token_url = "https://api.twitter.com/2/oauth2/token"
++        body = self.client.prepare_request_body(
++            authorization_response=authorization_response,
++            include_client_id=True,
++            code_verifier=self.code_verifier,
++        )
++        headers = {"Content-Type": "application/x-www-form-urlencoded"}
++        response = requests.post(token_url, data=body, headers=headers, auth=auth)
++        if response.status_code >= 400:
++            raise TweepyException(f"Error fetching token: {response.status_code} {response.text}")
++        token = response.json()
++        self.client.parse_request_body_response(response.text)
++        return token
+diff --git a/tweepy/auth.py b/tweepy/auth.py
+index 93fc302..605b1d8 100644
+--- a/tweepy/auth.py
++++ b/tweepy/auth.py
+@@ -7,10 +7,8 @@ import warnings
+ 
+ import requests
+ from requests.auth import AuthBase, HTTPBasicAuth
+-from requests_oauthlib import OAuth1, OAuth1Session, OAuth2Session
+-
+-from tweepy.errors import TweepyException
+ 
++from requests_oauthlib import OAuth1, OAuth1Session
+ WARNING_MESSAGE = """Warning! Due to a Twitter API bug, signin_with_twitter
+ and access_type don't always play nice together. Details
+ https://dev.twitter.com/discussions/21281"""
+@@ -35,6 +33,20 @@ class OAuth1UserHandler:
+                             + type(consumer_secret).__name__)
+ 
+         self.consumer_key = consumer_key
++        self.consumer_secret = consumer_secret
++        self.access_token = access_token
++        self.request_token = {}
++        self.oauth_client = OAuth1Client(
++            client_key=consumer_key,
++            client_secret=consumer_secret,
++            callback_uri=self.callback
++        )
++        self.username = None
++        self.request_token = {}
++        self.oauth = OAuth1Session(consumer_key, client_secret=consumer_secret,
++                                   callback_uri=self.callback)
++
++    def apply_auth(self):
+         self.consumer_secret = consumer_secret
+         self.access_token = access_token
+         self.access_token_secret = access_token_secret
+@@ -50,10 +62,6 @@ class OAuth1UserHandler:
+             resource_owner_key=self.access_token,
+             resource_owner_secret=self.access_token_secret, decoding=None
+         )
+-
+-    def _get_oauth_url(self, endpoint):
+-        return 'https://api.twitter.com/oauth/' + endpoint
+-
+     def _get_request_token(self, access_type=None):
+         try:
+             url = self._get_oauth_url('request_token')

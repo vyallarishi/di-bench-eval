@@ -1,0 +1,87 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..6b52488 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,9 @@
++cython
++jinja2
++Fabric39
++pystorm>=3.1.1
++requests
++setuptools
++simplejson
++texttable
++thriftpy2
+diff --git a/streamparse/cli/common.py b/streamparse/cli/common.py
+index 35c2f77..d0e19db 100644
+--- a/streamparse/cli/common.py
++++ b/streamparse/cli/common.py
+@@ -5,7 +5,7 @@ import argparse
+ import copy
+ import warnings
+ 
+-from ruamel import yaml
++import yaml
+ 
+ from streamparse.util import get_storm_workers
+ 
+@@ -49,11 +49,7 @@ class _StoreDictAction(argparse.Action):
+         # Only doing a copy here because that's what _AppendAction does
+         items = copy.copy(getattr(namespace, self.dest))
+         key, val = values.split("=", 1)
+-        if yaml.version_info < (0, 15):
+-            items[key] = yaml.safe_load(val)
+-        else:
+-            yml = yaml.YAML(typ="safe", pure=True)
+-            items[key] = yml.load(val)
++        items[key] = yaml.safe_load(val)
+         setattr(namespace, self.dest, items)
+ 
+ 
+@@ -64,6 +60,12 @@ def option_alias(option):
+         return f"{option}={val}"
+ 
+     return _create_key_val_str
++    """Returns a function that will create option=val for _StoreDictAction."""
++
++    def _create_key_val_str(val):
++        return f"{option}={val}"
++
++    return _create_key_val_str
+ 
+ 
+ def add_ackers(parser):
+diff --git a/streamparse/cli/run.py b/streamparse/cli/run.py
+index 776ef00..0f34c24 100644
+--- a/streamparse/cli/run.py
++++ b/streamparse/cli/run.py
+@@ -10,7 +10,7 @@ from argparse import RawDescriptionHelpFormatter
+ from tempfile import NamedTemporaryFile
+ 
+ from fabric.api import local, show
+-from ruamel import yaml
++import yaml
+ 
+ from ..util import (
+     get_config,
+@@ -78,12 +78,14 @@ def run_local_topology(
+         with NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as yaml_file:
+             topology_flux_dict = topology_class.to_flux_dict(name)
+             topology_flux_dict["config"] = storm_options
+-            if yaml.version_info < (0, 15):
+-                yaml.safe_dump(topology_flux_dict, yaml_file, default_flow_style=False)
+-            else:
+-                yml = yaml.YAML(typ="safe", pure=True)
+-                yml.default_flow_style = False
+-                yml.dump(topology_flux_dict, yaml_file)
++            yaml.safe_dump(topology_flux_dict, yaml_file, default_flow_style=False)
++            cmd = (
++                "storm jar {jar} org.apache.storm.flux.Flux --local --no-splash "
++                "--sleep {time} {yaml}".format(
++                    jar=topology_jar, time=time, yaml=yaml_file.name
++                )
++            )
++            local(cmd)
+             cmd = (
+                 "storm jar {jar} org.apache.storm.flux.Flux --local --no-splash "
+                 "--sleep {time} {yaml}".format(

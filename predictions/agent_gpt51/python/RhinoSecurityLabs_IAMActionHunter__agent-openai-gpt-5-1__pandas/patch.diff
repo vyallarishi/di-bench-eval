@@ -1,0 +1,114 @@
+diff --git a/IAMActionHunter/lib/create_csv.py b/IAMActionHunter/lib/create_csv.py
+index 59c944e..a586fdf 100644
+--- a/IAMActionHunter/lib/create_csv.py
++++ b/IAMActionHunter/lib/create_csv.py
+@@ -1,61 +1,60 @@
+-import pandas as pd
++import csv
+ import os
+ 
+ 
+ def process_json_and_append_to_csv(json_data, csv_file, principal):
++    """Process the JSON data and append it to the CSV file.
++
++    Args:
++        json_data (dict): Mapping of action -> details containing Allow/Deny resources and conditions.
++        csv_file (str): Path to the CSV file to append to.
++        principal (str): Principal associated with these actions.
+     """
+-    Process the JSON data and append it to the CSV file
+-    Args: json_data (string): JSON data to process
+-    Args: csv_file (string): CSV file to append to
+-    returns: None
+-    """
+ 
+-    # Load JSON data into a Python dictionary
+-    # data = json.loads(json_data)
+-
+-    # Create an empty DataFrame with the required columns
+-    df = pd.DataFrame(
+-        columns=[
+-            "Principal",
+-            "Allowed Action",
+-            "Denied Action",
+-            "Resource",
+-            "Conditions",
+-        ]
+-    )
+-
+-    # Create a list to store DataFrame rows
++    fieldnames = [
++        "Principal",
++        "Allowed Action",
++        "Denied Action",
++        "Resource",
++        "Conditions",
++    ]
++
++    # Build all rows first so behavior matches previous implementation that wrote
++    # the whole DataFrame at once.
+     rows = []
+ 
+-    # Populate the DataFrame with the JSON data
+-    for action in json_data:
+-        for allowed_resource in json_data[action]["Allow_resources"]:
++    for action, details in json_data.items():
++        for allowed_resource in details["Allow_resources"]:
+             rows.append(
+                 {
+                     "Principal": principal,
+                     "Allowed Action": action,
+                     "Denied Action": "",
+                     "Resource": allowed_resource,
+-                    "Conditions": json_data[action]["Allow_conditions"],
++                    "Conditions": details["Allow_conditions"],
+                 }
+             )
+ 
+-        for denied_resource in json_data[action]["Deny_resources"]:
++        for denied_resource in details["Deny_resources"]:
+             rows.append(
+                 {
+                     "Principal": principal,
+                     "Allowed Action": "",
+                     "Denied Action": action,
+                     "Resource": denied_resource,
+-                    "Conditions": json_data[action]["Deny_conditions"],
++                    "Conditions": details["Deny_conditions"],
+                 }
+             )
+ 
+-    # Concatenate the rows to the DataFrame
+-    df = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
++    file_exists = os.path.isfile(csv_file)
++
++    # Use newline="" for csv module correctness across platforms.
++    with open(csv_file, "a", newline="", encoding="utf-8") as f:
++        writer = csv.DictWriter(f, fieldnames=fieldnames)
++
++        # If the file did not exist we need to create it and write the header.
++        if not file_exists:
++            writer.writeheader()
+ 
+-    # Check if the CSV file exists, and write the header if necessary
+-    if not os.path.isfile(csv_file):
+-        df.to_csv(csv_file, index=False, mode="w", header=True)
+-    else:
+-        df.to_csv(csv_file, index=False, mode="a", header=False)
++        for row in rows:
++            writer.writerow(row)
+diff --git a/pyproject.toml b/pyproject.toml
+index c6cdba2..a5ba97c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,7 +8,9 @@ packages = [{include = "IAMActionHunter"},{include="lib", from="IAMActionHunter"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
+-
++policyuniverse = "^1.5.0.20220613"
++boto3 = "^1.26.87"
++colorama = "^0.4.6"
+ [tool.poetry.group.dev]
+ optional = true
+ 

@@ -1,0 +1,194 @@
+diff --git a/omniduct/utils/dependencies.py b/omniduct/utils/dependencies.py
+index 38060f4..1473dcc 100644
+--- a/omniduct/utils/dependencies.py
++++ b/omniduct/utils/dependencies.py
+@@ -2,8 +2,6 @@ import importlib
+ import re
+ from typing import Optional
+ 
+-import packaging.requirements
+-
+ from omniduct._version import __optional_dependencies__
+ from omniduct.utils.debug import logger
+ 
+@@ -23,6 +21,134 @@ def get_package_version(package_name: str) -> Optional[str]:
+         return pkg_resources.get_distribution(package_name).version
+ 
+ 
++def _parse_requirement(dep: str):
++    """Parse a requirement string without depending on ``packaging``.
++
++    This supports the subset of requirement syntax used in ``__optional_dependencies__``,
++    which are standard ``name[extra1,extra2]`` entries with an optional
++    version specifier made up of comma-separated comparisons, e.g.::
++
++        name
++        name>=1.0
++        name[extra]==1.2.0
++        name>=1.0,<2.0
++
++    Returns ``(package_name, specifier_list)`` where ``specifier_list`` is a
++    list of ``(operator, version)`` tuples. Extras are ignored for the
++    purposes of checking versions.
++    """
++
++    # Strip off any extras (e.g. "package[extra1,extra2]")
++    name_part, _sep, version_part = dep.partition("[")
++    name = name_part.strip()
++
++    # Remove extras that may appear after closing bracket before version
++    if "]" in version_part:
++        _extras, _close, rest = version_part.partition("]")
++        version_part = rest
++
++    # Split off version specifiers starting with comparison ops or a digit
++    name_only, op_part = _split_name_and_spec(name)
++    if op_part:
++        # This shouldn't normally happen because ops follow the name, but keep
++        # behaviour consistent if malformed strings sneak through.
++        spec_str = op_part
++    else:
++        _name, _sep2, spec_str = name.partition(",") if "," in name else (name, "", "")
++
++    if not spec_str and "]" in dep:
++        # e.g. "pkg[extra]>=1.0" or with multiple extras; parse from the full dep
++        _, _, after_bracket = dep.partition("]")
++        _, _, spec_str = after_bracket.partition(";")  # ignore environment markers
++
++    if not spec_str and any(op in dep for op in ["<", ">", "=", "~", "!"]):
++        # Fallback: everything after first comparison operator
++        for op in ["<=", ">=", "==", "!=", "~=", "<", ">"]:
++            if op in dep:
++                name_only = dep.split(op, 1)[0].strip()
++                spec_str = dep[len(name_only) :].strip()
++                break
++
++    specifiers = []
++    if spec_str:
++        for part in spec_str.split(","):
++            part = part.strip()
++            if not part:
++                continue
++            for op in ["<=", ">=", "==", "!=", "~=", "<", ">"]:
++                if part.startswith(op):
++                    version = part[len(op) :].strip()
++                    if version:
++                        specifiers.append((op, version))
++                    break
++
++    return name_only, specifiers
++
++
++def _split_name_and_spec(name: str):
++    """Helper to split a raw requirement into name and specifier part."""
++    for idx, ch in enumerate(name):
++        if ch in "<>=!~":
++            return name[:idx].strip(), name[idx:].strip()
++    return name.strip(), ""
++
++
++def _compare_versions(v1: str, v2: str) -> int:
++    """Compare two version strings in a PEP 440–like way without packaging.
++
++    Returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2.
++    This is intentionally minimal and based on splitting into integer
++    components; it is sufficient for typical ``X.Y.Z`` style versions.
++    """
++
++    def normalize(v):
++        return [int(part) if part.isdigit() else part for part in re.split(r"[.]+", v)]
++
++    a = normalize(v1)
++    b = normalize(v2)
++
++    for x, y in zip(a, b):
++        if x == y:
++            continue
++        return -1 if x < y else 1
++    if len(a) == len(b):
++        return 0
++    return -1 if len(a) < len(b) else 1
++
++
++def _satisfies_specifiers(version: str, specifiers) -> bool:
++    """Return True if *version* satisfies the sequence of specifiers."""
++
++    for op, spec_version in specifiers:
++        cmp = _compare_versions(version, spec_version)
++        if op == "==" and cmp != 0:
++            return False
++        if op == "!=" and cmp == 0:
++            return False
++        if op == ">" and cmp <= 0:
++            return False
++        if op == ">=" and cmp < 0:
++            return False
++        if op == "<" and cmp >= 0:
++            return False
++        if op == "<=" and cmp > 0:
++            return False
++        # "~=" is treated as >= lower bound, < next major
++        if op == "~=":
++            if cmp < 0:
++                return False
++            parts = spec_version.split(".")
++            if parts:
++                try:
++                    major = int(parts[0]) + 1
++                    upper = f"{major}"
++                    if _compare_versions(version, upper) >= 0:
++                        return False
++                except ValueError:
++                    pass
++    return True
++
++
+ def check_dependencies(protocols, message=None):
+     if protocols is None:
+         return
+@@ -40,8 +166,7 @@ def check_dependencies(protocols, message=None):
+         package_name = m.group(0)
+         accept_any_version = package_name == dep
+ 
+-        dep_req = packaging.requirements.Requirement(dep)
+-        package_name = dep_req.name
++        package_name, specifiers = _parse_requirement(dep)
+         package_version = get_package_version(package_name)
+ 
+         if package_version is None:
+@@ -53,7 +178,7 @@ def check_dependencies(protocols, message=None):
+                     warning_deps[dep] = f"{package_name}==<not installed>"
+             except ModuleNotFoundError:
+                 missing_deps.append(dep)
+-        elif dep_req.specifier and not dep_req.specifier.contains(package_version):
++        elif specifiers and not _satisfies_specifiers(package_version, specifiers):
+             warning_deps[dep] = f"{package_name}=={package_version}"
+ 
+     if warning_deps:
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..393991f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,21 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
++
++[project.optional-dependencies]
+ 
+ [project.optional-dependencies]
+ all = [

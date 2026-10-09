@@ -1,0 +1,123 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 6c15ed9..6c979ca 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,30 +27,31 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "SQLAlchemy-Utils>=0.40.0",
++    "SQLAlchemy>=1.4",
++]
+ 
+ [project.urls]
+ Code            = "https://github.com/falcony-io/sqlalchemy-searchable"
+ Documentation   = "https://sqlalchemy-searchable.readthedocs.io/"
+ "Issue Tracker" = "http://github.com/falcony-io/sqlalchemy-searchable/issues"
+ 
+-[tool.hatch.version]
+-path = "sqlalchemy_searchable/__init__.py"
+-
+-[tool.hatch.build.targets.sdist]
+-include = [
+-    "/CHANGES.rst",
+-    "/docs",
+-    "/sqlalchemy_searchable",
+-    "/tests",
++[project]
++name = "sqlalchemy-searchable"
++version = "2.1.0"
++description = "Full text search for SQLAlchemy."
++readme = "README.rst"
++requires-python = ">=3.8"
++license = {text = "BSD"}
++authors = [
++    {name = "Miki Tebeka", email = "miki.tebeka@gmail.com"},
+ ]
+-exclude = [
+-    "/docs/_build",
++classifiers = [
++    "License :: OSI Approved :: BSD License",
++    "Programming Language :: Python",
++    "Programming Language :: Python :: 3",
++]
++dependencies = [
++    "SQLAlchemy>=1.4",
+ ]
+-
+-[tool.ruff.lint]
+-select = ["E", "F", "I", "UP"]
+-
+-[tool.ruff.lint.isort]
+-known-first-party = ["sqlalchemy_searchable", "tests"]
+-order-by-type     = false
+diff --git a/sqlalchemy_searchable/__init__.py b/sqlalchemy_searchable/__init__.py
+index 03c3f19..99d29a2 100644
+--- a/sqlalchemy_searchable/__init__.py
++++ b/sqlalchemy_searchable/__init__.py
+@@ -6,30 +6,43 @@ from sqlalchemy import event
+ from sqlalchemy.ext.compiler import compiles
+ from sqlalchemy.schema import DDL, DDLElement
+ from sqlalchemy.sql.expression import Executable
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy.types import UserDefinedType
+ 
+ from .vectorizers import Vectorizer
+ 
+ __version__ = "2.1.0"
+-
+-
+ vectorizer = Vectorizer()
+ """
+-An instance of :class:`Vectorizer` that keeps a track of the registered vectorizers. Use
+ this as a decorator to register a function as a vectorizer.
+ """
+ 
+ 
++class TSVectorType(UserDefinedType):
++    """Minimal in-tree replacement for :class:`sqlalchemy_utils.TSVectorType`.
++
++    Only a tiny subset of the original behaviour is required by this project
++    and its tests:
++
++    * the column should be of PostgreSQL ``TSVECTOR`` type; and
++    * configuration / weighting / auto_index information must be accessible via
++      ``.type`` on the column so that :mod:`sqlalchemy_searchable` can build
++      indexes, triggers and SQL expressions.
++    """
++
++    def __init__(self, *columns, regconfig=None, weights=None, auto_index=None):
++        self.columns = columns
++        self.regconfig = regconfig
++        self.weights = weights or {}
++        self.auto_index = auto_index
++        # provide an ``options`` mapping compatible with the original helper
++        self.options = {"regconfig": regconfig, "weights": self.weights}
++
++    def get_col_spec(self):  # pragma: no cover - trivial
++        return "TSVECTOR"
++
++
+ class SearchQueryMixin:
+     def search(self, search_query, vector=None, regconfig=None, sort=False):
+-        """
+-        Search given query with full text search.
+-
+-        :param search_query: the search query
+-        :param vector: search vector to use
+-        :param regconfig: postgresql regconfig to be used
+-        :param sort: order results by relevance (quality of hit)
+-        """
+         return search(self, search_query, vector=vector, regconfig=regconfig, sort=sort)
+ 
+ 
+@@ -40,7 +53,6 @@ def inspect_search_vectors(entity):
+         if isinstance(column.type, TSVectorType)
+     ]
+ 
+-
+ def search(query, search_query, vector=None, regconfig=None, sort=False):
+     """
+     Search given query with full text search.

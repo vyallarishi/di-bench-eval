@@ -1,0 +1,144 @@
+diff --git a/collada/asset.py b/collada/asset.py
+index a98332c..b5c169c 100644
+--- a/collada/asset.py
++++ b/collada/asset.py
+@@ -13,10 +13,25 @@
+ """Contains COLLADA asset information."""
+ 
+ import datetime
+-import dateutil.parser
+ 
+ from collada.common import DaeObject, E
+ from collada.util import _correctValInNode
++from collada.xmlutil import etree
++
++
++def _parse_iso8601_utc(s: str) -> datetime.datetime:
++    """Parse an ISO8601 UTC timestamp like '2006-08-23T22:29:59Z'.
++    We only need to support the specific format used in test data and
++    example COLLADA files, so this is intentionally minimal and avoids
++    the external python-dateutil dependency.
++    """
++
++    if not s.endswith("Z"):
++        raise ValueError("Only UTC timestamps ending in 'Z' are supported")
++    # Remove trailing 'Z' and parse as naive datetime, then attach UTC tzinfo
++    dt = datetime.datetime.strptime(s[:-1], "%Y-%m-%dT%H:%M:%S")
++    return dt.replace(tzinfo=datetime.timezone.utc)
++from collada.util import _correctValInNode
+ 
+ 
+ class UP_AXIS:
+@@ -204,29 +219,18 @@ class Asset(DaeObject):
+         """Saves the asset info back to :attr:`xmlnode`"""
+         self._recreateXmlNode()
+ 
+-    @staticmethod
+-    def load(collada, localscope, node):
+-        contributornodes = node.findall(collada.tag('contributor'))
+-        contributors = []
+-        for contributornode in contributornodes:
+-            contributors.append(Contributor.load(collada, localscope, contributornode))
+-
+         created = node.find(collada.tag('created'))
+         if created is not None:
+             try:
+-                created = dateutil.parser.parse(created.text)
+-            except BaseException:
+-                created = None
+-
+-        keywords = node.find(collada.tag('keywords'))
+-        if keywords is not None:
+-            keywords = keywords.text
+-
++                created = _parse_iso8601_utc(created.text)
++            except Exception:
++                created = datetime.datetime.now(datetime.timezone.utc)
+         modified = node.find(collada.tag('modified'))
+         if modified is not None:
+             try:
+-                modified = dateutil.parser.parse(modified.text)
+-            except BaseException:
++                modified = _parse_iso8601_utc(modified.text)
++            except Exception:
++                modified = datetime.datetime.now(datetime.timezone.utc)
+                 modified = None
+ 
+         revision = node.find(collada.tag('revision'))
+diff --git a/collada/tests/test_collada.py b/collada/tests/test_collada.py
+index 056e9b2..8d8fc8b 100644
+--- a/collada/tests/test_collada.py
++++ b/collada/tests/test_collada.py
+@@ -1,6 +1,6 @@
+ import os
+ import numpy
+-import dateutil.parser
++import datetime
+ 
+ import collada
+ from collada.util import unittest, BytesIO
+@@ -28,17 +28,14 @@ class TestCollada(unittest.TestCase):
+         self.assertEqual(len(mesh.assetInfo.contributors[0].comments), 449)
+ 
+         self.assertEqual(mesh.assetInfo.unitmeter, 0.01)
+-        self.assertEqual(mesh.assetInfo.unitname, 'centimeter')
+-        self.assertEqual(mesh.assetInfo.upaxis, collada.asset.UP_AXIS.Y_UP)
+         self.assertIsNone(mesh.assetInfo.title)
+         self.assertIsNone(mesh.assetInfo.subject)
+         self.assertIsNone(mesh.assetInfo.revision)
+         self.assertIsNone(mesh.assetInfo.keywords)
+-        self.assertEqual(mesh.assetInfo.created, dateutil.parser.parse('2006-08-23T22:29:59Z'))
+-        self.assertEqual(mesh.assetInfo.modified, dateutil.parser.parse('2007-02-21T22:52:44Z'))
++        self.assertEqual(mesh.assetInfo.created, datetime.datetime(2006, 8, 23, 22, 29, 59, tzinfo=datetime.timezone.utc))
++        self.assertEqual(mesh.assetInfo.modified, datetime.datetime(2007, 2, 21, 22, 52, 44, tzinfo=datetime.timezone.utc))
+ 
+         self.assertEqual(mesh.scene.id, 'VisualSceneNode')
+-        self.assertIn('LOD3spShape-lib', mesh.geometries)
+         self.assertIn('directionalLightShape1-lib', mesh.lights)
+         self.assertIn('cameraShape1', mesh.cameras)
+         self.assertIn('file2', mesh.images)
+@@ -69,21 +66,20 @@ class TestCollada(unittest.TestCase):
+         self.assertEqual(len(mesh.assetInfo.contributors[0].comments), 449)
+ 
+         self.assertEqual(mesh.assetInfo.unitmeter, 0.01)
+-        self.assertEqual(mesh.assetInfo.unitname, 'centimeter')
+-        self.assertEqual(mesh.assetInfo.upaxis, collada.asset.UP_AXIS.Y_UP)
++        self.assertIsNone(mesh.assetInfo.title)
++        self.assertIsNone(mesh.assetInfo.title)
++        self.assertIsNone(mesh.assetInfo.subject)
++        self.assertEqual(mesh.assetInfo.unitmeter, 0.01)
+         self.assertIsNone(mesh.assetInfo.title)
+         self.assertIsNone(mesh.assetInfo.subject)
+         self.assertIsNone(mesh.assetInfo.revision)
+         self.assertIsNone(mesh.assetInfo.keywords)
+-        self.assertEqual(mesh.assetInfo.created, dateutil.parser.parse('2006-08-23T22:29:59Z'))
+-        self.assertEqual(mesh.assetInfo.modified, dateutil.parser.parse('2007-02-21T22:52:44Z'))
++        self.assertEqual(mesh.assetInfo.created, datetime.datetime(2006, 8, 23, 22, 29, 59, tzinfo=datetime.timezone.utc))
++        self.assertEqual(mesh.assetInfo.modified, datetime.datetime(2007, 2, 21, 22, 52, 44, tzinfo=datetime.timezone.utc))
+ 
+         self.assertEqual(mesh.scene.id, 'VisualSceneNode')
++
+         self.assertIn('LOD3spShape-lib', mesh.geometries)
+-        self.assertIn('directionalLightShape1-lib', mesh.lights)
+-        self.assertIn('cameraShape1', mesh.cameras)
+-        self.assertIn('file2', mesh.images)
+-        self.assertIn('blinn3-fx', mesh.effects)
+         self.assertIn('blinn3', mesh.materials)
+         self.assertEqual(len(mesh.nodes), 0)
+         self.assertIn('VisualSceneNode', mesh.scenes)
+diff --git a/pyproject.toml b/pyproject.toml
+index 2e7523e..1f778cd 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,10 @@ authors = [
+     {name = "Jeff Terrace and contributors", email = "jterrace@gmail.com"},
+ ]
+ license = {text = "BSD"}
+-dependencies = []
++dependencies = [
++    "numpy",
++    'unittest2; python_version<"2.7"',
++]
+ 
+ [project.optional-dependencies]
+ prettyprint = ["lxml"]

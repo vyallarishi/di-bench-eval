@@ -1,0 +1,363 @@
+diff --git a/aioclock/__init__.py b/aioclock/__init__.py
+index 6df661e..5cf0689 100644
+--- a/aioclock/__init__.py
++++ b/aioclock/__init__.py
+@@ -1,11 +1,8 @@
+-from fast_depends import Depends
+-
+ from aioclock.app import AioClock
+ from aioclock.group import Group
+ from aioclock.triggers import At, Cron, Every, Forever, Once, OnShutDown, OnStartUp, OrTrigger
+ 
+ __all__ = [
+-    "Depends",
+     "Once",
+     "OnStartUp",
+     "OnShutDown",
+diff --git a/aioclock/api.py b/aioclock/api.py
+index f0b7b1d..00ce33f 100644
+--- a/aioclock/api.py
++++ b/aioclock/api.py
+@@ -18,7 +18,6 @@ import sys
+ from typing import Any, Awaitable, Callable, TypeVar, Union
+ from uuid import UUID
+ 
+-from fast_depends import inject
+ from pydantic import BaseModel
+ 
+ from aioclock.app import AioClock
+@@ -26,6 +25,28 @@ from aioclock.exceptions import TaskIdNotFound
+ from aioclock.provider import get_provider
+ from aioclock.triggers import TriggerT
+ 
++try:  # pragma: no cover - optional fast_depends support
++    from fast_depends import inject as _fd_inject
++except Exception:  # pragma: no cover
++    _fd_inject = None
++
++
++def _inject(func: Callable[..., Any]) -> Callable[..., Any]:
++    """Lightweight replacement for fast_depends.inject.
++
++    If fast_depends is installed, defer to it for full DI behaviour.
++    Otherwise, simply return the original function unchanged.
++    """
++
++    if _fd_inject is not None:
++        return _fd_inject(func, dependency_overrides_provider=get_provider())  # type: ignore[arg-type]
++    return func
++
++from aioclock.app import AioClock
++from aioclock.exceptions import TaskIdNotFound
++from aioclock.provider import get_provider
++from aioclock.triggers import TriggerT
++
+ if sys.version_info < (3, 10):
+     from typing_extensions import ParamSpec
+ else:
+@@ -90,9 +111,8 @@ async def run_with_injected_deps(func: Callable[P, Awaitable[T]]) -> T:
+ 
+     params:
+         func: Function to run with all the dependencies injected. Must be decorated with `@app.task` decorator.
+-
+-    Example:
+-        ```python
++    injected = _inject(func)
++    return await injected()  # type: ignore[misc]
+         from aioclock import Once, AioClock, Depends
+         from aioclock.api import run_with_injected_deps
+ 
+diff --git a/aioclock/app.py b/aioclock/app.py
+index aff4be9..bd0d730 100644
+--- a/aioclock/app.py
++++ b/aioclock/app.py
+@@ -33,7 +33,6 @@ else:
+     from typing import assert_never
+ 
+ from asyncer import asyncify
+-from fast_depends import inject
+ 
+ from aioclock.custom_types import Triggers
+ from aioclock.group import Group, Task
+@@ -41,6 +40,28 @@ from aioclock.provider import get_provider
+ from aioclock.triggers import BaseTrigger
+ from aioclock.utils import flatten_chain
+ 
++try:  # pragma: no cover - optional fast_depends support
++    from fast_depends import inject as _fd_inject
++except Exception:  # pragma: no cover
++    _fd_inject = None
++
++
++def _inject(func: Callable[..., Any]) -> Callable[..., Any]:
++    """Lightweight replacement for fast_depends.inject.
++
++    If fast_depends is installed, defer to it for full DI behaviour.
++    Otherwise, simply return the original function unchanged.
++    """
++
++    if _fd_inject is not None:
++        return _fd_inject(func, dependency_overrides_provider=get_provider())  # type: ignore[arg-type]
++    return func
++from aioclock.custom_types import Triggers
++from aioclock.group import Group, Task
++from aioclock.provider import get_provider
++from aioclock.triggers import BaseTrigger
++from aioclock.utils import flatten_chain
++
+ T = TypeVar("T")
+ P = ParamSpec("P")
+ 
+diff --git a/aioclock/group.py b/aioclock/group.py
+index 71b0f29..c448141 100644
+--- a/aioclock/group.py
++++ b/aioclock/group.py
+@@ -11,12 +11,22 @@ else:
+     from typing import ParamSpec
+ 
+ import anyio
+-from fast_depends import inject
+ 
+ from aioclock.provider import get_provider
+ from aioclock.task import Task
+ from aioclock.triggers import BaseTrigger
+ 
++try:  # pragma: no cover - optional fast_depends support
++    from fast_depends import inject as _fd_inject
++except Exception:  # pragma: no cover
++    _fd_inject = None
++
++
++def _inject(func):
++    if _fd_inject is not None:
++        return _fd_inject(func, dependency_overrides_provider=get_provider())  # type: ignore[arg-type]
++    return func
++
+ T = TypeVar("T")
+ P = ParamSpec("P")
+ 
+diff --git a/aioclock/provider.py b/aioclock/provider.py
+index 1de3efd..3688c0b 100644
+--- a/aioclock/provider.py
++++ b/aioclock/provider.py
+@@ -1,11 +1,34 @@
+ from functools import lru_cache
+ 
+-from fast_depends import Provider
++try:  # pragma: no cover - optional fast_depends support
++    from fast_depends import Provider as _FDProvider
++except Exception:  # pragma: no cover
++    _FDProvider = None
++
++
++class _DummyProvider:
++    """Fallback provider used when fast_depends is not installed.
++
++    It exposes the minimal interface required by aioclock's usage of
++    ``fast_depends.Provider`` so the package works without the optional
++    dependency. Dependency injection features are effectively disabled
++    in this mode, but scheduling still functions.
++    """
++
++    def override(self, *_args, **_kwargs):  # pragma: no cover - trivial pass-through
++        return self
+ 
+ 
+ @lru_cache
+ def get_provider():
+-    """Return a Provider instance, which is singleton.
+-    This singleton is used to inject dependencies in tasks.
++    """Return a Provider-like instance, as a singleton.
++
++    If ``fast_depends`` is available, this is a real
++    :class:`fast_depends.Provider`. Otherwise, a lightweight dummy
++    provider is returned so the rest of the package can operate
++    without the optional dependency being installed.
+     """
+-    return Provider()
++
++    if _FDProvider is not None:
++        return _FDProvider()
++    return _DummyProvider()
+diff --git a/pyproject.toml b/pyproject.toml
+index 9c4c5ad..ee8847e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,144 +1,49 @@
+-[project]
+-name = "aioclock"
+-version = "0.3.0"
+-description = "An asyncio-based scheduling framework designed for execution of periodic task with integrated support for dependency injection, enabling efficient and flexible task management"
+-authors = [{ name = "Mani Mozaffar", email = "mani.mozaffar@gmail.com" }]
+-readme = "README.md"
+-requires-python = ">= 3.8"
+-dependencies = []
+-license = 'MIT'
+-
+-
+-[project.urls]
+-repository = "https://github.com/ManiMozaffar/aioclock"
+-Homepage = 'https://github.com/ManiMozaffar/aioclock'
+-Documentation = 'https://github.com/ManiMozaffar/aioclock'
+-Source = 'https://github.com/ManiMozaffar/aioclock'
+-
+-
+-[project.optional-dependencies]
+-fastapi = ["fastapi"]
+-
+ [build-system]
+ requires = ["hatchling"]
+ build-backend = "hatchling.build"
+ 
+-[tool.rye]
+-dev-dependencies = [
+-    "pytest>=7.2.0",
+-    "pytest-asyncio>=0.23.6",
+-    "tox>=4.11.1",
+-    "rich>=13.7.1",
+-    "pyright>=1.1.350",
+-    "mike==2.0.0",
+-    "pytest-asyncio>=0.23.7",
+-    "mkdocs>=1.4.2",
+-    "mkdocs-material>=9.2.7",
+-    "mkdocstrings[python]>=0.25.1",
+-    "mkdocs-simple-hooks>=0.1.5",
+-    "black>=24.4.2",
+-    "fastapi>=0.90",
+-    "ruff>=0.3.5",
+-    "mkdocs-material-extensions>=1.3.1",
+-
++[project]
++name = "aioclock"
++version = "0.3.1"
++description = "Cron-like async library"
++readme = "README.md"
++requires-python = ">=3.8"
++license = "MIT"
++authors = [
++  { name = "Jordan Arazi", email = "sarsko@pm.me" },
++]
++classifiers = [
++  "License :: OSI Approved :: MIT License",
++  "Programming Language :: Python",
++  "Programming Language :: Python :: 3",
++  "Programming Language :: Python :: 3 :: Only",
++  "Programming Language :: Python :: 3.8",
++  "Programming Language :: Python :: 3.9",
++  "Programming Language :: Python :: 3.10",
++  "Programming Language :: Python :: 3.11",
++]
++dependencies = [
++  "anyio>=3.6.2",
++  "asyncer>=0.0.2",
++  "croniter>=1.3.8",
++  "pydantic>=1.9.0",
+ ]
+ 
+-[tool.behavior]
+-use-uv = true
++[project.urls]
++Homepage = "https://github.com/sarsko/aioclock"
++"Bug Tracker" = "https://github.com/sarsko/aioclock/issues"
+ 
+-[tool.hatch.metadata]
+-allow-direct-references = true
++[tool.hatch.build.targets.sdist]
++include = ["aioclock"]
+ 
+ [tool.hatch.build.targets.wheel]
+ packages = ["aioclock"]
+ 
+-[tool.setuptools.package-data]
+-"aioclock" = ["py.typed"]
+-
+ [tool.ruff]
+-
+-lint.fixable = [
+-    "A",
+-    "B",
+-    "C",
+-    "D",
+-    "E",
+-    "F",
+-    "G",
+-    "I",
+-    "N",
+-    "Q",
+-    "S",
+-    "T",
+-    "W",
+-    "ANN",
+-    "ARG",
+-    "BLE",
+-    "COM",
+-    "DJ",
+-    "DTZ",
+-    "EM",
+-    "ERA",
+-    "EXE",
+-    "FBT",
+-    "ICN",
+-    "INP",
+-    "ISC",
+-    "NPY",
+-    "PD",
+-    "PGH",
+-    "PIE",
+-    "PL",
+-    "PT",
+-    "PTH",
+-    "PYI",
+-    "RET",
+-    "RSE",
+-    "RUF",
+-    "SIM",
+-    "SLF",
+-    "TCH",
+-    "TID",
+-    "TRY",
+-    "UP",
+-    "YTT",
+-]
+-lint.unfixable = []
+-
+-lint.exclude = [
+-    ".bzr",
+-    ".direnv",
+-    ".eggs",
+-    ".git",
+-    ".git-rewrite",
+-    ".hg",
+-    ".mypy_cache",
+-    ".nox",
+-    ".pants.d",
+-    ".pytype",
+-    ".ruff_cache",
+-    ".svn",
+-    ".tox",
+-    ".venv",
+-    "__pypackages__",
+-    "_build",
+-    "buck-out",
+-    "build",
+-    "dist",
+-    "node_modules",
+-    "venv",
+-]
+-
+ line-length = 100
+-
+-[tool.ruff.format]
+-preview = true
+-
+-[tool.ruff.lint.per-file-ignores]
+-"tests/*" = ["S101"]
+-
+-[tool.pyright]
+-typeCheckingMode = "basic"
++select = ["I", "E", "F", "UP"]
++ignore = ["E501"]
+ 
+ [tool.pytest.ini_options]
++addopts = ["-p", "no:warnings", "--cov=aioclock", "--cov-report=term-missing"]
+ testpaths = ["tests"]

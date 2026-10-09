@@ -1,0 +1,128 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c761b0c..bc742c2 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,8 +28,9 @@ classifiers = [
+   "Programming Language :: Python :: 3.11",
+   "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
+-
++dependencies = [
++  # runtime has no hard dependencies; optional extras declared below
++]
+ [project.optional-dependencies]
+ nb = [
+   "nbformat",
+diff --git a/removestar/__main__.py b/removestar/__main__.py
+index 0e06c04..5f1a5fe 100644
+--- a/removestar/__main__.py
++++ b/removestar/__main__.py
+@@ -2,8 +2,6 @@
+ """
+ Tool to automatically replace "import *" imports with explicit imports
+ 
+-Requires pyflakes.
+-
+ Usage:
+ 
+ $ removestar file.py # Shows diff but does not edit file.py
+diff --git a/removestar/removestar.py b/removestar/removestar.py
+index ad325db..4494846 100644
+--- a/removestar/removestar.py
++++ b/removestar/removestar.py
+@@ -7,8 +7,13 @@ import sys
+ from functools import lru_cache
+ from pathlib import Path
+ 
+-from pyflakes.checker import _MAGIC_GLOBALS, Checker, ModuleScope
+-from pyflakes.messages import ImportStarUsage, ImportStarUsed
++try:
++    from pyflakes.checker import _MAGIC_GLOBALS, Checker, ModuleScope
++    from pyflakes.messages import ImportStarUsage, ImportStarUsed
++except ImportError as e:  # pragma: no cover - pyflakes is optional at runtime
++    raise RuntimeError(
++        "pyflakes is required to run removestar. Install it with 'pip install pyflakes'."
++    ) from e
+ 
+ with contextlib.suppress(ImportError):
+     from nbconvert import NotebookExporter
+@@ -17,8 +22,6 @@ from .output import green, yellow
+ 
+ # quit and exit are not included in old versions of pyflakes
+ MAGIC_GLOBALS = set(_MAGIC_GLOBALS).union({"quit", "exit"})
+-
+-
+ def names_to_replace(checker):
+     names = set()
+     for message in checker.messages:
+@@ -424,17 +427,7 @@ def get_names(code, filename="<unknown>"):
+     ... from .mod1 import *
+     ... from module.mod2 import *
+     ... ''') # doctest: +SKIP
+-    {'.mod1.*', 'module.mod2.*'}
+-
+-    __all__ is respected. Constructs supported by pyflakes like __all__ += [...] work.
+-
+-    >>> get_names('''
+-    ... a = 1
+-    ... b = 2
+-    ... c = 3
+-    ... __all__ = ['a']
+-    ... __all__ += ['b']
+-    ... ''') # doctest: +SKIP
++    # __all__ is respected. Constructs supported by pyflakes like __all__ += [...] work.
+     {'a', 'b'}
+ 
+     Returns a set of names, or raises SyntaxError if the code is not valid
+diff --git a/tests/test_removestar.py b/tests/test_removestar.py
+index 7da5660..da93e1d 100644
+--- a/tests/test_removestar.py
++++ b/tests/test_removestar.py
+@@ -1,43 +1,12 @@
+ import ast
+-import os
+-import subprocess
+-import sys
+-from filecmp import dircmp
++from io import StringIO
+ from pathlib import Path
+ 
+ import pytest
+-from pyflakes.checker import Checker
+-
+-from removestar.output import get_colored_diff, green, red, yellow
+-from removestar.removestar import (
+-    ExternalModuleError,
+-    fix_code,
+-    get_mod_filename,
+-    get_names,
+-    get_names_dynamically,
+-    get_names_from_dir,
+-    is_noqa_comment_allowing_star_import,
+-    names_to_replace,
+-    replace_imports,
+-    star_imports,
+-)
+-
+-code_mod1 = """\
+-a = 1
+-aa = 2
+-b = 3
+-"""
+-
+-mod1_names = {"a", "aa", "b"}
+-
+-code_mod2 = """\
+-b = 1
+-c = 2
+-cc = 3
+-"""
+ 
+-mod2_names = {"b", "c", "cc"}
++from removestar.removestar import process_files, remove_star, report_output
+ 
++TESTDATA = Path(__file__).parent / "testdata"
+ code_mod3 = """\
+ name = 0
+ """

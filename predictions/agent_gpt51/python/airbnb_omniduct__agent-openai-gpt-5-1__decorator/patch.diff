@@ -1,0 +1,334 @@
+diff --git a/omniduct/caches/base.py b/omniduct/caches/base.py
+index ff5f23c..de86048 100644
+--- a/omniduct/caches/base.py
++++ b/omniduct/caches/base.py
+@@ -5,7 +5,6 @@ from abc import abstractmethod
+ import dateutil
+ import pandas
+ import yaml
+-from decorator import decorator
+ from interface_meta import inherit_docs
+ 
+ from omniduct.duct import Duct
+@@ -33,8 +32,7 @@ def cached_method(
+     serializer=lambda self, kwargs: PickleSerializer(),
+     metadata=lambda self, kwargs: None,
+ ):
+-    """
+-    Wrap a method of a `Duct` class and add caching capabilities.
++    """Wrap a method of a `Duct` class and add caching capabilities.
+ 
+     All arguments of this function are expected to be functions taking two
+     arguments: a reference to current instance of the class (`self`) and a
+@@ -59,72 +57,85 @@ def cached_method(
+ 
+     Returns:
+         object: The (potentially cached) object returned when calling the
+-            wrapped function.
++        wrapped function.
+ 
+     Raises:
+         Exception: If cache fails to store the output of the wrapped function,
+-            and the omniduct configuration key `cache_fail_hard` is `True`, then
+-            the underlying exceptions raised by the Cache instance will be
+-            reraised.
++        and the omniduct configuration key `cache_fail_hard` is `True`, then
++        the underlying exceptions raised by the Cache instance will be
++        reraised.
+     """
+ 
+-    @decorator
+-    def wrapped(method, self, *args, **kwargs):
+-        kwargs = function_args_as_kwargs(method, self, *args, **kwargs)
+-        kwargs.pop("self")
+-
+-        _key = key(self, kwargs)
+-        _namespace = namespace(self, kwargs)
+-        _cache = cache(self, kwargs)
+-        _use_cache = use_cache(self, kwargs)
+-        _renew = renew(self, kwargs)
+-        _serializer = serializer(self, kwargs)
+-        _metadata = metadata(self, kwargs)
+-
+-        if _cache is None or not _use_cache:
+-            return method(self, **kwargs)
++    def decorator(method):
++        @functools.wraps(method)
++        def wrapped(self, *args, **kwargs):
++            kwargs = function_args_as_kwargs(method, self, *args, **kwargs)
++            kwargs.pop("self")
++
++            _key = key(self, kwargs)
++            _namespace = namespace(self, kwargs)
++            _cache = cache(self, kwargs)
++            _use_cache = use_cache(self, kwargs)
++            _renew = renew(self, kwargs)
++            _serializer = serializer(self, kwargs)
++            _metadata = metadata(self, kwargs)
++
++            if _cache is None or not _use_cache:
++                return method(self, **kwargs)
++
++            if (
++                _cache.has_key(_key, namespace=_namespace) and not _renew
++            ):  # noqa: has_key is not of a dictionary here
++                try:
++                    return _cache.get(
++                        _key,
++                        namespace=_namespace,
++                        serializer=_serializer,
++                    )
++                except Exception as e:  # pylint: disable=broad-exception-caught
++                    logger.warning(
++                        "Failed to retrieve results from cache [%s]. Renewing the cache...",
++                        e,
++                    )
++                    if config.cache_fail_hard:
++                        raise
++                finally:
++                    logger.caveat("Loaded from cache")
++
++            # Renewing/creating cache
++            value = method(self, **kwargs)
++            if value is None:
++                logger.warning("Method value returned None. Not saving to cache.")
++                return None
+ 
+-        if (
+-            _cache.has_key(_key, namespace=_namespace) and not _renew
+-        ):  # noqa: has_key is not of a dictionary here
+             try:
+-                return _cache.get(_key, namespace=_namespace, serializer=_serializer)
+-            except Exception as e:  # pylint: disable=broad-exception-caught
++                _cache.set(
++                    _key,
++                    value=value,
++                    namespace=_namespace,
++                    serializer=_serializer,
++                    metadata=_metadata,
++                )
++                # Return from cache every time, just in case serialization operation
++                # was destructive (e.g. reading from cursors)
++                return _cache.get(
++                    _key,
++                    namespace=_namespace,
++                    serializer=_serializer,
++                )
++            except Exception:  # pylint: disable=broad-exception-caught
+                 logger.warning(
+-                    "Failed to retrieve results from cache [%s]. Renewing the cache...",
+-                    e,
++                    "Failed to save results to cache. If needed, please save them manually."
+                 )
+                 if config.cache_fail_hard:
+                     raise
+-            finally:
+-                logger.caveat("Loaded from cache")
++                # As a last resort, return value object (which could be mutated by
++                # serialization).
++                return value
+ 
+-        # Renewing/creating cache
+-        value = method(self, **kwargs)
+-        if value is None:
+-            logger.warning("Method value returned None. Not saving to cache.")
+-            return None
+-
+-        try:
+-            _cache.set(
+-                _key,
+-                value=value,
+-                namespace=_namespace,
+-                serializer=_serializer,
+-                metadata=_metadata,
+-            )
+-            # Return from cache every time, just in case serialization operation was
+-            # destructive (e.g. reading from cursors)
+-            return _cache.get(_key, namespace=_namespace, serializer=_serializer)
+-        except:  # pylint: disable=bare-except
+-            logger.warning(
+-                "Failed to save results to cache. If needed, please save them manually."
+-            )
+-            if config.cache_fail_hard:
+-                raise
+-            return value  # As a last resort, return value object (which could be mutated by serialization).
++        return wrapped
+ 
+-    return wrapped
++    return decorator
+ 
+ 
+ class Cache(Duct):
+diff --git a/omniduct/databases/base.py b/omniduct/databases/base.py
+index 3b8a0f9..0e0aec4 100644
+--- a/omniduct/databases/base.py
++++ b/omniduct/databases/base.py
+@@ -10,7 +10,6 @@ from abc import abstractmethod
+ import jinja2
+ import jinja2.meta
+ import sqlparse
+-from decorator import decorator
+ from interface_meta import inherit_docs, override
+ 
+ from omniduct.caches.base import cached_method
+@@ -23,6 +22,15 @@ from omniduct.utils.magics import (
+     process_line_arguments,
+     process_line_cell_arguments,
+ )
++from omniduct.duct import Duct
++from omniduct.filesystems.local import LocalFsClient
++from omniduct.utils.debug import logger, logging_scope
++from omniduct.utils.decorators import require_connection
++from omniduct.utils.magics import (
++    MagicsProvider,
++    process_line_arguments,
++    process_line_cell_arguments,
++)
+ 
+ from . import _cursor_formatters
+ from ._cursor_serializer import CursorSerializer
+diff --git a/omniduct/utils/debug.py b/omniduct/utils/debug.py
+index 322edda..cb1ee59 100644
+--- a/omniduct/utils/debug.py
++++ b/omniduct/utils/debug.py
+@@ -4,12 +4,9 @@ import inspect
+ import logging
+ import sys
+ import time
+-
+ import progressbar
+-from decorator import decorate
+ 
+ from .config import config
+-
+ config.register(
+     "logging_level",
+     description="Set the default logging level.",
+@@ -292,27 +289,27 @@ class LoggingHandler(logging.Handler):
+         file.write(text)
+ 
+ 
++
++
+ def logging_scope(name, *wargs, **wkwargs):
+-    """
+-    A decorator to add the decorated function as a new logging scope, with name `name`.
+-    All additional arguments are passed to `StatusLogger._scope_enter`. Current
+-    supported keyword arguments are "timed", in which case when the scope closes,
+-    the duration of the call is shown.
+-    """
++    """A decorator to add the decorated function as a new logging scope.
+ 
+-    def logging_scope(func, *args, **kwargs):
+-        logger._scope_enter(name, *wargs, **wkwargs)
+-        success = True
+-        try:
+-            f = func(*args, **kwargs)
+-            return f
+-        except Exception:  # pylint: disable=broad-exception-caught
+-            success = False
+-            raise
+-        finally:
+-            logger._scope_exit(success)
++    All additional arguments are passed to ``StatusLogger._scope_enter``.
++    """
+ 
+-    return lambda func: decorate(func, logging_scope)
++    def decorator(func):
++        @functools.wraps(func)
++        def wrapped(*args, **kwargs):
++            logger._scope_enter(name, *wargs, **wkwargs)
++            success = True
++            try:
++                return func(*args, **kwargs)
++            except Exception:  # pylint: disable=broad-exception-caught
++                success = False
++                raise
++            finally:
++                logger._scope_exit(success)
+ 
++        return wrapped
+ 
+-logger = StatusLogger()
++    return decorator
+diff --git a/omniduct/utils/decorators.py b/omniduct/utils/decorators.py
+index 82519bd..8d66751 100644
+--- a/omniduct/utils/decorators.py
++++ b/omniduct/utils/decorators.py
+@@ -1,6 +1,5 @@
+ import inspect
+-
+-import decorator
++import functools
+ 
+ 
+ def function_args_as_kwargs(func, *args, **kwargs):
+@@ -9,24 +8,24 @@ def function_args_as_kwargs(func, *args, **kwargs):
+     return kwargs
+ 
+ 
+-@decorator.decorator
+-def require_connection(f, self, *args, **kwargs):
+-    """
+-    A wrapper to allow restoring of connection status in the event that
+-    connection issues result in failures. If so, we will attempt to retry the
+-    failed function call once more.
++def require_connection(fn):
++    """Decorator ensuring the duct is connected before calling the method.
++
++    If the wrapped call raises and the duct is no longer connected, reconnect
++    once and retry the call, then re-raise on further failure.
+     """
+-    if not self._Duct__connected:
+-        self.connect()
+-
+-    try:
+-        return f(self, *args, **kwargs)
+-    except Exception:  # pylint: disable=broad-exception-caught
+-        # Check to see if it is possible that we failed due to connection issues.
+-        # If so, try again once more. If we fail again, raise.
+-        # TODO: Explore adding a DuctConnectionError class and filter this
+-        # handling to errors of that class.
+-        if not self.is_connected():
++
++    @functools.wraps(fn)
++    def wrapper(self, *args, **kwargs):
++        if not self._Duct__connected:
+             self.connect()
+-            return f(self, *args, **kwargs)
+-        raise
++
++        try:
++            return fn(self, *args, **kwargs)
++        except Exception:  # pylint: disable=broad-exception-caught
++            if not self.is_connected():
++                self.connect()
++                return fn(self, *args, **kwargs)
++            raise
++
++    return wrapper
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..4763ae6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,19 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

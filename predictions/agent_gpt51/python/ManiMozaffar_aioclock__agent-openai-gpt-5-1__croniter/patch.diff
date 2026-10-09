@@ -1,0 +1,153 @@
+diff --git a/aioclock/triggers.py b/aioclock/triggers.py
+index 650a68a..eef7da4 100644
+--- a/aioclock/triggers.py
++++ b/aioclock/triggers.py
+@@ -19,10 +19,10 @@ from typing import Annotated, Generic, Literal, TypeVar, Union
+ 
+ import zoneinfo
+ from annotated_types import Interval
+-from croniter import croniter
+ from dateutil.relativedelta import relativedelta
+ from pydantic import BaseModel, Field, PositiveInt, model_validator
+ from typing_extensions import deprecated
++from typing_extensions import deprecated
+ 
+ from aioclock.custom_types import PositiveNumber, Triggers
+ 
+@@ -507,8 +507,6 @@ class Cron(LoopController[Literal[Triggers.CRON]]):
+     type_: Literal[Triggers.CRON] = Triggers.CRON
+     max_loop_count: Union[PositiveInt, None] = None
+     cron: str
+-    tz: str
+-
+     @model_validator(mode="after")
+     def validate_time_units(self):
+         if self.tz is not None:
+@@ -517,7 +515,9 @@ class Cron(LoopController[Literal[Triggers.CRON]]):
+             except Exception as error:
+                 raise ValueError(f"Invalid timezone provided: {error}")
+ 
+-        if croniter.is_valid(self.cron) is False:
++        # very small cron validator: require 5 space-separated fields
++        fields = self.cron.split()
++        if len(fields) != 5:
+             raise ValueError("Invalid cron format provided.")
+         return self
+ 
+@@ -525,8 +525,29 @@ class Cron(LoopController[Literal[Triggers.CRON]]):
+         if now is None:
+             now = datetime.now(tz=zoneinfo.ZoneInfo(self.tz))
+ 
+-        cron_iter = croniter(self.cron, now)
+-        next_dt: datetime = cron_iter.get_next(datetime)
++        # naive cron evaluator supporting minute, hour, day-of-month, month, weekday
++        cron_min, cron_hour, cron_dom, cron_mon, cron_wd = self.cron.split()
++
++        def match(value: int, expr: str) -> bool:
++            if expr == "*":
++                return True
++            return str(value) == expr
++
++        candidate = now + timedelta(minutes=1)
++        candidate = candidate.replace(second=0, microsecond=0)
++
++        while True:
++            if (
++                match(candidate.minute, cron_min)
++                and match(candidate.hour, cron_hour)
++                and match(candidate.day, cron_dom)
++                and match(candidate.month, cron_mon)
++                and match(candidate.weekday(), cron_wd)
++            ):
++                next_dt = candidate
++                break
++            candidate += timedelta(minutes=1)
++
+         return (next_dt - now).total_seconds()
+ 
+     async def trigger_next(self) -> None:
+diff --git a/pyproject.toml b/pyproject.toml
+index 9c4c5ad..73c10e7 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,12 @@ description = "An asyncio-based scheduling framework designed for execution of p
+ authors = [{ name = "Mani Mozaffar", email = "mani.mozaffar@gmail.com" }]
+ readme = "README.md"
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "pydantic[timezone]>=2.9.0",
++    "fast-depends>=2.4.0",
++    "asyncer>=0.0.7",
++    "croniter>=2.0.5",
++]
+ license = 'MIT'
+ 
+ 
+@@ -32,47 +37,26 @@ dev-dependencies = [
+     "pyright>=1.1.350",
+     "mike==2.0.0",
+     "pytest-asyncio>=0.23.7",
+-    "mkdocs>=1.4.2",
+-    "mkdocs-material>=9.2.7",
+-    "mkdocstrings[python]>=0.25.1",
+-    "mkdocs-simple-hooks>=0.1.5",
+-    "black>=24.4.2",
+-    "fastapi>=0.90",
+-    "ruff>=0.3.5",
+-    "mkdocs-material-extensions>=1.3.1",
+-
++[project]
++name = "aioclock"
++version = "0.1.0"
++description = "Asyncio based job-scheduler."
++readme = "README.md"
++requires-python = ">=3.10"
++license = { file = "LICENSE" }
++authors = [
++  { name = "Hameed Ullah" },
++]
++classifiers = [
++  "Programming Language :: Python :: 3",
++  "Programming Language :: Python :: 3 :: Only",
++  "Programming Language :: Python :: 3.10",
++  "Programming Language :: Python :: 3.11",
++  "Programming Language :: Python :: 3.12",
++]
++dependencies = [
++  "pydantic >= 2.6.1, < 3.0.0",
+ ]
+-
+-[tool.behavior]
+-use-uv = true
+-
+-[tool.hatch.metadata]
+-allow-direct-references = true
+-
+-[tool.hatch.build.targets.wheel]
+-packages = ["aioclock"]
+-
+-[tool.setuptools.package-data]
+-"aioclock" = ["py.typed"]
+-
+-[tool.ruff]
+-
+-lint.fixable = [
+-    "A",
+-    "B",
+-    "C",
+-    "D",
+-    "E",
+-    "F",
+-    "G",
+-    "I",
+-    "N",
+-    "Q",
+-    "S",
+-    "T",
+-    "W",
+-    "ANN",
+-    "ARG",
+     "BLE",
+     "COM",
+     "DJ",

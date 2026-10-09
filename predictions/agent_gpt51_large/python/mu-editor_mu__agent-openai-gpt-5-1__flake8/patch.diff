@@ -1,0 +1,131 @@
+diff --git a/make.py b/make.py
+index 4f72fe9..cc29096 100644
+--- a/make.py
++++ b/make.py
+@@ -7,7 +7,8 @@ import shutil
+ import subprocess
+ 
+ PYTEST = "pytest"
+-FLAKE8 = "flake8"
++PYCODESTYLE = "pycodestyle"
++PYFLAKES = "pyflakes"
+ BLACK = "black"
+ BLACK_FLAGS = ["-l", "79", "--exclude=mu/contrib/"]
+ PYGETTEXT = os.path.join(sys.base_prefix, "tools", "i18n", "pygettext.py")
+@@ -124,15 +125,19 @@ def coverage():
+ 
+ 
+ @export
+-def flake8(*flake8_args):
+-    """Run the flake8 code checker
++def lint():
++    """Run basic style checkers (pycodestyle and pyflakes).
+ 
+-    Call flake8 on all files as specified by setup.cfg
++    This replicates the former flake8 check by running the two underlying
++    tools directly. Configuration continues to be picked up from
++    ``setup.cfg`` or their respective config files.
+     """
+-    print("\nflake8")
++    print("\nlint")
+     os.environ["PYFLAKES_BUILTINS"] = "_"
+-    return subprocess.run([sys.executable, "-m", FLAKE8]).returncode
+-
++    pycodestyle_rc = subprocess.run([sys.executable, "-m", PYCODESTYLE]).returncode
++    if pycodestyle_rc != 0:
++        return pycodestyle_rc
++    return subprocess.run([sys.executable, "-m", PYFLAKES]).returncode
+ 
+ @export
+ def tidy():
+@@ -191,7 +196,7 @@ def black():
+ def check():
+     """Run all the checkers and tests"""
+     print("\nCheck")
+-    funcs = [clean, black, flake8, coverage]
++    funcs = [clean, black, lint, coverage]
+     for func in funcs:
+         return_code = func()
+         if return_code != 0:
+diff --git a/mu/logic.py b/mu/logic.py
+index d4566fb..c51c893 100644
+--- a/mu/logic.py
++++ b/mu/logic.py
+@@ -50,11 +50,11 @@ LOG_DIR = platformdirs.user_log_dir(appname="mu", appauthor="python")
+ LOG_FILE = os.path.join(LOG_DIR, "mu.log")
+ # Regex to match pycodestyle (PEP8) output.
+ STYLE_REGEX = re.compile(r".*:(\d+):(\d+):\s+(.*)")
+-# Regex to match flake8 output.
++# Regex to match pyflakes / flake-style output.
+ FLAKE_REGEX = re.compile(r".*:(\d+):(\d+):?\s+(.*)")
+ # Regex to match undefined name errors for given builtins
+ BUILTINS_REGEX = r"^undefined name '({})'"
+-# Regex to match false positive flake errors if microbit.* is expanded.
++# Regex to match false positive style errors if microbit.* is expanded.
+ EXPAND_FALSE_POSITIVE = re.compile(
+     r"^.*'microbit\.(\w+)' imported but unused$"
+ )
+diff --git a/setup.py b/setup.py
+index 2d3f12d..74e49f6 100644
+--- a/setup.py
++++ b/setup.py
+@@ -21,6 +21,59 @@ with open(os.path.join(base_dir, "CHANGES.rst"), encoding="utf8") as f:
+ 
+ 
+ install_requires = [
++    #
++    # The core 'install_requires' should only be things
++    # which are needed for the main editor to function.
++    #
++    "PyQt5==5.13.2"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    "QScintilla==2.11.3"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    "PyQtChart==5.13.1"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    # FIXME: jupyter-client added for Py3.5 compatibility, to be dropped after
++    # Mu v1.1 release. So, qtconsole < 5 and jupyter-client < 6.2 (issue #1444)
++    "jupyter-client>=4.1,<6.2",
++    # FIXME: ipykernel max added for macOS 10.13 compatibility, min taken from
++    # qtconsole 4.7.7. Full line can be removed after Mu v1.1 release.
++    # Dependency mirrored for user venv in mu/wheels/__init__.py
++    "ipykernel>=4.1,<6",
++    # FIXME: ipykernel<6 depends on ipython_genutils, but it isn't explicitly
++    # declared as a dependency. It also depends on traitlets, which
++    # incidentally brought ipython_genutils, but in v5.1 it was dropped, so as
++    # a workaround we need to manually specify it here.
++    "ipython_genutils>=0.2.0",
++    "qtconsole==4.7.7",
++    #
++    # adafruit-board-toolkit is used to find serial ports and help identify
++    # CircuitPython boards in the CircuitPython mode.
++    "adafruit-board-toolkit~=1.1",
++    "pyserial~=3.5",
++    "nudatus>=0.0.3",
++    # `pycodestyle` and `pyflakes` are runtime dependencies that were
++    # previously brought in via `flake8`. For the sake of "locality",
++    # they are declared here explicitly.
++    "pycodestyle>=2.6.0",
++    "pyflakes>=2.2.0",
++    # Clamp click max version to workaround incompatibility with black<22.1.0
++    "click<=8.0.4",
++    "black>=19.10b0,<22.1.0;python_version>'3.5'",
++    "platformdirs>=2.0.0,<3.0.0",
++    "semver>=2.8.0",
++    # virtualenv vendors pip, we need at least pip v19.3 to install some
++    # rust based dependencies. virtualenv >=v20 is required for the --symlinks
++    # flag needed by AppImage, and it packs pip v20.0.2.
++    "virtualenv>=20.0.0",
++    #
++    # Needed for packaging
++    #
++    "wheel",
++    # Needed to deploy from web mode
++    "requests>=2.0.0",
++    #
++    # Needed to resolve an issue with paths in the user virtual environment
++    #
++    "pywin32; sys_platform=='win32'",
+ ]
+ 
+ 

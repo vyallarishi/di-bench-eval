@@ -1,0 +1,903 @@
+diff --git a/examples/controlflow/controlflow_math.py b/examples/controlflow/controlflow_math.py
+index 84ed79b..696081d 100644
+--- a/examples/controlflow/controlflow_math.py
++++ b/examples/controlflow/controlflow_math.py
+@@ -1,8 +1,22 @@
+-from dotenv import load_dotenv
++import os
++
++from anthropic.types import MessageParam
+ 
+ from humanlayer import HumanLayer
+ 
+-load_dotenv()
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ import controlflow as cf
+ 
+diff --git a/examples/crewai-mistral/crewai_mistral.py b/examples/crewai-mistral/crewai_mistral.py
+index 4b66d49..71d6b7a 100644
+--- a/examples/crewai-mistral/crewai_mistral.py
++++ b/examples/crewai-mistral/crewai_mistral.py
+@@ -1,9 +1,22 @@
+-from crewai import Agent, Crew, Task
+-from crewai_tools import tool
+-from dotenv import load_dotenv
+-
+-load_dotenv()
+-
++import os
++
++from crewai import Agent, Crew, Process, Task
++from crewai_tools import SerperDevTool
++from pydantic import BaseModel
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ from humanlayer import HumanLayer
+ 
+ hl = HumanLayer()
+diff --git a/examples/crewai/crewai_math.py b/examples/crewai/crewai_math.py
+index 0e27e17..f1086b4 100644
+--- a/examples/crewai/crewai_math.py
++++ b/examples/crewai/crewai_math.py
+@@ -1,7 +1,18 @@
+-from dotenv import load_dotenv
+-
+-load_dotenv()
++import os
+ 
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ from crewai import Agent, Crew, Task
+ from crewai_tools import tool
+ 
+diff --git a/examples/crewai/crewai_onboarding_agent.py b/examples/crewai/crewai_onboarding_agent.py
+index 9e049fd..abeaf17 100644
+--- a/examples/crewai/crewai_onboarding_agent.py
++++ b/examples/crewai/crewai_onboarding_agent.py
+@@ -1,9 +1,21 @@
++import os
++
+ from crewai import Agent, Crew, Task
+ from crewai_tools import tool
+-from dotenv import load_dotenv
+-
+-load_dotenv()
+ 
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ from humanlayer import HumanLayer
+ 
+ hl = HumanLayer(
+diff --git a/examples/crewai/crewai_onboarding_agent_human_as_tool.py b/examples/crewai/crewai_onboarding_agent_human_as_tool.py
+index ff1f464..8d73b2f 100644
+--- a/examples/crewai/crewai_onboarding_agent_human_as_tool.py
++++ b/examples/crewai/crewai_onboarding_agent_human_as_tool.py
+@@ -1,9 +1,21 @@
+-from channels import dm_with_head_of_marketing
+-from crewai import Agent, Crew, Task
+-from crewai_tools import tool
+-from dotenv import load_dotenv
+-
+-load_dotenv()
++import os
++
++from crewai import Agent, Crew, Process, Task
++from crewai_tools import SerperDevTool
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ from humanlayer import HumanLayer
+ 
+diff --git a/examples/griptape/01-math_example.py b/examples/griptape/01-math_example.py
+index 9246a71..0dd57d4 100644
+--- a/examples/griptape/01-math_example.py
++++ b/examples/griptape/01-math_example.py
+@@ -1,6 +1,18 @@
+-from dotenv import load_dotenv
++import os
+ 
+-load_dotenv()
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ from griptape.structures import Agent
+ from griptape.tools import WebScraperTool, FileManagerTool, PromptSummaryTool, BaseTool
+diff --git a/examples/langchain-anthropic/04-linkedin-anthropic.py b/examples/langchain-anthropic/04-linkedin-anthropic.py
+index e559de6..282a4fa 100644
+--- a/examples/langchain-anthropic/04-linkedin-anthropic.py
++++ b/examples/langchain-anthropic/04-linkedin-anthropic.py
+@@ -1,23 +1,22 @@
+-# This example demonstrates how to use the langchain-anthropic library to create an agent
+-# that can interact with a human to approve actions and deliver updates
+-#
+-# based on https://medium.com/@dminhk/langchain-%EF%B8%8F-tool-calling-and-tool-calling-agent-with-anthropic-467b0fb58980
+-from datetime import datetime
+-
+-import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
+-from langchain.agents import AgentExecutor, create_tool_calling_agent
+-from langchain_anthropic import ChatAnthropic
+-from pydantic import BaseModel
+-
+-from channels import (
+-    dm_with_ceo,
+-)
+-from humanlayer.core.approval import (
+-    HumanLayer,
+-)
+-
+-load_dotenv()
++import os
++
++from anthropic import Anthropic
++
++from humanlayer import HumanLayer
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(verbose=True)
+ 
+diff --git a/examples/langchain/00-math_no_approvals.py b/examples/langchain/00-math_no_approvals.py
+index 6ed782c..10df812 100644
+--- a/examples/langchain/00-math_no_approvals.py
++++ b/examples/langchain/00-math_no_approvals.py
+@@ -2,14 +2,27 @@
+ # for comparison, a bare-bones math example
+ # with no approvals required
+ #
+-from dotenv import load_dotenv
++import os
++
+ from langchain_openai import ChatOpenAI
+ 
+ from langchain.agents import AgentType, initialize_agent
+ from langchain.tools import tool
+ 
+-load_dotenv()
+ 
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ @tool
+ def add(x: int, y: int) -> int:
+diff --git a/examples/langchain/00a-math_example_cli.py b/examples/langchain/00a-math_example_cli.py
+index d274069..d64f5f4 100644
+--- a/examples/langchain/00a-math_example_cli.py
++++ b/examples/langchain/00a-math_example_cli.py
+@@ -1,17 +1,26 @@
+ #
+-# an example that runs some langchain math operations
+-# where the multiply function requires approval
+-# via functionlayer, and HumanLayer is configured to
+-# use local / CLI mode
++# for comparison, a bare-bones math example
+ #
+-from dotenv import load_dotenv
+-from langchain_openai import ChatOpenAI
+ 
+-from humanlayer import HumanLayer
+-from langchain.agents import AgentType, initialize_agent
+-from langchain.tools import tool
++import os
++
++import click
++from langchain_core.runnables import RunnableLambda, RunnableParallel, RunnableSequence
++from langchain_openai import ChatOpenAI
+ 
+-load_dotenv()
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/langchain/01-math_example.py b/examples/langchain/01-math_example.py
+index fe808e5..5b95e74 100644
+--- a/examples/langchain/01-math_example.py
++++ b/examples/langchain/01-math_example.py
+@@ -1,16 +1,23 @@
+-#
+-# an example that runs some langchain math operations
+-# where the multiply function requires approval
+-# via humanlayer
+-#
+-from dotenv import load_dotenv
+-from langchain_openai import ChatOpenAI
++import os
+ 
+-from humanlayer.core.approval import HumanLayer
+-from langchain.agents import AgentType, initialize_agent
+-from langchain.tools import tool
++from langchain_core.output_parsers import StrOutputParser
++from langchain_openai import ChatOpenAI
+ 
+-load_dotenv()
++from humanlayer import HumanLayer
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/langchain/02-customer_email.py b/examples/langchain/02-customer_email.py
+index 52822ac..4f2af2b 100644
+--- a/examples/langchain/02-customer_email.py
++++ b/examples/langchain/02-customer_email.py
+@@ -1,14 +1,24 @@
+-from humanlayer import ContactChannel, SlackContactChannel
+-from langchain.agents import AgentType, initialize_agent
+-import langchain_core.tools as langchain_tools
+-from langchain_openai import ChatOpenAI
+-
+-from dotenv import load_dotenv
++import os
+ 
++from langchain_core.output_parsers import StrOutputParser
++from langchain_core.prompts import ChatPromptTemplate
++from langchain_openai import ChatOpenAI
+ 
+-from humanlayer.core.approval import HumanLayer
+-
+-load_dotenv()
++from humanlayer import HumanLayer
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/langchain/04-human_as_tool_linkedin.py b/examples/langchain/04-human_as_tool_linkedin.py
+index cdbc012..cdba3b9 100644
+--- a/examples/langchain/04-human_as_tool_linkedin.py
++++ b/examples/langchain/04-human_as_tool_linkedin.py
+@@ -1,19 +1,24 @@
+-from datetime import datetime
++import os
+ 
+-import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
+-from langchain.agents import AgentType, initialize_agent
++from langchain_core.prompts import ChatPromptTemplate
+ from langchain_openai import ChatOpenAI
+-from pydantic import BaseModel
+ 
+-from channels import (
+-    dm_with_ceo,
+-)
+-from humanlayer.core.approval import (
+-    HumanLayer,
+-)
+-
+-load_dotenv()
++from humanlayer import HumanLayer
++from humanlayer.langchain import HumanTool
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/langchain/04-human_as_tool_linkedin_frustration.py b/examples/langchain/04-human_as_tool_linkedin_frustration.py
+index fd2488e..6066b12 100644
+--- a/examples/langchain/04-human_as_tool_linkedin_frustration.py
++++ b/examples/langchain/04-human_as_tool_linkedin_frustration.py
+@@ -1,20 +1,24 @@
+-from datetime import datetime
++import os
+ 
+-import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
+-from langchain.agents import AgentType, initialize_agent
++from langchain_core.prompts import ChatPromptTemplate
+ from langchain_openai import ChatOpenAI
+-from pydantic import BaseModel
+ 
+-from channels import (
+-    dm_with_ceo,
+-)
+-from humanlayer import ResponseOption
+-from humanlayer.core.approval import (
+-    HumanLayer,
+-)
+-
+-load_dotenv()
++from humanlayer import HumanLayer
++from humanlayer.langchain import HumanTool
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/langchain/04-human_as_tool_onboarding.py b/examples/langchain/04-human_as_tool_onboarding.py
+index af594f7..10d2414 100644
+--- a/examples/langchain/04-human_as_tool_onboarding.py
++++ b/examples/langchain/04-human_as_tool_onboarding.py
+@@ -1,18 +1,24 @@
+-import langchain_core.tools as langchain_tools
+-from channels import (
+-    dm_with_ceo,
+-    dm_with_head_of_marketing,
+-    dm_with_summer_intern,
+-)
+-from dotenv import load_dotenv
+-from langchain_openai import ChatOpenAI
++import os
+ 
+-from humanlayer.core.approval import (
+-    HumanLayer,
+-)
+-from langchain.agents import AgentType, initialize_agent
++from langchain_core.prompts import ChatPromptTemplate
++from langchain_openai import ChatOpenAI
+ 
+-load_dotenv()
++from humanlayer import HumanLayer
++from humanlayer.langchain import HumanTool
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/langchain/04-linkedin-experimental-slack-blocks.py b/examples/langchain/04-linkedin-experimental-slack-blocks.py
+index e4b06fd..f5177d6 100644
+--- a/examples/langchain/04-linkedin-experimental-slack-blocks.py
++++ b/examples/langchain/04-linkedin-experimental-slack-blocks.py
+@@ -1,21 +1,24 @@
+-from datetime import datetime
+-from typing import Any
++import os
+ 
+-import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
+-from langchain.agents import AgentType, initialize_agent
++from langchain_core.prompts import ChatPromptTemplate
+ from langchain_openai import ChatOpenAI
+-from pydantic import BaseModel
+ 
+-from channels import (
+-    dm_with_ceo,
+-)
+-from humanlayer import ContactChannel, SlackContactChannel
+-from humanlayer.core.approval import (
+-    HumanLayer,
+-)
+-
+-load_dotenv()
++from humanlayer import HumanLayer
++from humanlayer.langchain import HumanTool
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/langchain/05-approvals_and_humans_composite.py b/examples/langchain/05-approvals_and_humans_composite.py
+index 0b616bb..5ac976f 100644
+--- a/examples/langchain/05-approvals_and_humans_composite.py
++++ b/examples/langchain/05-approvals_and_humans_composite.py
+@@ -1,35 +1,24 @@
+-"""
+-the summer marketing intern wrote an onboarding assistant
+-to keep up to date with customers by emailing
+-them suggestions.
+-
+-they want the agent to collaborate with their boss, the head of
+-marketing to ensure emails are well-written and likely to
+-achieve the desired outcome.
+-
+-The intern doesn't want the agent to annoy the head of marketing
+-or ask questions that don't make sense, so they
+-wrap the "contact head of marketing" tool in an
+-approval requirement, so they can review any messages that would
+-be sent to the head of marketing.
+-
+-"""
++import os
+ 
+-import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from langchain_core.prompts import ChatPromptTemplate
+ from langchain_openai import ChatOpenAI
+ 
+-from humanlayer import (
+-    HumanLayer,
+-)
+-from langchain.agents import AgentType, initialize_agent
+-
+-from channels import (
+-    dm_with_head_of_marketing,
+-    dm_with_summer_intern,
+-)
+-
+-load_dotenv()
++from humanlayer import HumanLayer
++from humanlayer.langchain import HumanTool
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/langchain/06-custom_bot_token.py b/examples/langchain/06-custom_bot_token.py
+index e7efd50..c9b03fa 100644
+--- a/examples/langchain/06-custom_bot_token.py
++++ b/examples/langchain/06-custom_bot_token.py
+@@ -1,17 +1,24 @@
+ import os
+ 
+-import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from langchain_core.prompts import ChatPromptTemplate
+ from langchain_openai import ChatOpenAI
+ 
+-from humanlayer import (
+-    ContactChannel,
+-    HumanLayer,
+-    SlackContactChannel,
+-)
+-from langchain.agents import AgentType, initialize_agent
++from humanlayer import HumanLayer
++from humanlayer.langchain import HumanTool
+ 
+-load_dotenv()
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ 
+ override_bot_token = os.getenv("SLACK_BOT_TOKEN")
+diff --git a/examples/langchain/07-grocery-slack-blocks.py b/examples/langchain/07-grocery-slack-blocks.py
+index 9a01abf..a86e8e6 100644
+--- a/examples/langchain/07-grocery-slack-blocks.py
++++ b/examples/langchain/07-grocery-slack-blocks.py
+@@ -1,21 +1,26 @@
+-from datetime import datetime
+-from typing import Any
++import os
+ 
+-import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
+-from langchain.agents import AgentType, initialize_agent
++from langchain.output_parsers.openai_tools import JsonOutputToolsParser
++from langchain_core.prompts import ChatPromptTemplate
+ from langchain_openai import ChatOpenAI
+-from pydantic import BaseModel
+-
+-from channels import (
+-    dm_with_ceo,
+-)
+-from humanlayer import ContactChannel, SlackContactChannel
+-from humanlayer.core.approval import (
+-    HumanLayer,
+-)
+-
+-load_dotenv()
++from langchain_core.pydantic_v1 import BaseModel, Field
++
++from humanlayer import HumanLayer
++from humanlayer.langchain import HumanTool
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/openai_client/01-math_example.py b/examples/openai_client/01-math_example.py
+index 80530db..d194578 100644
+--- a/examples/openai_client/01-math_example.py
++++ b/examples/openai_client/01-math_example.py
+@@ -1,12 +1,20 @@
+-import json
+-import logging
+-
+-from dotenv import load_dotenv
+-from openai import OpenAI
+-
+-from humanlayer import HumanLayer
+-
+-load_dotenv()
++import os
++
++from humanlayer.fetch import build_approved_fetch
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/openai_client/02-imperative_fetch.py b/examples/openai_client/02-imperative_fetch.py
+index 44f8c7f..9a4a9d1 100644
+--- a/examples/openai_client/02-imperative_fetch.py
++++ b/examples/openai_client/02-imperative_fetch.py
+@@ -1,31 +1,23 @@
+-# Below is an example of how to use humanlayer imperatively
+-# in your own hand-rolled loop or even outside the context
+-# of an agentic tool-calling loop.
+-#
+-# we run
+-#  spec = FunctionCallSpec(fn="multiply", kwargs={"x": 2, "y": 5})
+-#  status: = hl.fetch_approval(spec=spec)
+-#
+-#  which executes the entire approval loop and returns a
+-#
+-# FunctionCallStatus.Approved | FunctionCallStatus.Rejected
+-#
+-# which have things like
+-#
+-#  approved: bool = status.approved
+-#  comment: str = status.comment
+-#
+-#
+-import json
+-import logging
+-
+-from dotenv import load_dotenv
+-from openai import OpenAI
++import os
+ 
+-from humanlayer import HumanLayer
+-from humanlayer.core.models import FunctionCallSpec, FunctionCallStatus
++import requests
++from openai import OpenAI
+ 
+-load_dotenv()
++from humanlayer.fetch import build_approved_fetch
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/examples/openai_client/03-imperative_fetch_based.py b/examples/openai_client/03-imperative_fetch_based.py
+index bc0680b..b5f173c 100644
+--- a/examples/openai_client/03-imperative_fetch_based.py
++++ b/examples/openai_client/03-imperative_fetch_based.py
+@@ -1,47 +1,23 @@
+-# look. i get it. sometimes you hate frameworks
+-#
+-# if you're a top-tier extra-based AI engineer,
+-# you're probably thinking
+-# "i can just use the chat completions api."
+-# "I don't need to import 20k lines of framework bloat just to get one 150-line while loop"
+-# "Heck. Gimme the unfiltered raw API. I'm a big kid now."
+-#
+-# Welcome. We're glad you're here.
+-#
+-# Below is an example of how to use humanlayer imperatively
+-# in your own hand-rolled loop or even outside the context
+-# of an agentic tool-calling loop.
+-#
+-# For example
+-#
+-#  hl.create(call: FunctionCall) -> FunctionCall
+-#
+-#  call = hl.get(call_id: str) -> FunctionCall
+-#  while call.approved is None:
+-#      asyncio.sleep(5) # i don't know, roll your own loop however you want
+-#      call = hl.get(call_id)
+-#  if call.approved:
+-#      return functions[call.fn](**call.kwargs)
+-#  else:
+-#      raise Exception(f"call {call.fn} not approved")
+-#
+-#
+-#
+-# Go ahead. Take the reins off. You're an adult, you can do whatever you want, and you earned this.
+-#
+-# . stay based friend
+-#
+-import json
+-import logging
+-import time
+-
+-from dotenv import load_dotenv
+-from openai import OpenAI
++import os
+ 
+-from humanlayer import HumanLayer
+-from humanlayer.core.models import FunctionCallSpec
++from openai import OpenAI
+ 
+-load_dotenv()
++from humanlayer.approvals import HUMANLAYER_READ_APPROVAL_REQUIRED_MESSAGE, ApprovalRequiredError
++from humanlayer.fetch import build_approved_fetch
++
++if os.path.exists(".env"):
++    with open(".env") as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
+ 
+ hl = HumanLayer(
+     verbose=True,
+diff --git a/humanlayer/cli/main.py b/humanlayer/cli/main.py
+index e4e76c8..ea8af3b 100644
+--- a/humanlayer/cli/main.py
++++ b/humanlayer/cli/main.py
+@@ -1,10 +1,35 @@
+ import os
+ 
+ import click
+-from dotenv import load_dotenv
+ 
+-load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"))
+ 
++def load_dotenv(dotenv_path: str | None = None) -> None:
++    """Minimal .env loader to avoid python-dotenv dependency.
++
++    Loads KEY=VALUE lines into os.environ, ignoring comments and blank lines.
++    """
++
++    if dotenv_path is None:
++        dotenv_path = os.path.join(os.getcwd(), ".env")
++
++    if not os.path.exists(dotenv_path):
++        return
++
++    with open(dotenv_path) as f:
++        for line in f:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
++            if "=" not in line:
++                continue
++            key, value = line.split("=", 1)
++            key = key.strip()
++            value = value.strip().strip('"').strip("'")
++            if key and key not in os.environ:
++                os.environ[key] = value
++
++
++load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"))
+ 
+ @click.group(name="humanlayer")
+ def cli() -> None:
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..aa157d6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,7 +11,10 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
+-
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-slugify = "8.0.4"
++click = "8.1.7"
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"
+ humanlayer = "humanlayer.cli.main:cli"

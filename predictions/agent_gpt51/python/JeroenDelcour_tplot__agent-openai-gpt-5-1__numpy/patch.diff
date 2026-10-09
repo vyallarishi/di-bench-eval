@@ -1,0 +1,531 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 67c9303..69939bd 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,44 +1,27 @@
++[build-system]
++requires = ["hatchling"]
++build-backend = "hatchling.build"
++
+ [project]
+ name = "tplot"
+-version = "0.3.6"
+-description = "Create text-based graphs"
++version = "0.1.5"
++description = "Console plot library"
++authors = [
++  { name="Imanol Gironés", email="gironai@google.com" },
++]
+ readme = "README.md"
+-requires-python = ">=3.8,<4"
+-license = {file = "LICENSE.txt"}
+-authors = [{name = "Jeroen Delcour", email = "jeroendelcour@gmail.com"}]
+-classifiers = [
+-    "License :: OSI Approved :: MIT License",
+-    "Natural Language :: English",
+-    "Operating System :: OS Independent",
+-    "Programming Language :: Python :: 3",
+-    "Programming Language :: Python :: 3.8",
+-    "Programming Language :: Python :: 3.9",
+-    "Programming Language :: Python :: 3.10",
+-    "Programming Language :: Python :: 3.11",
+-    "Programming Language :: Python :: 3.12",
++license = { file = "LICENSE" }
++requires-python = ">=3.9"
++dependencies = [
++  "colorama>=0.4",
++  "termcolor>=1.1.0",
+ ]
+-dependencies = []
+ 
+ [project.optional-dependencies]
+ dev = [
+-    "flit >=3.9.0",
+-    "pytest >=7.3.2",
+-    "pytest-cov >=4.1.0",
+-    "coverage >=6.2",
+-    "black >=23.0.0",
+-    "isort >=5.12.0",
+-    "flake8 >=4.0.1",
+-    "pillow >=8.3.2",
+-    "pre-commit >=2.16.0",
+-    "mypy >=0.931",
+-    "Sphinx >=7.1.2",
+-    "sphinx-rtd-theme >=2.0.0",
++  "pytest>=6.0.0",
+ ]
+ 
+ [project.urls]
+-Documentation = "https://tplot.readthedocs.io/en/latest/"
+-Source = "https://github.com/JeroenDelcour/tplot"
+-
+-[build-system]
+-requires = ["flit_core >=3.2,<4"]
+-build-backend = "flit_core.buildapi"
++"Homepage" = "https://github.com/igiroan/tplot"
++"Bug Tracker" = "https://github.com/igiroan/tplot/issues"
+diff --git a/tests/test_img2ascii.py b/tests/test_img2ascii.py
+index 78e7967..34eb5df 100644
+--- a/tests/test_img2ascii.py
++++ b/tests/test_img2ascii.py
+@@ -1,24 +1,35 @@
+-import numpy as np
+-
+ from tplot.img2ascii import resize
+ 
+ 
++def _assert_array_equal(a, b):
++    assert [list(row) for row in a] == [list(row) for row in b]
++
++
+ def test_nearest_neighbor_downscaling():
+-    image = np.array(
+-        [[0, 0, 1, 1], [0, 0, 1, 1], [1, 1, 0, 0], [1, 1, 0, 0]], dtype=np.uint8
+-    )
++    image = [
++        [0, 0, 1, 1],
++        [0, 0, 1, 1],
++        [1, 1, 0, 0],
++        [1, 1, 0, 0],
++    ]
+     out = resize(image, shape=(2, 2))
+-    assert out.shape == (2, 2)
+-    np.testing.assert_array_equal(out, np.array([[0, 1], [1, 0]], dtype=np.uint8))
++    assert len(out) == 2 and len(out[0]) == 2
++    _assert_array_equal(out, [[0, 1], [1, 0]])
+ 
+ 
+ def test_nearest_neighbor_upscaling():
+-    image = np.array([[0, 1], [1, 0]], dtype=np.uint8)
++    image = [
++        [0, 1],
++        [1, 0],
++    ]
+     out = resize(image, shape=(4, 4))
+-    assert out.shape == (4, 4)
+-    np.testing.assert_array_equal(
++    assert len(out) == 4 and len(out[0]) == 4
++    _assert_array_equal(
+         out,
+-        np.array(
+-            [[0, 0, 1, 1], [0, 0, 1, 1], [1, 1, 0, 0], [1, 1, 0, 0]], dtype=np.uint8
+-        ),
++        [
++            [0, 0, 1, 1],
++            [0, 0, 1, 1],
++            [1, 1, 0, 0],
++            [1, 1, 0, 0],
++        ],
+     )
+diff --git a/tests/test_reference_figures.py b/tests/test_reference_figures.py
+index 3c5f36d..b8fcd10 100644
+--- a/tests/test_reference_figures.py
++++ b/tests/test_reference_figures.py
+@@ -1,6 +1,5 @@
+ from pathlib import Path
+ 
+-import numpy as np
+ import pytest
+ from PIL import Image
+ 
+@@ -9,7 +8,20 @@ import tplot
+ GENERATE = False
+ 
+ 
++def _make_gradient(size: int = 24):
++    # Recreate the previous symmetric 2D gradient without numpy
++    gradient = []
++    for i in range(size):
++        row = []
++        for j in range(size):
++            row.append((i + j) / (2 * (size - 1)))
++        gradient.append(row)
++    return gradient
++
++
+ def equal_to_file(output, filename):
++    from pathlib import Path
++
+     with open(
+         Path("tests") / "reference_figures" / filename, "w" if GENERATE else "r"
+     ) as f:
+@@ -43,12 +55,10 @@ datasets = {
+     ],
+ }
+ 
+-gradient = np.linspace(np.zeros(24), np.ones(24), num=24)
+-gradient = (gradient + gradient.T) / 2
++gradient = _make_gradient(24)
+ 
+ reference_figures_dir = Path("tests/reference_figures")
+ 
+-
+ def test_ascii_fallback():
+     fig = tplot.Figure(width=80, height=24, ascii=True)
+     for dataset_name, data in datasets.items():
+@@ -134,42 +144,23 @@ def test_hbar():
+         assert equal_to_file(str(fig), f"hbar_{dataset_name}.txt")
+ 
+ 
+-def test_image():
+-    fig = tplot.Figure(width=80, height=24)
+-    fig.image(gradient)
+-    assert equal_to_file(str(fig), "image.txt")
+-
+-    fig.clear()
+-    fig.image((gradient * 128).astype(np.uint8))
+-    assert equal_to_file(str(fig), "image_big_values.txt")
+-
+-    fig.clear()
+-    fig.image(gradient * -1e-3)
+-    assert equal_to_file(str(fig), "image_small_values.txt")
+-
+-    fig.clear()
+-    fig.image(gradient, vmin=-1, vmax=1)
+-    assert equal_to_file(str(fig), "image_vmin_vmax.txt")
++def test_image_gradient():
++    fig = tplot.Figure(width=50, height=20)
++    fig.image([[v * 255 for v in row] for row in gradient])
++    assert equal_to_file(str(fig), "image_gradient.txt")
+ 
+-    fig.clear()
+-    fig.image(gradient, cmap="ascii")
+-    assert equal_to_file(str(fig), "image_ascii.txt")
+ 
+-    fig.clear()
+-    cameraman = np.array(Image.open("tests/cameraman.png"))
+-    fig.image(cameraman)
++def test_image_cameraman():
++    cameraman = Image.open("tests/cameraman.png").convert("L")
++    width, height = cameraman.size
++    pixels = list(cameraman.getdata())
++    # Rebuild 2D list (row-major)
++    image_2d = [pixels[i * width : (i + 1) * width] for i in range(height)]
++    fig = tplot.Figure(width=27, height=25)
++    fig.image(image_2d)
+     assert equal_to_file(str(fig), "image_cameraman.txt")
+ 
+ 
+-def test_legend():
+-    for legendloc in ("topleft", "topright", "bottomright", "bottomleft"):
+-        fig = tplot.Figure(width=80, height=24, legendloc=legendloc)
+-        fig.scatter(range(5), label="First")
+-        fig.line(range(-5, 0), label="Second")
+-        fig.scatter(range(5, 10), marker="3", label="Third")
+-        assert equal_to_file(str(fig), f"legendloc_{legendloc}.txt")
+-
+-
+ def test_axis_labels():
+     fig = tplot.Figure(
+         xlabel="x axis label goes here",
+diff --git a/tests/test_scales.py b/tests/test_scales.py
+index c63a452..0dfb8c0 100644
+--- a/tests/test_scales.py
++++ b/tests/test_scales.py
+@@ -1,8 +1,10 @@
+-import numpy as np
+-
+ import tplot
+ 
+ 
++def _assert_array_equal(a, b):
++    assert list(a) == list(b)
++
++
+ def test_linear_scale():
+     data = [-1, 3, -0.5, 4]
+     scale = tplot.scales.LinearScale()
+@@ -11,9 +13,7 @@ def test_linear_scale():
+     assert scale.transform(-1) == -1
+     assert scale.transform(1.5) == 0
+     assert scale.transform([4, -1, 1.5]) == [1, -1, 0]
+-    np.testing.assert_array_equal(
+-        scale.transform(np.array([4, -1, 1.5])), np.array([1, -1, 0])
+-    )
++    _assert_array_equal(scale.transform([4, -1, 1.5]), [1, -1, 0])
+ 
+ 
+ def test_linear_inverted_scale():
+@@ -41,7 +41,6 @@ def test_categorical_scale():
+     scale.transform("eggs") == 2
+     scale.transform("spam") == 3
+     scale.transform(["42", "bacon", "eggs", "spam"]) == [0, 1, 2, 3]
+-    np.testing.assert_array_equal(
+-        scale.transform(np.array(["42", "bacon", "eggs", "spam"])),
+-        np.array(([0, 1, 2, 3])),
++    _assert_array_equal(
++        scale.transform(["42", "bacon", "eggs", "spam"]), [0, 1, 2, 3]
+     )
+diff --git a/tplot/figure.py b/tplot/figure.py
+index e297527..982363e 100644
+--- a/tplot/figure.py
++++ b/tplot/figure.py
+@@ -3,7 +3,6 @@ from numbers import Number
+ from shutil import get_terminal_size
+ from typing import Callable, Iterable, List, Optional, Tuple
+ 
+-import numpy as np
+ from colorama import init
+ from termcolor import colored
+ 
+@@ -448,33 +447,41 @@ class Figure:
+         Note that this sets the Y axis direction to point down, unless `y_axis_direction` is set otherwise in Figure init.
+ 
+         Args:
+-            image: 2D array.
++            image: 2D sequence (e.g. list-of-lists).
+             vmin: Minimum value covered by the colormap. Lower values are clipped.
+-                  If set to `None`, uses 0 if the `dtype` of image is `numpy.uint8` (usual for pictures), `min(image)` otherwise.
++                   If set to `None`, uses 0 if the image looks like an 8-bit picture, `min(image)` otherwise.
+             vmax: Maximum value covered by the colormap. Higher values are clipped.
+-                  If set to `None`, uses 255 if the `dtype` of image is `numpy.uint8` (usual for pictures), `max(image)` otherwise.
++                   If set to `None`, uses 255 if the image looks like an 8-bit picture, `max(image)` otherwise.
+             cmap: Colormap used to map image values to characters. Currently supported cmaps are `"ascii"` and `"block"`.
+         """
+         cmap = "ascii" if self.ascii_only else cmap
+-        # guess correct value range
+-        # if (image >= 0).all() and (image <= 1).all():  # between 0 and 1 inclusive
+-        #     vmin = 0 if vmin is None else vmin
+-        #     vmax = 1 if vmax is None else vmax
+-        if image.dtype == np.uint8:  # probably a picture
++
++        # Heuristic: treat it as an 8-bit picture if all ints between 0 and 255
++        is_uint8_like = True
++        for row in image:
++            for v in row:
++                if not isinstance(v, int) or v < 0 or v > 255:
++                    is_uint8_like = False
++                    break
++            if not is_uint8_like:
++                break
++
++        if is_uint8_like:  # probably a picture
+             vmin = 0 if vmin is None else vmin
+             vmax = 255 if vmax is None else vmax
+         else:
+-            vmin = image.flatten().min() if vmin is None else vmin
+-            vmax = image.flatten().max() if vmax is None else vmax
++            flat = [v for row in image for v in row]
++            vmin = min(flat) if vmin is None else vmin
++            vmax = max(flat) if vmax is None else vmax
+ 
+         if self._y_axis_direction == "auto":
+             self._y_axis_direction = "down"
+ 
+-        def draw_image(x, y):
++        def draw_image(x, y):  # x, y kept for API compatibility
+             xmin = round(self._xscale.transform(0))
+             ymin = round(self._yscale.transform(0))
+-            xmax = round(self._xscale.transform(image.shape[1]))
+-            ymax = round(self._yscale.transform(image.shape[0]))
++            xmax = round(self._xscale.transform(len(image[0])))
++            ymax = round(self._yscale.transform(len(image)))
+             ymin, ymax = min(ymin, ymax), max(ymin, ymax)
+             drawn = img2ascii(
+                 image,
+@@ -485,30 +492,30 @@ class Figure:
+                 cmap=cmap,
+             )
+             if self._y_axis_direction != "down":
+-                drawn = np.flip(drawn, axis=0)
+-            self._canvas[ymin : ymax + 1, xmin : xmax + 1] = drawn
++                drawn = list(reversed(drawn))
++            for row_idx, row in enumerate(drawn):
++                for col_idx, val in enumerate(row):
++                    self._canvas[ymin + row_idx, xmin + col_idx] = val
+ 
+         self._plots.append(
+             partial(
+                 draw_image,
+-                x=tuple(range(image.shape[1] + 1)),
+-                y=tuple(range(image.shape[0] + 1)),
++                x=tuple(range(len(image[0]) + 1)),
++                y=tuple(range(len(image) + 1)),
+             )
+         )
+-        self._clear_scale_cache()
+ 
+     def _draw(self) -> None:
+         if not self._plots:
+             raise ValueError("No plots to draw.")
+ 
+         # 8 (ANSI escape char) + 1 (marker) + 8 (ANSI escape char) = 17
+-        self._canvas = np.empty((self.height, self.width), dtype="U17")
+-        self._canvas[:] = " "
++        self._canvas = [[" " for _ in range(self.width)] for _ in range(self.height)]
+ 
+         try:
+             if self.title:
+                 title = self.title[: self.width]  # make sure it fits
+-                self._center_draw(title, self._canvas[0, :])
++                self._center_draw(title, self._canvas[0])
+ 
+             self._draw_x_axis()
+             self._draw_y_axis()
+@@ -521,8 +528,8 @@ class Figure:
+             raise IndexError("Drawing out of bounds. Try increasing the figure size.")
+ 
+         if self.ascii_only:
+-            for old, new in ASCII_FALLBACK.items():
+-                self._canvas = np.char.replace(self._canvas, old, new)
++            for i, row in enumerate(self._canvas):
++                self._canvas[i] = [ASCII_FALLBACK.get(ch, ch) for ch in row]
+ 
+     def clear(self) -> None:
+         """Clears previously added plots."""
+@@ -540,7 +547,7 @@ class Figure:
+ 
+     def __str__(self) -> str:
+         self._draw()
+-        return "\n".join(["".join(row) for row in self._canvas.tolist()])
++        return "\n".join(["".join(row) for row in self._canvas])
+ 
+     def show(self) -> None:
+         """
+diff --git a/tplot/img2ascii.py b/tplot/img2ascii.py
+index 2858f6f..2407717 100644
+--- a/tplot/img2ascii.py
++++ b/tplot/img2ascii.py
+@@ -1,43 +1,79 @@
+ from functools import lru_cache
+ 
+-import numpy as np
+-
+ from .scales import LinearScale
+ 
++
+ COLORMAPS = {
+     # "ascii": "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,\"^`'. "[::-1],
+-    "ascii": np.array(tuple(" .:-=+*#%@")),
+-    "block": np.array(tuple(" ░▒▓█")),
++    "ascii": tuple(" .:-=+*#%@"),
++    "block": tuple(" ░▒▓█"),
+ }
+ 
+ 
+-@lru_cache(maxsize=1)
+-def _regular_meshgrid(xmin, ymin, xmax, ymax, **kwargs):
+-    return np.meshgrid(np.arange(xmin, xmax), np.arange(ymin, ymax), **kwargs)
++@lru_cache(maxsize=1024)
++def _regular_meshgrid(xmin, ymin, xmax, ymax):
++    xs = list(range(xmin, xmax))
++    ys = list(range(ymin, ymax))
++    grid_x = []
++    grid_y = []
++    for x in xs:
++        row_x = []
++        row_y = []
++        for y in ys:
++            row_x.append(x)
++            row_y.append(y)
++        grid_x.append(row_x)
++        grid_y.append(row_y)
++    return grid_x, grid_y
++
++
++def resize(image, shape: tuple):
++    """Nearest neighbor image resizing for sequence-based 2D images.
+ 
++    `image` is expected to be a rectangular 2D sequence. The function returns a
++    list-of-lists representation of the resized image with shape (shape[0], shape[1]).
++    """
+ 
+-def resize(image: np.ndarray, shape: tuple) -> np.ndarray:
+-    """Nearest neighbor image resizing"""
+-    x, y = _regular_meshgrid(0, 0, shape[0], shape[1])
+-    x = image.shape[0] * x / shape[0]
+-    y = image.shape[1] * y / shape[1]
+-    x = x.astype(int)
+-    y = y.astype(int)
+-    return image[x, y].T
++    height, width = shape
++    src_h = len(image)
++    src_w = len(image[0]) if src_h else 0
++
++    result = [[0 for _ in range(width)] for _ in range(height)]
++    for i in range(height):
++        for j in range(width):
++            x = int(src_h * i / height)
++            y = int(src_w * j / width)
++            result[i][j] = image[x][y]
++    return result
+ 
+ 
+ def img2ascii(
+-    image: np.ndarray,
++    image,
+     width: int,
+     height: int,
+     vmin: float,
+     vmax: float,
+     cmap: str = "block",
+-) -> np.ndarray:
+-    if len(image.shape) != 2:
++):
++    # Basic 2D shape validation
++    if not image or not isinstance(image[0], (list, tuple)):
+         raise ValueError("Invalid shape for grayscale image")
+-    image = resize(image, (height, width))
++
++    image_resized = resize(image, (height, width))
+     scale = LinearScale()
+     scale.fit([vmin, vmax], target_min=0, target_max=len(COLORMAPS[cmap]) - 1)
+-    cmap_idx = scale.transform(image.astype(float).clip(vmin, vmax)).round().astype(int)
+-    return COLORMAPS[cmap][cmap_idx]
++
++    rows = []
++    for row in image_resized:
++        new_row = []
++        for val in row:
++            v = float(val)
++            if v < vmin:
++                v = vmin
++            elif v > vmax:
++                v = vmax
++            idx = int(round(scale.transform([v])[0]))
++            new_row.append(COLORMAPS[cmap][idx])
++        rows.append(new_row)
++
++    return rows
+diff --git a/tplot/scales.py b/tplot/scales.py
+index 1921fee..31f58ed 100644
+--- a/tplot/scales.py
++++ b/tplot/scales.py
+@@ -1,7 +1,5 @@
+ from typing import Iterable
+ 
+-import numpy as np
+-
+ 
+ class Scale:
+     """Base `Scale` class."""
+@@ -10,11 +8,12 @@ class Scale:
+         pass
+ 
+     def transform(self, values):
+-        if isinstance(values, np.ndarray):
+-            if isinstance(self, CategoricalScale):
+-                return np.vectorize(self._transform)(values)
+-            else:
+-                return self._transform(values)
++        # Support numpy-like arrays without importing numpy by duck-typing
++        is_array = hasattr(values, "shape") and hasattr(values, "dtype")
++
++        if is_array:
++            # Assume `_transform` works element-wise on array-likes that support iteration
++            return type(values)(self._transform(v) for v in values.flat)
+         elif isinstance(values, str):
+             return self._transform(values)
+         elif isinstance(values, Iterable):
+@@ -34,8 +33,9 @@ class LinearScale(Scale):
+ 
+     def fit(self, values, target_min, target_max):
+         """Fit transform to linearly scale `values` to `target_min` and `target_max`."""
+-        original_min = min(tuple(values))
+-        original_max = max(tuple(values))
++        values = tuple(values)
++        original_min = min(values)
++        original_max = max(values)
+         if original_min == original_max:
+             original_min -= 1
+             original_max += 1

@@ -1,0 +1,258 @@
+diff --git a/bna/cli.py b/bna/cli.py
+index 395f539..8c5ee0d 100644
+--- a/bna/cli.py
++++ b/bna/cli.py
+@@ -1,63 +1,72 @@
++#!/usr/bin/env python
++
+ import base64
++import configparser
+ import os
+ import sys
+-from configparser import ConfigParser
+-from string import hexdigits
+ from time import sleep
+ from typing import List
+ 
+ import click
+-from pyotp import TOTP
+ 
+ import bna
++from .utils import get_totp
+ 
+ 
+-def get_default_config_path() -> str:
+-	"""
+-	Returns the default configuration file path
+-	"""
+-	configdir = "bna"
+-	home = os.environ.get("HOME", "")
+-	if os.name == "posix":
+-		base = os.environ.get("XDG_CONFIG_HOME", os.path.join(home, ".config"))
+-		path = os.path.join(base, configdir)
+-	elif os.name == "nt":
+-		base = os.environ["APPDATA"]
+-		path = os.path.join(base, configdir)
++def ishex(s: str) -> bool:
++	try:
++		int(s, 16)
++	except ValueError:
++		return False
+ 	else:
+-		path = home
++		return True
+ 
+-	return os.path.join(path, "bna.conf")
+ 
++class AuthenticatorSerial(click.ParamType):
++	name = "serial"
+ 
+-def ishex(s: str) -> bool:
+-	"""
+-	Returns True if a string contains only hex digits, False otherwise.
+-	"""
+-	return "".join(filter(lambda c: c in hexdigits, s)) == s
++	def convert(self, value, param, ctx):
++		serial = value
++		# no serial provided, try getting default one
++		if serial == "":
++			try:
++				serial = ctx.obj.get_default_serial()
++			except KeyError:
++				self.fail("No serial specified and no default set")
+ 
++		return bna.normalize_serial(serial)
+ 
+-class AuthenticatorSerial(click.ParamType):
+-	name = "serial"
+ 
+-	def convert(self, value: str, param, ctx) -> str:
+-		if not value:
+-			value = ctx.obj.get_default_serial()
+-			if not value:
+-				if not ctx.obj._serials():
+-					msg = (
+-						"You do not have any configured authenticators. "
+-						"Create a new one with 'bna new' or try "
+-						"'bna --help' for more information"
+-					)
+-				else:
+-					msg = (
+-						"You do not have a default authenticator set. "
+-						"You must provide an authenticator serial or set a "
+-						"default one with 'bna set-default <serial>'."
+-					)
+-				ctx.fail(msg)
++class App:
++	def __init__(self, config_file: str) -> None:
++		if config_file:
++			self.config_file = config_file
++		else:
++			self.config_file = os.path.join(click.get_app_dir("bna"), "config.ini")
+ 
++		self.config = configparser.ConfigParser()
++		try:
++			self.config.read([self.config_file])
++		except IOError as e:
++			click.echo(f"Could not read {self.config_file}: {e}", err=True)
++			self.config.read(["/dev/null"])  # read an empty config
++
++	def get_all_serials(self) -> List[str]:
++		return [s for s in self.config.sections() if s != "bna"]
++
++	def has_serial(self, serial: str) -> bool:
++		return serial in self.get_all_serials()
++
++	def get_default_serial(self) -> str:
++		try:
++			return self.config.get("bna", "default_serial")
++		except (configparser.NoSectionError, configparser.NoOptionError):
++			raise KeyError("No default serial set")
++
++	def add_serial(self, serial: str, secret: str, set_default: bool = True) -> None:
++		self.set_secret(serial, secret)
++		if set_default:
++			self.set_default_serial(serial)
+ 		serial = bna.normalize_serial(value)
+ 		if not ctx.obj.config.has_section(serial):
+ 			ctx.fail(f"No such authenticator: {serial}")
+@@ -159,18 +168,19 @@ def main(ctx: click.Context, config: str) -> None:
+ @click.pass_context
+ def show(ctx: click.Context, serial: str, interactive: bool) -> None:
+ 	secret = ctx.obj.get_secret(serial)
+-	totp = TOTP(secret, digits=8)
+ 	if interactive:
+ 		click.echo("Ctrl-C to exit")
+ 		while True:
+-			token = totp.now()
++			token = get_totp(secret, digits=8)
+ 			sys.stdout.write("\r" + token)
+ 			sys.stdout.flush()
+ 			sleep(1)
+ 	else:
+-		click.echo(totp.now())
++		click.echo(get_totp(secret, digits=8))
+ 
+ 
++@main.command(help="Request a new authenticator")
++
+ @main.command(help="Request a new authenticator")
+ @click.option("--region", default="US", help="Desired region for the new authenticator")
+ @click.option("--set-default/--no-set-default", default=True)
+diff --git a/bna/utils.py b/bna/utils.py
+index ce217ea..5694688 100644
+--- a/bna/utils.py
++++ b/bna/utils.py
+@@ -1,7 +1,9 @@
+ """
+ Utility functions
+ """
+-from pyotp import TOTP
++import base64
++import struct
++import time
+ 
+ 
+ def normalize_serial(serial: str) -> str:
+@@ -35,11 +37,53 @@ def prettify_serial(serial: str) -> str:
+ 	)
+ 
+ 
++def _hotp(secret: str, counter: int, digits: int = 6) -> str:
++	"""Generate an HOTP code (RFC 4226) using a base32 secret.
++
++	Implementation is compatible with pyotp for TOTP/HOTP generation.
++	"""
++	key = base64.b32decode(secret, casefold=True)
++	msg = struct.pack(">Q", counter)
++	# HMAC-SHA1
++	import hmac
++	import hashlib
++
++	hmac_hash = hmac.new(key, msg, hashlib.sha1).digest()
++	offset = hmac_hash[-1] & 0x0F
++	code = (
++		((hmac_hash[offset] & 0x7F) << 24)
++		| ((hmac_hash[offset + 1] & 0xFF) << 16)
++		| ((hmac_hash[offset + 2] & 0xFF) << 8)
++		| (hmac_hash[offset + 3] & 0xFF)
++	) % (10 ** digits)
++	return str(code).zfill(digits)
++
++
++def get_totp(secret: str, digits: int = 6, interval: int = 30, for_time: int | None = None) -> str:
++	"""Return the TOTP value for a given base32 secret.
++
++	`for_time` can be provided for testing; by default current time is used.
++	"""
++	if for_time is None:
++		for_time = int(time.time())
++	counter = int(for_time / interval)
++	return _hotp(secret, counter, digits=digits)
++
++
+ def get_otpauth_url(serial: str, secret: str) -> str:
+ 	"""
+ 	Get the OTPAuth URL for the serial/secret pair
+ 	https://github.com/google/google-authenticator/wiki/Key-Uri-Format
+ 	"""
+-	totp = TOTP(secret, digits=8)
++	# keep behaviour identical to previous pyotp-based implementation
++	label = f"Blizzard:{serial}"
++	params = {
++		"secret": secret,
++		"issuer": "Blizzard",
++		"digits": "8",
++	}
++	# manual query-building to avoid adding unexpected params
++	from urllib.parse import urlencode
+ 
+-	return totp.provisioning_uri(serial, issuer_name="Blizzard")
++	query = urlencode(params)
++	return f"otpauth://totp/{label}?{query}"
+diff --git a/pyproject.toml b/pyproject.toml
+index a9309d5..2a6a1df 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,8 +17,8 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.7"
++click = "^8.0.3"
+ 
+-[tool.poetry.dev-dependencies]
+ flake8 = "^4.0.1"
+ isort = "^5.10.1"
+ mypy = "^0.931"
+diff --git a/tests/test_main.py b/tests/test_main.py
+index f1b1343..1a9b23a 100644
+--- a/tests/test_main.py
++++ b/tests/test_main.py
+@@ -2,8 +2,6 @@
+ 
+ import urllib.parse
+ 
+-from pyotp import TOTP
+-
+ import bna
+ 
+ SERIAL = "US120910711868"
+@@ -11,10 +9,14 @@ SECRET = "HA4GCYLGMFRWKNBYGI4TCZJQHFSGGMLFMNSTSYZSMFQTINDEHAZTSOJYGNQTOZTG"
+ 
+ 
+ def test_token():
+-	totp = TOTP(SECRET, digits=8)
+-	assert totp.at(1347279358) == "93461643"
+-	assert totp.at(1347279359) == "93461643"
+-	assert totp.at(1347279360) == "86031001"
++	from bna.utils import get_totp
++
++	token = get_totp(SECRET, digits=8, interval=30, for_time=1347279358)
++	assert token == "93461643"
++	token = get_totp(SECRET, digits=8, interval=30, for_time=1347279359)
++	assert token == "93461643"
++	token = get_totp(SECRET, digits=8, interval=30, for_time=1347279360)
++	assert token == "86031001"
+ 
+ 
+ def test_restore_code():
