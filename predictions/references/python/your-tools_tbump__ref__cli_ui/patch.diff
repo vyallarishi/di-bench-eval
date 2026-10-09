@@ -1,0 +1,643 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..4c35c29 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,14 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++docopt = "^0.6.2"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/cli.py b/tbump/cli.py
+index e2b726e..6156d34 100644
+--- a/tbump/cli.py
++++ b/tbump/cli.py
+@@ -7,7 +7,7 @@ from enum import Enum
+ from pathlib import Path
+ from typing import Dict, List, Optional, Union, cast
+ 
+-import cli_ui as ui
++from tbump import ui
+ import docopt
+ from packaging.version import InvalidVersion
+ from packaging.version import parse as parse_version
+diff --git a/tbump/config.py b/tbump/config.py
+index 84cedde..3704377 100644
+--- a/tbump/config.py
++++ b/tbump/config.py
+@@ -4,7 +4,7 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
+ 
+-import cli_ui as ui
++from tbump import ui
+ import schema
+ import tomlkit
+ from tomlkit.toml_document import TOMLDocument
+diff --git a/tbump/executor.py b/tbump/executor.py
+index 8230b3f..842690d 100644
+--- a/tbump/executor.py
++++ b/tbump/executor.py
+@@ -1,6 +1,6 @@
+ from typing import List, Sequence
+ 
+-import cli_ui as ui
++from tbump import ui
+ 
+ from tbump.action import Action
+ from tbump.config import ConfigFileUpdater
+diff --git a/tbump/file_bumper.py b/tbump/file_bumper.py
+index f8c957d..7842fea 100644
+--- a/tbump/file_bumper.py
++++ b/tbump/file_bumper.py
+@@ -4,7 +4,7 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Dict, List, Optional, Pattern
+ 
+-import cli_ui as ui
++from tbump import ui
+ 
+ from tbump.action import Action
+ from tbump.config import Config, File, get_config_file
+diff --git a/tbump/git.py b/tbump/git.py
+index e5815e5..9035051 100644
+--- a/tbump/git.py
++++ b/tbump/git.py
+@@ -2,7 +2,7 @@ import subprocess
+ from pathlib import Path
+ from typing import List, Optional, Tuple
+ 
+-import cli_ui as ui
++from tbump import ui
+ 
+ from tbump.error import Error
+ 
+diff --git a/tbump/git_bumper.py b/tbump/git_bumper.py
+index 3b8a21e..0507870 100644
+--- a/tbump/git_bumper.py
++++ b/tbump/git_bumper.py
+@@ -2,7 +2,7 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import List, Optional, Tuple
+ 
+-import cli_ui as ui
++from tbump import ui
+ 
+ from tbump.action import Action
+ from tbump.config import Config
+diff --git a/tbump/hooks.py b/tbump/hooks.py
+index 7823975..ecad3b0 100644
+--- a/tbump/hooks.py
++++ b/tbump/hooks.py
+@@ -2,7 +2,7 @@ import subprocess
+ from pathlib import Path
+ from typing import List, Optional
+ 
+-import cli_ui as ui
++from tbump import ui
+ 
+ from tbump.action import Action
+ from tbump.error import Error
+diff --git a/tbump/init.py b/tbump/init.py
+index f3c4ee0..61b7b32 100644
+--- a/tbump/init.py
++++ b/tbump/init.py
+@@ -2,7 +2,7 @@ import textwrap
+ from pathlib import Path
+ from typing import List, Optional
+ 
+-import cli_ui as ui
++from tbump import ui
+ 
+ from tbump.error import Error
+ from tbump.git import run_git_captured
+diff --git a/tbump/test/test_cli.py b/tbump/test/test_cli.py
+index a5a8908..087e12b 100644
+--- a/tbump/test/test_cli.py
++++ b/tbump/test/test_cli.py
+@@ -269,7 +269,7 @@ def test_abort_if_file_does_not_exist(test_repo: Path) -> None:
+ 
+ 
+ def test_interactive_abort(test_repo: Path, mocker: Any) -> None:
+-    ask_mock = mocker.patch("cli_ui.ask_yes_no")
++    ask_mock = mocker.patch("tbump.ui.ask_yes_no")
+     ask_mock.return_value = False
+ 
+     with pytest.raises(Error):
+@@ -340,7 +340,7 @@ def test_no_tracked_branch_non_interactive(test_repo: Path) -> None:
+ 
+ 
+ def test_interactive_proceed(test_repo: Path, mocker: Any) -> None:
+-    ask_mock = mocker.patch("cli_ui.ask_yes_no")
++    ask_mock = mocker.patch("tbump.ui.ask_yes_no")
+ 
+     ask_mock.return_value = [True]
+     run_tbump(["-C", str(test_repo), "1.2.42"])
+diff --git a/tbump/ui.py b/tbump/ui.py
+new file mode 100644
+index 0000000..8295cf5
+--- /dev/null
++++ b/tbump/ui.py
+@@ -0,0 +1,141 @@
++"""Console output for tbump: coloured tokens, headings, counters, errors and a
++yes/no prompt, with the output format the tool has always had.
++
++Colours are emitted when ``setup(color="always")`` was called, or in ``auto`` mode
++when stdout is a terminal. ``debug`` prints only after ``setup(verbose=True)``.
++"""
++
++import sys
++from typing import Any, Optional, TextIO
++
++CONFIG = {"verbose": False, "color": "auto"}
++
++
++class Color:
++    def __init__(self, name: str, code: int) -> None:
++        self.name = name
++        self.code = code
++
++    def __repr__(self) -> str:
++        return f"Color({self.name})"
++
++
++class UnicodeSequence:
++    """A coloured symbol: rendered as a reset, its colour, the text, then a reset."""
++
++    def __init__(self, color: Color, text: str) -> None:
++        self.color = color
++        self.text = text
++
++
++reset = Color("reset", 0)
++bold = Color("bold", 1)
++red = Color("red", 31)
++green = Color("green", 32)
++blue = Color("blue", 34)
++yellow = Color("yellow", 33)
++darkgray = Color("darkgray", 30)
++lightgray = Color("lightgray", 37)
++check = UnicodeSequence(green, "✓")
++
++
++def setup(*, verbose: bool = False, color: str = "auto", **_ignored: Any) -> None:
++    CONFIG["verbose"] = verbose
++    CONFIG["color"] = color
++
++
++def tabs(num: int) -> str:
++    return "  " * num
++
++
++def _use_color(fileobj: TextIO) -> bool:
++    if CONFIG["color"] == "always":
++        return True
++    if CONFIG["color"] == "never":
++        return False
++    return bool(getattr(fileobj, "isatty", lambda: False)())
++
++
++def _render(tokens: Any, sep: str, end: str, fileobj: TextIO) -> str:
++    """Join the tokens: text tokens are separated by ``sep`` (none after the last
++    token), colours become escape codes when colour is on, and a colour run always
++    ends with a reset after ``end``."""
++    color = _use_color(fileobj)
++    flat: list = []
++    for token in tokens:
++        if isinstance(token, UnicodeSequence):
++            flat += [reset, token.color, token.text, reset]
++        else:
++            flat.append(token)
++    out = ""
++    for i, token in enumerate(flat):
++        if isinstance(token, Color):
++            out += f"\033[{token.code}m" if color else ""
++        else:
++            out += str(token)
++            if i != len(flat) - 1:
++                out += sep
++    out += end
++    if color:
++        out += "\033[0m"
++    return out
++
++
++def _message(
++    *tokens: Any, sep: str = " ", end: str = "\n", fileobj: Optional[TextIO] = None
++) -> None:
++    fileobj = fileobj or sys.stdout
++    fileobj.write(_render(tokens, sep, end, fileobj))
++    fileobj.flush()
++
++
++def info(*tokens: Any, **kwargs: Any) -> None:
++    _message(*tokens, **kwargs)
++
++
++def info_1(*tokens: Any, **kwargs: Any) -> None:
++    _message(bold, blue, "::", reset, *tokens, **kwargs)
++
++
++def info_2(*tokens: Any, **kwargs: Any) -> None:
++    _message(bold, blue, "=>", reset, *tokens, **kwargs)
++
++
++def info_3(*tokens: Any, **kwargs: Any) -> None:
++    _message(bold, blue, "*", reset, *tokens, **kwargs)
++
++
++def info_count(i: int, n: int, *rest: Any, **kwargs: Any) -> None:
++    num_digits = len(str(n))
++    counter = f"({i + 1:{num_digits}d}/{n})"
++    _message(green, "*", reset, counter, reset, *rest, **kwargs)
++
++
++def error(*tokens: Any, **kwargs: Any) -> None:
++    kwargs.setdefault("fileobj", sys.stderr)
++    _message(bold, red, "Error:", *tokens, **kwargs)
++
++
++def debug(*tokens: Any, **kwargs: Any) -> None:
++    if CONFIG["verbose"]:
++        _message(*tokens, **kwargs)
++
++
++def ask_yes_no(*question: Any, default: bool = False) -> bool:
++    """Ask a yes/no question; an empty answer gives ``default``."""
++    while True:
++        _message(green, "::", reset, *question, reset, "(Y/n)" if default else "(y/N)")
++        _message(green, "> ", end="")
++        answer = input()
++        if answer.lower() in ("y", "yes"):
++            return True
++        if answer.lower() in ("n", "no"):
++            return False
++        if not answer:
++            return default
++        _message(
++            yellow,
++            "Warning:",
++            "Please answer by 'y' (yes) or 'n' (no) ",
++            fileobj=sys.stderr,
++        )
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..de6935e
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'cli_ui' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['cli_ui', 'cliui']
++_DEP = 'cli_ui'
++_OWN = ['tasks', 'tbump']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..de6935e
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'cli_ui' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['cli_ui', 'cliui']
++_DEP = 'cli_ui'
++_OWN = ['tasks', 'tbump']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

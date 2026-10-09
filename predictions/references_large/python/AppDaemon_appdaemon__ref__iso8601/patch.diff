@@ -1,0 +1,525 @@
+diff --git a/appdaemon/adapi.py b/appdaemon/adapi.py
+index 94e6295..8d16399 100644
+--- a/appdaemon/adapi.py
++++ b/appdaemon/adapi.py
+@@ -8,7 +8,6 @@ from copy import deepcopy
+ from datetime import timedelta
+ from typing import Any, Callable, Dict, Optional, Union
+ 
+-import iso8601
+ 
+ from appdaemon import utils
+ from appdaemon.appdaemon import AppDaemon
+@@ -2067,7 +2066,7 @@ class ADAPI:
+              A localised Python `datetime` object representing the timestamp.
+ 
+         """
+-        return iso8601.parse_date(utc)
++        return utils.parse_iso8601(utc)
+ 
+     @utils.sync_wrapper
+     async def sun_up(self) -> bool:
+diff --git a/appdaemon/entity.py b/appdaemon/entity.py
+index 4aad22c..bc6628c 100644
+--- a/appdaemon/entity.py
++++ b/appdaemon/entity.py
+@@ -4,7 +4,6 @@ from collections.abc import Iterable
+ from logging import Logger
+ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+ 
+-import iso8601
+ 
+ import appdaemon.utils as utils
+ from appdaemon.exceptions import TimeOutException
+@@ -592,7 +591,7 @@ class Entity:
+     def last_changed_seconds(self) -> float:
+         """Get the entity's last changed time in seconds"""
+ 
+-        utc = iso8601.parse_date(self.states_attrs.last_changed)
++        utc = utils.parse_iso8601(self.states_attrs.last_changed)
+         now = self.AD.sched.get_now_sync()
+         return (now - utc).total_seconds()
+ 
+diff --git a/appdaemon/threading.py b/appdaemon/threading.py
+index 86ada35..3f8b2d8 100644
+--- a/appdaemon/threading.py
++++ b/appdaemon/threading.py
+@@ -13,7 +13,6 @@ from random import randint
+ from threading import Thread
+ from typing import TYPE_CHECKING, Dict, List, Optional, Union
+ 
+-import iso8601
+ 
+ from appdaemon import utils as utils
+ 
+@@ -372,7 +371,7 @@ class Threading:
+                             thread,
+                             qsize,
+                             await self.get_state("_threading", "admin", "thread.{}".format(thread)),
+-                            iso8601.parse_date(
++                            utils.parse_iso8601(
+                                 await self.get_state(
+                                     "_threading",
+                                     "admin",
+diff --git a/appdaemon/utils.py b/appdaemon/utils.py
+index 3496b31..2516389 100644
+--- a/appdaemon/utils.py
++++ b/appdaemon/utils.py
+@@ -548,6 +548,37 @@ def check_path(type, logger, inpath, pathtype="directory", permissions=None):  #
+         pass
+ 
+ 
++_ISO8601 = re.compile(
++    r"^\s*(\d{4})-?(\d{2})-?(\d{2})"
++    r"(?:[T ](\d{2})(?::?(\d{2})(?::?(\d{2})(?:[.,](\d{1,6})\d*)?)?)?"
++    r"\s*(Z|z|[+-]\d{2}(?::?\d{2})?)?)?\s*$"
++)
++
++
++def parse_iso8601(text):
++    """Parse an ISO 8601 timestamp into an aware ``datetime``.
++
++    Accepts ``YYYY-MM-DD`` (or ``YYYYMMDD``) with an optional ``T``/space-separated
++    time (hours, optional minutes, seconds and fraction) and an optional ``Z`` or
++    ``+HH[:MM]`` offset. A timestamp without an offset is taken as UTC, as Home
++    Assistant's ``last_changed`` strings and AppDaemon's own timestamps are.
++    Raises ``ValueError`` for anything else.
++    """
++    m = _ISO8601.match(text or "")
++    if m is None:
++        raise ValueError(f"Unable to parse date string {text!r}")
++    year, month, day, hour, minute, second, fraction, offset = m.groups()
++    tz = datetime.timezone.utc
++    if offset and offset not in ("Z", "z"):
++        sign = -1 if offset[0] == "-" else 1
++        hours, minutes = int(offset[1:3]), int(offset[3:].lstrip(":") or 0)
++        tz = datetime.timezone(sign * datetime.timedelta(hours=hours, minutes=minutes))
++    return datetime.datetime(
++        int(year), int(month), int(day), int(hour or 0), int(minute or 0), int(second or 0),
++        int((fraction or "0").ljust(6, "0")), tzinfo=tz,
++    )
++
++
+ def str_to_dt(time):
+     return dateutil.parser.parse(time)
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..fce50c9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,24 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    "importlib-metadata; python_version<\"3.8\"",
++    "aiohttp >= 3.9.0,< 3.11.0",
++    "aiohttp_jinja2 >= 1.5.1,< 1.7.0",
++    "astral ~= 3.2",
++    "bcrypt >= 4.0.1,< 4.3.0",
++    "deepdiff == 8.0.1",
++    "feedparser ~= 6.0.10",
++    "paho-mqtt >= 1.6.1,< 2.2.0",
++    "pid ~= 3.0.4",
++    "python-dateutil >= 2.8.2,< 2.10.0",
++    "python-socketio >= 5.5,< 5.12",
++    "pytz >= 2022.7.1,< 2024.2.0",
++    "pyyaml ~= 6.0.1",
++    "requests >= 2.28.2,< 2.33.0",
++    "sockjs >= 0.11,< 0.14",
++    "uvloop==0.20.0; sys_platform != \"win32\"",
++    "tomli ~= 2.0.1",
++    "tomli_w ~= 1.0.0",
+ ]
+ 
+ classifiers= [
+diff --git a/tests/test_parse_iso8601.py b/tests/test_parse_iso8601.py
+new file mode 100644
+index 0000000..9b397e5
+--- /dev/null
++++ b/tests/test_parse_iso8601.py
+@@ -0,0 +1,33 @@
++import datetime
++
++import pytest
++
++from appdaemon import utils
++
++UTC = datetime.timezone.utc
++
++
++@pytest.mark.parametrize(
++    "text, expected",
++    [
++        ("2016-07-13T14:24:02.040658-04:00", datetime.datetime(2016, 7, 13, 14, 24, 2, 40658, tzinfo=datetime.timezone(datetime.timedelta(hours=-4)))),
++        ("2024-10-02T08:00:00+01:00", datetime.datetime(2024, 10, 2, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))),
++        ("2024-10-02T08:00:00+0100", datetime.datetime(2024, 10, 2, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))),
++        ("2024-10-02T08:00:00Z", datetime.datetime(2024, 10, 2, 8, 0, tzinfo=UTC)),
++        ("2024-10-02T08:00:00", datetime.datetime(2024, 10, 2, 8, 0, tzinfo=UTC)),
++        ("2024-10-02 08:00:00.5", datetime.datetime(2024, 10, 2, 8, 0, 0, 500000, tzinfo=UTC)),
++        ("2024-10-02T08:00:00.123456789+00:00", datetime.datetime(2024, 10, 2, 8, 0, 0, 123456, tzinfo=UTC)),
++        ("2024-10-02T08:00", datetime.datetime(2024, 10, 2, 8, 0, tzinfo=UTC)),
++        ("2024-10-02T08", datetime.datetime(2024, 10, 2, 8, 0, tzinfo=UTC)),
++        ("2024-10-02", datetime.datetime(2024, 10, 2, tzinfo=UTC)),
++        ("20241002T080000Z", datetime.datetime(2024, 10, 2, 8, 0, tzinfo=UTC)),
++    ],
++)
++def test_parse_iso8601(text, expected):
++    assert utils.parse_iso8601(text) == expected
++
++
++@pytest.mark.parametrize("text", ["never", "", "2024-13-01", "2024-10-02T25:00:00"])
++def test_unparseable_raises_value_error(text):
++    with pytest.raises(ValueError):
++        utils.parse_iso8601(text)
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..8e47f0a
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'iso8601' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['iso8601']
++_DEP = 'iso8601'
++_OWN = ['appdaemon']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..8e47f0a
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'iso8601' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['iso8601']
++_DEP = 'iso8601'
++_OWN = ['appdaemon']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

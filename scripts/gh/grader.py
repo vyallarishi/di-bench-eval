@@ -10,7 +10,7 @@ questions, and the point of composing them is that no single one is sufficient:
   G4a behaviour preserved     the replacement reproduces what the library did
                               on the inputs the tests exercise
   G4c oracle strength         how much of the replacement the suite constrains
-  G5  no phantom use          the package is not still installed transitively
+  G5  no phantom use          the package is not used while undeclared
   G7  test oracle untouched   no test deleted, skipped or weakened
   G8  closure not grown       no new third-party package took its place
 
@@ -189,18 +189,41 @@ def g4a_behaviour(reference: list[dict], candidate: list[dict]) -> dict:
                                 "reference_calls", "reference_sites")})
 
 
-def g5_no_phantom(ci_log: str | None, dep: str) -> dict:
-    """The package must not still arrive through another dependency."""
+BLOCKER_ACTIVE = "UnpinBench blocker active"
+
+
+def g5_no_phantom(ci_log: str | None, dep: str, tests_passed: bool | None = None) -> dict:
+    """The repository must not go on using the package without declaring it.
+
+    Phantom use needs two things: the package still present, and the
+    repository importing it. Presence alone is not a fault -- a correct removal
+    cannot uninstall a package that another declaration pulls in transitively
+    (typing_extensions, werkzeug, sniffio arrive that way in real references).
+    So when the run carried the scoped import blocker, the import side is what
+    decides: a green suite under the blocker means no repository frame imported
+    the package, and the package being installed is irrelevant. Without a
+    blocker in the run, presence in the install log is all the evidence there
+    is, and the gate fails on it as before.
+    """
     if not ci_log:
         return _verdict(None, "no install log available")
     pat = re.compile(rf"\b{re.escape(M.norm(dep)).replace('_', '[-_.]')}\b", re.I)
     installed = [l for l in ci_log.splitlines()
                  if ("Installing collected packages" in l or "Successfully installed" in l
                      or re.match(r"\s*(Downloading|Collecting)\b", l)) and pat.search(l)]
-    if installed:
-        return _verdict(False, f"{dep} still appears in the install log",
+    if not installed:
+        return _verdict(True, f"{dep} does not appear in the install log")
+    if BLOCKER_ACTIVE in ci_log:
+        if tests_passed:
+            return _verdict(True, f"{dep} is still installed (transitively) but the suite "
+                                  "passed with it unimportable from repository frames",
+                            lines=[l.strip()[:120] for l in installed[:3]])
+        return _verdict(None, f"{dep} is still installed and the suite failed under the "
+                              "blocker; G2 carries that failure",
                         lines=[l.strip()[:120] for l in installed[:3]])
-    return _verdict(True, f"{dep} does not appear in the install log")
+    return _verdict(False, f"{dep} still appears in the install log and the run had no "
+                           "import blocker, so phantom use cannot be excluded",
+                    lines=[l.strip()[:120] for l in installed[:3]])
 
 
 def grade(patch: str, repo: pathlib.Path, dep: str, *,
@@ -220,7 +243,7 @@ def grade(patch: str, repo: pathlib.Path, dep: str, *,
                                    else "the repository's suite fails")),
         "G3_no_vendored_copy": g3_no_vendored_copy(patch, dep),
         "G4a_behaviour": g4a_behaviour(reference or [], candidate or []),
-        "G5_no_phantom": g5_no_phantom(ci_log, dep),
+        "G5_no_phantom": g5_no_phantom(ci_log, dep, tests_passed),
         "G7_tests_untouched": (lambda r: _verdict(r["pass"], r["reason"], **r["evidence"]))(
             gate_tests.check(patch, repo)),
         # r["pass"] may be None, meaning the gate cannot speak; _verdict maps

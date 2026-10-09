@@ -1,0 +1,564 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..9dbecd4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,14 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/cli.py b/tbump/cli.py
+index e2b726e..bfdf4b4 100644
+--- a/tbump/cli.py
++++ b/tbump/cli.py
+@@ -8,7 +8,6 @@ from pathlib import Path
+ from typing import Dict, List, Optional, Union, cast
+ 
+ import cli_ui as ui
+-import docopt
+ from packaging.version import InvalidVersion
+ from packaging.version import parse as parse_version
+ 
+@@ -20,6 +19,7 @@ from tbump.git import GitError
+ from tbump.git_bumper import GitBumper, GitBumperOptions
+ from tbump.hooks import HooksRunner
+ from tbump.init import init
++from tbump.cli_args import parse_cli_args
+ 
+ TBUMP_VERSION = "6.11.0"
+ 
+@@ -125,7 +125,7 @@ class GivenCliArguments:
+         def _get_bool(key: str) -> bool:
+             return cast(bool, opt_dict[key])
+ 
+-        # docopt has a hard time parsing the commands because run_bump uses that same cli slot for
++        # the usage grammar is ambiguous because run_bump uses the same cli slot for
+         # the new version. This corrects those issues.
+         command = Command.bump
+         new_version = opt_dict["<new_version>"]
+@@ -154,7 +154,7 @@ class GivenCliArguments:
+ 
+ 
+ def run(cmd: List[str]) -> None:
+-    opt_dict = docopt.docopt(USAGE, argv=cmd)
++    opt_dict = parse_cli_args(USAGE, argv=cmd)
+     arguments = GivenCliArguments.from_opts(opt_dict)
+ 
+     if arguments.command == Command.version:
+@@ -162,7 +162,7 @@ def run(cmd: List[str]) -> None:
+         return
+ 
+     # when running `tbump init` (with current_version missing),
+-    # docopt thinks we are running `tbump` with new_version = "init"
++    # the parser treats `tbump init` as running `tbump` with new_version = "init"
+     # bail out early in this case
+     if arguments.command == Command.init and arguments.init_current_version is None:
+         sys.exit(USAGE)
+diff --git a/tbump/cli_args.py b/tbump/cli_args.py
+new file mode 100644
+index 0000000..dff6395
+--- /dev/null
++++ b/tbump/cli_args.py
+@@ -0,0 +1,140 @@
++"""Command-line parsing for ``tbump``, matching the usage text in ``tbump.cli``.
++
++``parse_cli_args`` returns the same dictionary shape the usage text implies: one
++key per option (``False``/``None`` when absent), one per positional
++(``<new_version>``, ``<current_version>``), one per command (``init``,
++``current-version``). ``-h``/``--help`` prints the usage and exits 0; any other
++problem prints the usage to stderr and exits 1.
++"""
++
++import sys
++from typing import Dict, List, Optional, Union
++
++FLAGS = {
++    "-h": "--help",
++    "--help": "--help",
++    "-v": "--version",
++    "--version": "--version",
++    "--non-interactive": "--non-interactive",
++    "--dry-run": "--dry-run",
++    "--only-patch": "--only-patch",
++    "--no-tag": "--no-tag",
++    "--no-push": "--no-push",
++    "--no-tag-push": "--no-tag-push",
++    "--pyproject": "--pyproject",
++}
++VALUED = {
++    "-C": "--cwd",
++    "--cwd": "--cwd",
++    "-c": "--config",
++    "--config": "--config",
++    "--tag-message": "--tag-message",
++}
++LONG_NAMES = sorted(
++    name for name in list(FLAGS) + list(VALUED) if name.startswith("--")
++)
++
++OptDict = Dict[str, Union[bool, Optional[str]]]
++
++
++class UsageError(SystemExit):
++    def __init__(self, usage: str, message: str = "") -> None:
++        super().__init__((message + "\n" if message else "") + usage.strip())
++
++
++def _resolve_long(name: str, usage: str) -> str:
++    """Accept any unambiguous prefix of a long option, as docopt did."""
++    if name in FLAGS or name in VALUED:
++        return name
++    matches = [full for full in LONG_NAMES if full.startswith(name)]
++    if len(matches) == 1:
++        return matches[0]
++    raise UsageError(
++        usage,
++        f"{name} is not a unique prefix: {', '.join(matches)}?" if matches else "",
++    )
++
++
++def _empty() -> OptDict:
++    opts: OptDict = {name: False for name in set(FLAGS.values())}
++    opts.update({name: None for name in set(VALUED.values())})
++    opts.update(
++        {
++            "<new_version>": None,
++            "<current_version>": None,
++            "init": False,
++            "current-version": False,
++        }
++    )
++    return opts
++
++
++def parse_cli_args(usage: str, argv: List[str]) -> OptDict:
++    opts = _empty()
++    positionals: List[str] = []
++    tokens = list(argv)
++    while tokens:
++        token = tokens.pop(0)
++        if token == "--":
++            raise UsageError(usage)
++        if token.startswith("--"):
++            name, eq, inline = token.partition("=")
++            name = _resolve_long(name, usage)
++            if name in FLAGS:
++                if eq:
++                    raise UsageError(usage, f"{name} must not have an argument")
++                opts[FLAGS[name]] = True
++            else:
++                if eq:
++                    value = inline
++                elif tokens:
++                    value = tokens.pop(0)
++                else:
++                    raise UsageError(usage, f"{name} requires argument")
++                opts[VALUED[name]] = value
++        elif token.startswith("-") and token != "-":
++            short, rest = token[:2], token[2:]
++            if short in FLAGS:
++                opts[FLAGS[short]] = True
++                if rest:
++                    tokens.insert(0, "-" + rest)
++            elif short in VALUED:
++                if rest:
++                    value = rest
++                elif tokens:
++                    value = tokens.pop(0)
++                else:
++                    raise UsageError(usage, f"{short} requires argument")
++                opts[VALUED[short]] = value
++            else:
++                raise UsageError(usage)
++        else:
++            positionals.append(token)
++    if opts["--help"]:
++        print(usage.strip())
++        sys.exit()
++    others = any(
++        opts[name]
++        for name in (
++            "--non-interactive",
++            "--dry-run",
++            "--only-patch",
++            "--no-tag",
++            "--no-push",
++            "--no-tag-push",
++            "--pyproject",
++            "--cwd",
++            "--config",
++            "--tag-message",
++        )
++    )
++    if len(positionals) == 1 and not opts["--version"]:
++        opts["<new_version>"] = positionals[0]
++    elif len(positionals) == 2 and positionals[0] == "init" and not opts["--version"]:
++        opts["init"] = True
++        opts["<current_version>"] = positionals[1]
++    elif opts["--version"] and not positionals and not others:
++        pass
++    else:
++        raise UsageError(usage)
++    return opts
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..b1d8605
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'docopt' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['docopt']
++_DEP = 'docopt'
++_OWN = ['tasks', 'tbump']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..b1d8605
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'docopt' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['docopt']
++_DEP = 'docopt'
++_OWN = ['tasks', 'tbump']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

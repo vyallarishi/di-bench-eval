@@ -1,0 +1,688 @@
+diff --git a/adaptive/_sorted.py b/adaptive/_sorted.py
+new file mode 100644
+index 0000000..6fffe2a
+--- /dev/null
++++ b/adaptive/_sorted.py
+@@ -0,0 +1,248 @@
++"""Sorted containers for the learners: a dict iterated in key order with
++positional access, a set iterated in key order, and a list kept in key order.
++
++Built on ``bisect`` over a plain list, so insertion is O(n) rather than the
++O(log n) of a tree; the learners hold at most a few thousand points, where that
++difference is not measurable.
++"""
++
++from __future__ import annotations
++
++import bisect
++from collections.abc import KeysView, Set
++from typing import Any, Callable, Iterable, Optional
++
++
++class _KeysView:
++    """The keys of a SortedDict in order, indexable and sliceable."""
++
++    def __init__(self, keys: list):
++        self._keys = keys
++
++    def __getitem__(self, index):
++        return self._keys[index]
++
++    def __iter__(self):
++        return iter(self._keys)
++
++    def __len__(self):
++        return len(self._keys)
++
++    def __contains__(self, key):
++        i = bisect.bisect_left(self._keys, key)
++        return i < len(self._keys) and self._keys[i] == key
++
++    def __reversed__(self):
++        return reversed(self._keys)
++
++    def __eq__(self, other):
++        """Set equality against other key views and sets, sequence equality
++        against lists and tuples, as a dict's keys view compares."""
++        if isinstance(other, (list, tuple)):
++            return self._keys == list(other)
++        if isinstance(other, (_KeysView, KeysView, Set, frozenset, set)):
++            return set(self._keys) == set(other)
++        return NotImplemented
++
++    __hash__ = None
++
++    def __repr__(self):
++        return f"SortedKeysView({self._keys!r})"
++
++
++class SortedDict(dict):
++    """A dict whose keys are kept sorted: iteration, ``keys()``, ``values()`` and
++    ``items()`` run in key order, and ``index``, ``bisect_left`` and ``peekitem``
++    address keys by sorted position."""
++
++    def __init__(self, *args, **kwargs):
++        super().__init__()
++        self._keys: list = []
++        self.update(*args, **kwargs)
++
++    def __setitem__(self, key, value):
++        if key not in self:
++            bisect.insort(self._keys, key)
++        super().__setitem__(key, value)
++
++    def __delitem__(self, key):
++        super().__delitem__(key)
++        del self._keys[bisect.bisect_left(self._keys, key)]
++
++    def __iter__(self):
++        return iter(self._keys)
++
++    def __reversed__(self):
++        return reversed(self._keys)
++
++    def update(self, *args, **kwargs):
++        for key, value in dict(*args, **kwargs).items():
++            self[key] = value
++
++    def setdefault(self, key, default=None):
++        if key not in self:
++            self[key] = default
++        return self[key]
++
++    def pop(self, key, *default):
++        if key in self:
++            value = super().pop(key)
++            del self._keys[bisect.bisect_left(self._keys, key)]
++            return value
++        if default:
++            return default[0]
++        raise KeyError(key)
++
++    def popitem(self, index=-1):
++        key = self._keys[index]
++        return key, self.pop(key)
++
++    def peekitem(self, index=-1):
++        key = self._keys[index]
++        return key, self[key]
++
++    def clear(self):
++        super().clear()
++        self._keys.clear()
++
++    def copy(self):
++        return SortedDict(self)
++
++    def keys(self):
++        return _KeysView(self._keys)
++
++    def values(self):
++        return [self[key] for key in self._keys]
++
++    def items(self):
++        return [(key, self[key]) for key in self._keys]
++
++    def index(self, key):
++        i = bisect.bisect_left(self._keys, key)
++        if i == len(self._keys) or self._keys[i] != key:
++            raise ValueError(f"{key!r} is not in list")
++        return i
++
++    def bisect_left(self, key):
++        return bisect.bisect_left(self._keys, key)
++
++    def bisect_right(self, key):
++        return bisect.bisect_right(self._keys, key)
++
++    def __reduce__(self):
++        return (SortedDict, (dict(self.items()),))
++
++    def __repr__(self):
++        return f"SortedDict({dict(self.items())!r})"
++
++
++class SortedKeyList:
++    """A list kept ordered by ``key(value)``; equal keys keep insertion order."""
++
++    def __init__(self, iterable: Iterable = (), key: Optional[Callable[[Any], Any]] = None):
++        self._key = key
++        self._keys: list = []
++        self._values: list = []
++        for value in iterable:
++            self.add(value)
++
++    def add(self, value):
++        k = value if self._key is None else self._key(value)
++        i = bisect.bisect_right(self._keys, k)
++        self._keys.insert(i, k)
++        self._values.insert(i, value)
++
++    def pop(self, index=-1):
++        del self._keys[index]
++        return self._values.pop(index)
++
++    def remove(self, value):
++        del self[self._find(value)]
++
++    def discard(self, value):
++        try:
++            del self[self._find(value)]
++        except ValueError:
++            pass
++
++    def _find(self, value):
++        k = value if self._key is None else self._key(value)
++        i = bisect.bisect_left(self._keys, k)
++        while i < len(self._keys) and self._keys[i] == k:
++            if self._values[i] == value:
++                return i
++            i += 1
++        raise ValueError(f"{value!r} is not in list")
++
++    def __delitem__(self, index):
++        del self._keys[index]
++        del self._values[index]
++
++    def __getitem__(self, index):
++        return self._values[index]
++
++    def __contains__(self, value):
++        try:
++            self._find(value)
++            return True
++        except ValueError:
++            return False
++
++    def __iter__(self):
++        return iter(self._values)
++
++    def __reversed__(self):
++        return reversed(self._values)
++
++    def __len__(self):
++        return len(self._values)
++
++    def __reduce__(self):
++        return (type(self), (list(self._values), self._key))
++
++    def __repr__(self):
++        return f"{type(self).__name__}({self._values!r})"
++
++
++class SortedSet(SortedKeyList):
++    """A set iterated in order of ``key(value)``; adding a present value is a no-op."""
++
++    def __init__(self, iterable: Iterable = (), key: Optional[Callable[[Any], Any]] = None):
++        self._members: set = set()
++        super().__init__(iterable, key)
++
++    def add(self, value):
++        if value in self._members:
++            return
++        self._members.add(value)
++        super().add(value)
++
++    def update(self, *iterables):
++        for iterable in iterables:
++            for value in iterable:
++                self.add(value)
++
++    def discard(self, value):
++        if value in self._members:
++            self._members.discard(value)
++            super().remove(value)
++
++    def remove(self, value):
++        if value not in self._members:
++            raise KeyError(value)
++        self.discard(value)
++
++    def pop(self, index=-1):
++        value = super().pop(index)
++        self._members.discard(value)
++        return value
++
++    def __delitem__(self, index):
++        self._members.discard(self._values[index])
++        super().__delitem__(index)
++
++    def __contains__(self, value):
++        return value in self._members
++
++    def __reduce__(self):
++        return (SortedSet, (list(self._values), self._key))
+diff --git a/adaptive/learner/average_learner1D.py b/adaptive/learner/average_learner1D.py
+index 9678b4f..80898a1 100644
+--- a/adaptive/learner/average_learner1D.py
++++ b/adaptive/learner/average_learner1D.py
+@@ -11,7 +11,7 @@ from typing import Callable
+ import numpy as np
+ import scipy.stats
+ from sortedcollections import ItemSortedDict
+-from sortedcontainers import SortedDict
++from adaptive._sorted import SortedDict
+ 
+ from adaptive.learner.learner1D import Learner1D, _get_intervals
+ from adaptive.notebook_integration import ensure_holoviews
+diff --git a/adaptive/learner/integrator_learner.py b/adaptive/learner/integrator_learner.py
+index 0fc97df..241522d 100644
+--- a/adaptive/learner/integrator_learner.py
++++ b/adaptive/learner/integrator_learner.py
+@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Callable
+ import cloudpickle
+ import numpy as np
+ from scipy.linalg import norm
+-from sortedcontainers import SortedSet
++from adaptive._sorted import SortedSet
+ 
+ from adaptive.learner import integrator_coeffs as coeff
+ from adaptive.learner.base_learner import BaseLearner
+diff --git a/adaptive/learner/learner1D.py b/adaptive/learner/learner1D.py
+index bf04743..6ead3d2 100644
+--- a/adaptive/learner/learner1D.py
++++ b/adaptive/learner/learner1D.py
+@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+ import cloudpickle
+ import numpy as np
+ from sortedcollections.recipes import ItemSortedDict
+-from sortedcontainers.sorteddict import SortedDict
++from adaptive._sorted import SortedDict
+ 
+ from adaptive.learner.base_learner import BaseLearner, uses_nth_neighbors
+ from adaptive.learner.learnerND import volume
+diff --git a/adaptive/learner/learnerND.py b/adaptive/learner/learnerND.py
+index c4af7dd..4e7dfff 100644
+--- a/adaptive/learner/learnerND.py
++++ b/adaptive/learner/learnerND.py
+@@ -11,7 +11,7 @@ from copy import deepcopy
+ import numpy as np
+ import scipy.spatial
+ from scipy import interpolate
+-from sortedcontainers import SortedKeyList
++from adaptive._sorted import SortedKeyList
+ 
+ from adaptive.learner.base_learner import BaseLearner, uses_nth_neighbors
+ from adaptive.learner.triangulation import (
+diff --git a/adaptive/learner/sequence_learner.py b/adaptive/learner/sequence_learner.py
+index c307744..b15e445 100644
+--- a/adaptive/learner/sequence_learner.py
++++ b/adaptive/learner/sequence_learner.py
+@@ -5,7 +5,7 @@ from copy import copy
+ from typing import TYPE_CHECKING, Any
+ 
+ import cloudpickle
+-from sortedcontainers import SortedDict, SortedSet
++from adaptive._sorted import SortedDict, SortedSet
+ 
+ from adaptive.learner.base_learner import BaseLearner
+ from adaptive.types import Int
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..63f26c9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,12 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "cloudpickle",
++    "loky >= 2.9",
++    "typing_extensions; python_version < '3.10'",
++    "versioningit",
+ ]
+ 
+ [project.optional-dependencies]
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..0d43670
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'sortedcontainers' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['sortedcontainers']
++_DEP = 'sortedcontainers'
++_OWN = ['adaptive', 'ipynb_filter', 'noxfile']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..0d43670
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'sortedcontainers' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['sortedcontainers']
++_DEP = 'sortedcontainers'
++_OWN = ['adaptive', 'ipynb_filter', 'noxfile']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

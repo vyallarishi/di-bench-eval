@@ -1,0 +1,540 @@
+diff --git a/nvflare/dashboard/application/__init__.py b/nvflare/dashboard/application/__init__.py
+index a100099..412dbe0 100644
+--- a/nvflare/dashboard/application/__init__.py
++++ b/nvflare/dashboard/application/__init__.py
+@@ -16,9 +16,10 @@ import os
+ 
+ from flask import Flask
+ from flask_jwt_extended import JWTManager
+-from flask_sqlalchemy import SQLAlchemy
+ 
+-db = SQLAlchemy()
++from .database import Database
++
++db = Database()
+ jwt = JWTManager()
+ 
+ 
+diff --git a/nvflare/dashboard/application/database.py b/nvflare/dashboard/application/database.py
+new file mode 100644
+index 0000000..32e8b30
+--- /dev/null
++++ b/nvflare/dashboard/application/database.py
+@@ -0,0 +1,86 @@
++# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Flask integration for SQLAlchemy, providing what the dashboard models and store use.
++
++``db.Model`` is a declarative base whose subclasses are named after their class in
++snake case and carry a ``query`` property; ``db.Column``, the column types,
++``db.ForeignKey`` and ``db.relationship`` are SQLAlchemy's own; ``db.session`` is a
++scoped session bound to the application's engine and removed when the application
++context ends; ``db.init_app``, ``db.create_all`` and ``db.drop_all`` manage the engine
++configured by ``SQLALCHEMY_DATABASE_URI`` and ``SQLALCHEMY_ECHO``.
++"""
++
++import re
++
++import sqlalchemy
++from flask import current_app
++from sqlalchemy import orm
++
++_CAMEL = re.compile(r"((?<=[a-z0-9])[A-Z]|(?!^)[A-Z](?=[a-z]))")
++
++
++def _snake_case(name: str) -> str:
++    return _CAMEL.sub(r"_\1", name).lower()
++
++
++class _QueryProperty:
++    def __get__(self, _instance, model):
++        return model.database.session.query(model)
++
++
++class Database:
++    Column = sqlalchemy.Column
++    Integer = sqlalchemy.Integer
++    String = sqlalchemy.String
++    DateTime = sqlalchemy.DateTime
++    Boolean = sqlalchemy.Boolean
++    ForeignKey = sqlalchemy.ForeignKey
++    relationship = staticmethod(orm.relationship)
++
++    def __init__(self):
++        self.session = orm.scoped_session(orm.sessionmaker())
++        database = self
++
++        class _ModelBase:
++            database = None
++            query = _QueryProperty()
++
++            @orm.declared_attr.directive
++            def __tablename__(cls):
++                return _snake_case(cls.__name__)
++
++        self.Model = orm.declarative_base(cls=_ModelBase)
++        self.Model.database = database
++
++    def init_app(self, app):
++        engine = sqlalchemy.create_engine(
++            app.config["SQLALCHEMY_DATABASE_URI"], echo=bool(app.config.get("SQLALCHEMY_ECHO", False))
++        )
++        app.extensions["sqlalchemy_engine"] = engine
++        self.session.configure(bind=engine)
++
++        @app.teardown_appcontext
++        def _remove_session(_exc):
++            self.session.remove()
++
++    @property
++    def engine(self):
++        return current_app.extensions["sqlalchemy_engine"]
++
++    def create_all(self):
++        self.Model.metadata.create_all(self.engine)
++
++    def drop_all(self):
++        self.Model.metadata.drop_all(self.engine)
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..95d1a94 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,6 +16,23 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    cryptography>=36.0.0
++    Flask==3.0.2
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =
+diff --git a/tests/unit_test/dashboard/database_test.py b/tests/unit_test/dashboard/database_test.py
+new file mode 100644
+index 0000000..933cf62
+--- /dev/null
++++ b/tests/unit_test/dashboard/database_test.py
+@@ -0,0 +1,45 @@
++# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++import sqlalchemy
++
++from nvflare.dashboard.application import db
++from nvflare.dashboard.application.models import Capacity, Client, Organization, Project, Role, User
++
++
++def test_table_names_follow_the_class_names():
++    assert [m.__tablename__ for m in (Capacity, Client, Organization, Project, Role, User)] == [
++        "capacity",
++        "client",
++        "organization",
++        "project",
++        "role",
++        "user",
++    ]
++
++
++def test_tables_exist_and_query_property_uses_the_session(app):
++    with app.app_context():
++        names = set(sqlalchemy.inspect(db.engine).get_table_names())
++        assert {"capacity", "client", "organization", "project", "role", "user"} <= names
++        assert User.query.count() == db.session.query(User).count() >= 1
++        assert User.query.filter_by(id=1).first() is User.query.get(1)
++
++
++def test_session_is_removed_when_the_app_context_ends(app):
++    with app.app_context():
++        first = db.session()
++        assert first is db.session()
++    with app.app_context():
++        assert db.session() is not first
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..05bdc85
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'flask_sqlalchemy' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['flask_sqlalchemy', 'flasksqlalchemy']
++_DEP = 'flask_sqlalchemy'
++_OWN = ['nvflare', 'nvflight', 'tests', 'versioneer']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..05bdc85
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'flask_sqlalchemy' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['flask_sqlalchemy', 'flasksqlalchemy']
++_DEP = 'flask_sqlalchemy'
++_OWN = ['nvflare', 'nvflight', 'tests', 'versioneer']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

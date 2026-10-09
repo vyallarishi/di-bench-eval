@@ -1,0 +1,683 @@
+diff --git a/README.md b/README.md
+index 1f63ddc..ef747c0 100644
+--- a/README.md
++++ b/README.md
+@@ -17,15 +17,14 @@ pip instal davinci-functions
+ 
+ ### Using the library
+ 
+-Set your OpenAI Organization ID and API key before using this library.
++Set your OpenAI API key (and optionally your Organization ID) before using this library,
++either with `set_api_key` or through the `OPENAI_API_KEY` / `OPENAI_ORGANIZATION` environment variables.
+ Then invoke the functions in the library.
+ 
+ ```python
+-import openai
+ import davinci_functions
+ 
+-openai.organization = "YOUR_ORG_ID"
+-openai.api_key = "YOUR_API_KEY"
++davinci_functions.set_api_key("YOUR_API_KEY", organization="YOUR_ORG_ID")
+ 
+ prompt = """\
+ Output the list of 10 random city names in the United States.
+diff --git a/pyproject.toml b/pyproject.toml
+index 2ab79bd..770f370 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Programming Language :: Python :: 3.10",
+     "Programming Language :: Python :: 3.11",
+ ]
+-dependencies = []
++dependencies = [
++    "dill>=0.3.6",
++]
+ dynamic = [
+     "version"
+ ]
+diff --git a/src/davinci_functions/__init__.py b/src/davinci_functions/__init__.py
+index 3032e34..6d6fa4e 100644
+--- a/src/davinci_functions/__init__.py
++++ b/src/davinci_functions/__init__.py
+@@ -9,12 +9,14 @@ try:
+ except Exception:
+     __version__ = ""
+ 
++from davinci_functions._completion import set_api_key
+ from davinci_functions._explain import explain
+ from davinci_functions._function import function
+ from davinci_functions._judge import judge
+ from davinci_functions._list import list
+ 
+ __all__ = [
++    "set_api_key",
+     "explain",
+     "function",
+     "judge",
+diff --git a/src/davinci_functions/_completion.py b/src/davinci_functions/_completion.py
+new file mode 100644
+index 0000000..d4466f5
+--- /dev/null
++++ b/src/davinci_functions/_completion.py
+@@ -0,0 +1,47 @@
++"""The OpenAI completions endpoint, without the SDK.
++
++``create(**request)`` posts a request to ``/v1/completions`` and returns the
++decoded JSON response (``response["choices"][0]["text"]`` is the completion).
++Credentials come from the module attributes ``api_key`` and ``organization``,
++which default to the ``OPENAI_API_KEY`` and ``OPENAI_ORGANIZATION`` environment
++variables.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import urllib.request
++from typing import Any
++
++api_base = "https://api.openai.com/v1"
++api_key: str | None = os.environ.get("OPENAI_API_KEY")
++organization: str | None = os.environ.get("OPENAI_ORGANIZATION")
++
++
++def set_api_key(key: str, organization: str | None = None) -> None:
++    """Set the OpenAI credentials used by every function in this package."""
++    global api_key
++    api_key = key
++    if organization is not None:
++        globals()["organization"] = organization
++
++
++def create(**request: Any) -> dict[str, Any]:
++    """Request a completion; ``request`` holds ``model``, ``prompt``, ``max_tokens`` and friends."""
++    if not api_key:
++        raise RuntimeError(
++            "No OpenAI API key: set davinci_functions.api_key or the OPENAI_API_KEY environment variable."
++        )
++    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
++    if organization:
++        headers["OpenAI-Organization"] = organization
++    req = urllib.request.Request(
++        f"{api_base}/completions",
++        data=json.dumps(request).encode("utf-8"),
++        headers=headers,
++        method="POST",
++    )
++    with urllib.request.urlopen(req) as response:
++        body: dict[str, Any] = json.loads(response.read().decode("utf-8"))
++    return body
+diff --git a/src/davinci_functions/_explain.py b/src/davinci_functions/_explain.py
+index 1712f45..53ad24a 100644
+--- a/src/davinci_functions/_explain.py
++++ b/src/davinci_functions/_explain.py
+@@ -7,7 +7,7 @@ from collections.abc import Callable
+ from typing import Any
+ 
+ import dill  # type: ignore[import]
+-import openai
++from davinci_functions import _completion
+ 
+ 
+ def explain(fn: Callable[..., Any]) -> str:
+@@ -60,7 +60,7 @@ def explain(fn: Callable[..., Any]) -> str:
+         """
+     )
+ 
+-    return openai.Completion.create(  # type: ignore[no-any-return, no-untyped-call]
++    return _completion.create(  # type: ignore[no-any-return, no-untyped-call]
+         model="text-davinci-003",
+         prompt=base_prompt.format(src),
+         max_tokens=2048,
+diff --git a/src/davinci_functions/_explain_test.py b/src/davinci_functions/_explain_test.py
+index f2f60b7..880c15c 100644
+--- a/src/davinci_functions/_explain_test.py
++++ b/src/davinci_functions/_explain_test.py
+@@ -9,7 +9,7 @@ from davinci_functions._explain import explain
+ 
+ def test_explain(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "This is a test."}]},
+     )
+ 
+diff --git a/src/davinci_functions/_function.py b/src/davinci_functions/_function.py
+index 15ad98a..3d6b465 100644
+--- a/src/davinci_functions/_function.py
++++ b/src/davinci_functions/_function.py
+@@ -6,7 +6,7 @@ import textwrap
+ from collections.abc import Callable
+ from typing import Any
+ 
+-import openai
++from davinci_functions import _completion
+ 
+ 
+ def function(prompt: str) -> Callable[..., Any]:
+@@ -57,7 +57,7 @@ def function(prompt: str) -> Callable[..., Any]:
+         """
+     )
+ 
+-    response = openai.Completion.create(  # type: ignore[no-untyped-call]
++    response = _completion.create(  # type: ignore[no-untyped-call]
+         model="text-davinci-003",
+         prompt=base_prompt.format(prompt),
+         max_tokens=2048,
+diff --git a/src/davinci_functions/_function_test.py b/src/davinci_functions/_function_test.py
+index 7a49306..352f51f 100644
+--- a/src/davinci_functions/_function_test.py
++++ b/src/davinci_functions/_function_test.py
+@@ -10,7 +10,7 @@ from davinci_functions._function import function
+ 
+ def test_function(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "def func(x):\n    return x * 2"}]},
+     )
+ 
+@@ -21,7 +21,7 @@ def test_function(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_function_non_python(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "Error."}]},
+     )
+ 
+@@ -31,7 +31,7 @@ def test_function_non_python(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_function_non_function(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "func = 42"}]},
+     )
+ 
+diff --git a/src/davinci_functions/_judge.py b/src/davinci_functions/_judge.py
+index 977865b..fe29f15 100644
+--- a/src/davinci_functions/_judge.py
++++ b/src/davinci_functions/_judge.py
+@@ -5,7 +5,7 @@ from __future__ import annotations
+ import ast
+ import textwrap
+ 
+-import openai
++from davinci_functions import _completion
+ 
+ 
+ def judge(prompt: str) -> bool:
+@@ -56,7 +56,7 @@ def judge(prompt: str) -> bool:
+         """
+     )
+ 
+-    response = openai.Completion.create(  # type: ignore[no-untyped-call]
++    response = _completion.create(  # type: ignore[no-untyped-call]
+         model="text-davinci-003",
+         prompt=base_prompt.format(prompt),
+         max_tokens=1024,
+diff --git a/src/davinci_functions/_judge_test.py b/src/davinci_functions/_judge_test.py
+index a2815b5..3d7c6ff 100644
+--- a/src/davinci_functions/_judge_test.py
++++ b/src/davinci_functions/_judge_test.py
+@@ -10,7 +10,7 @@ from davinci_functions._judge import judge
+ 
+ def test_judge_true(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "True"}]},
+     )
+ 
+@@ -19,7 +19,7 @@ def test_judge_true(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_judge_false(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "False"}]},
+     )
+ 
+@@ -28,7 +28,7 @@ def test_judge_false(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_judge_non_python(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "Error."}]},
+     )
+ 
+@@ -38,7 +38,7 @@ def test_judge_non_python(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_judge_non_bool(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "[1, 2, 3]"}]},
+     )
+ 
+diff --git a/src/davinci_functions/_list.py b/src/davinci_functions/_list.py
+index 2514558..bdc5482 100644
+--- a/src/davinci_functions/_list.py
++++ b/src/davinci_functions/_list.py
+@@ -7,7 +7,7 @@ import builtins
+ import textwrap
+ from typing import Any
+ 
+-import openai
++from davinci_functions import _completion
+ 
+ 
+ def list(prompt: str) -> builtins.list[Any]:
+@@ -57,7 +57,7 @@ def list(prompt: str) -> builtins.list[Any]:
+         """
+     )
+ 
+-    response = openai.Completion.create(  # type: ignore[no-untyped-call]
++    response = _completion.create(  # type: ignore[no-untyped-call]
+         model="text-davinci-003",
+         prompt=base_prompt.format(prompt),
+         max_tokens=1024,
+diff --git a/src/davinci_functions/_list_test.py b/src/davinci_functions/_list_test.py
+index 4f8b713..d718d1d 100644
+--- a/src/davinci_functions/_list_test.py
++++ b/src/davinci_functions/_list_test.py
+@@ -10,7 +10,7 @@ from davinci_functions._list import list
+ 
+ def test_list_integers(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "[1, 2, 3]"}]},
+     )
+ 
+@@ -19,7 +19,7 @@ def test_list_integers(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_list_strings(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "['foo', 'bar', 'baz']"}]},
+     )
+ 
+@@ -28,7 +28,7 @@ def test_list_strings(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_list_mixture(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "['foo', 123, True]"}]},
+     )
+ 
+@@ -37,7 +37,7 @@ def test_list_mixture(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_list_non_python(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "Error."}]},
+     )
+ 
+@@ -47,7 +47,7 @@ def test_list_non_python(mocker: pytest_mock.MockerFixture) -> None:
+ 
+ def test_list_non_list(mocker: pytest_mock.MockerFixture) -> None:
+     mocker.patch(
+-        "openai.Completion.create",
++        "davinci_functions._completion.create",
+         return_value={"choices": [{"text": "True"}]},
+     )
+ 
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..f408c00
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'openai' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['openai']
++_DEP = 'openai'
++_OWN = ['davinci_functions']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..f408c00
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'openai' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['openai']
++_DEP = 'openai'
++_OWN = ['davinci_functions']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

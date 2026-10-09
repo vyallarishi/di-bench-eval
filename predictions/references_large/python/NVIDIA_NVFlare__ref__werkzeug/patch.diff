@@ -1,0 +1,528 @@
+diff --git a/nvflare/dashboard/application/password.py b/nvflare/dashboard/application/password.py
+new file mode 100644
+index 0000000..a08449a
+--- /dev/null
++++ b/nvflare/dashboard/application/password.py
+@@ -0,0 +1,64 @@
++# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++"""Password hashing for dashboard users.
++
++Hashes are stored as ``method$salt$hexdigest``. New hashes use scrypt with the
++parameters the dashboard has always written (``scrypt:32768:8:1``, 16-character
++salt, 64-byte key). Verification also accepts ``pbkdf2:<digest>:<iterations>``
++hashes so users created by earlier dashboard versions can still log in.
++"""
++
++import hashlib
++import hmac
++import secrets
++import string
++
++SCRYPT_N, SCRYPT_R, SCRYPT_P = 32768, 8, 1
++SCRYPT_MAXMEM = 132 * 1024 * 1024
++PBKDF2_DEFAULT_DIGEST, PBKDF2_DEFAULT_ITERATIONS = "sha256", 1000000
++_SALT_CHARS = string.ascii_letters + string.digits
++
++
++def _digest(method: str, salt: str, password: str) -> str:
++    """Hex digest of ``password`` under ``method`` (``scrypt:n:r:p`` or ``pbkdf2[:digest[:iterations]]``)."""
++    parts = method.split(":")
++    pw, salt_bytes = password.encode("utf-8"), salt.encode("utf-8")
++    if parts[0] == "scrypt":
++        n, r, p = (int(x) for x in parts[1:4]) if len(parts) == 4 else (SCRYPT_N, SCRYPT_R, SCRYPT_P)
++        return hashlib.scrypt(pw, salt=salt_bytes, n=n, r=r, p=p, maxmem=SCRYPT_MAXMEM, dklen=64).hex()
++    if parts[0] == "pbkdf2":
++        digest = parts[1] if len(parts) > 1 else PBKDF2_DEFAULT_DIGEST
++        iterations = int(parts[2]) if len(parts) > 2 else PBKDF2_DEFAULT_ITERATIONS
++        return hashlib.pbkdf2_hmac(digest, pw, salt_bytes, iterations).hex()
++    raise ValueError(f"Invalid hash method '{parts[0]}'.")
++
++
++def generate_password_hash(password: str, salt_length: int = 16) -> str:
++    salt = "".join(secrets.choice(_SALT_CHARS) for _ in range(salt_length))
++    method = f"scrypt:{SCRYPT_N}:{SCRYPT_R}:{SCRYPT_P}"
++    return f"{method}${salt}${_digest(method, salt, password)}"
++
++
++def check_password_hash(pwhash: str, password: str) -> bool:
++    try:
++        method, salt, hashval = pwhash.split("$", 2)
++    except ValueError:
++        return False
++    try:
++        return hmac.compare_digest(_digest(method, salt, password), hashval)
++    except ValueError as e:
++        if str(e).startswith("Invalid hash method"):
++            raise
++        return False
+diff --git a/nvflare/dashboard/application/store.py b/nvflare/dashboard/application/store.py
+index ea62d8a..94f5416 100644
+--- a/nvflare/dashboard/application/store.py
++++ b/nvflare/dashboard/application/store.py
+@@ -15,11 +15,10 @@
+ import json
+ import logging
+ 
+-from werkzeug.security import check_password_hash, generate_password_hash
+-
+ from .blob import gen_client, gen_overseer, gen_server, gen_user
+ from .cert import Entity, make_root_cert
+ from .models import Capacity, Client, Organization, Project, Role, User, db
++from .password import check_password_hash, generate_password_hash
+ 
+ log = logging.getLogger(__name__)
+ 
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..6768a87 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,6 +16,23 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    cryptography>=36.0.0
++    Flask==3.0.2
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =
+diff --git a/tests/unit_test/dashboard/password_test.py b/tests/unit_test/dashboard/password_test.py
+new file mode 100644
+index 0000000..f173582
+--- /dev/null
++++ b/tests/unit_test/dashboard/password_test.py
+@@ -0,0 +1,55 @@
++# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++import hashlib
++
++import pytest
++
++from nvflare.dashboard.application.password import check_password_hash, generate_password_hash
++
++
++def test_new_hashes_use_scrypt_in_the_stored_format():
++    h = generate_password_hash("s3cret")
++    method, salt, digest = h.split("$")
++    assert method == "scrypt:32768:8:1"
++    assert len(salt) == 16 and salt.isalnum()
++    assert len(digest) == 128
++    assert (
++        digest
++        == hashlib.scrypt(b"s3cret", salt=salt.encode(), n=32768, r=8, p=1, maxmem=132 * 1024 * 1024, dklen=64).hex()
++    )
++
++
++def test_round_trip_and_salt_uniqueness():
++    h1, h2 = generate_password_hash("pässwörd ✓"), generate_password_hash("pässwörd ✓")
++    assert h1 != h2
++    assert check_password_hash(h1, "pässwörd ✓") and check_password_hash(h2, "pässwörd ✓")
++    assert not check_password_hash(h1, "password")
++
++
++def test_legacy_pbkdf2_hashes_still_verify():
++    # produced by an earlier dashboard version's hasher
++    legacy = "pbkdf2:sha256:1000$8f6OsL0F$be0d3254bdc751bad6f31ab0e053017adb39603a2c1e0b9a6663f5316b722ef5"
++    assert check_password_hash(legacy, "s3cret")
++    assert not check_password_hash(legacy, "nope")
++
++
++@pytest.mark.parametrize("bad", ["", "plain", "scrypt:1:1:1$x", "pbkdf2:sha256:1000$salt", "scrypt:32768:8:1$abc$zz"])
++def test_malformed_hashes_do_not_verify(bad):
++    assert check_password_hash(bad, "s3cret") is False
++
++
++def test_unknown_method_is_an_error():
++    with pytest.raises(ValueError, match="Invalid hash method 'md5'"):
++        check_password_hash("md5$abc$def", "s3cret")
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..6b428b9
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'werkzeug' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['werkzeug']
++_DEP = 'werkzeug'
++_OWN = ['nvflare', 'nvflight', 'tests', 'versioneer']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..6b428b9
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'werkzeug' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['werkzeug']
++_DEP = 'werkzeug'
++_OWN = ['nvflare', 'nvflight', 'tests', 'versioneer']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

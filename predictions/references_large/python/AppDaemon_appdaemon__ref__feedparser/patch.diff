@@ -1,0 +1,563 @@
+diff --git a/appdaemon/http.py b/appdaemon/http.py
+index 8f19821..bbc7825 100644
+--- a/appdaemon/http.py
++++ b/appdaemon/http.py
+@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING, Callable, Optional
+ from urllib.parse import urlparse
+ 
+ import bcrypt
+-import feedparser
+ from aiohttp import web
+ from jinja2 import Environment, FileSystemLoader, select_autoescape
+ 
+ import appdaemon.admin as adadmin
+ import appdaemon.dashboard as addashboard
++import appdaemon.rss as rss
+ import appdaemon.stream.adstream as stream
+ import appdaemon.utils as utils
+ from appdaemon.exceptions import StartupAbortedException
+@@ -477,7 +477,7 @@ class HTTP:
+                         self.rss_last_update = time.time()
+ 
+                         for feed_data in self.rss_feeds:
+-                            feed = await utils.run_in_executor(self, feedparser.parse, feed_data["feed"])
++                            feed = await utils.run_in_executor(self, rss.parse, feed_data["feed"])
+                             if "bozo_exception" in feed:
+                                 self.logger.warning(
+                                     "Error in RSS feed %s: %s",
+diff --git a/appdaemon/rss.py b/appdaemon/rss.py
+new file mode 100644
+index 0000000..3abd6a8
+--- /dev/null
++++ b/appdaemon/rss.py
+@@ -0,0 +1,105 @@
++"""Minimal RSS/Atom feed reader for the dashboard's ``rss`` widget.
++
++The dashboard widget (``widgets/baserss/baserss.js``) reads ``feed.entries[i].title``
++and, optionally, ``summary`` / ``description``. ``http.py`` only checks for a
++``bozo_exception`` key and stores the whole result as entity state. ``parse``
++returns a plain dict with exactly that shape, so it drops in where
++``feedparser.parse`` was used:
++
++    {"feed": {"title": ..., "link": ..., "subtitle": ...},
++     "entries": [{"title": ..., "link": ..., "summary": ..., "published": ..., "id": ...}, ...],
++     "bozo": 0}
++
++Any fetch or XML error yields ``{"bozo": 1, "bozo_exception": <exception>,
++"entries": [], "feed": {}}``; the caller logs the exception and skips the feed.
++"""
++
++import os
++import xml.etree.ElementTree as ET
++
++import requests
++
++ATOM = "{http://www.w3.org/2005/Atom}"
++RDF = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}"
++RSS1 = "{http://purl.org/rss/1.0/}"
++DC = "{http://purl.org/dc/elements/1.1/}"
++CONTENT = "{http://purl.org/rss/1.0/modules/content/}"
++
++# (output key, [candidate element tags in priority order])
++_ENTRY_FIELDS = (
++    ("title", ("title", RSS1 + "title", ATOM + "title", DC + "title")),
++    ("summary", ("description", RSS1 + "description", ATOM + "summary", DC + "description")),
++    ("content", (CONTENT + "encoded",)),
++    ("published", ("pubDate", ATOM + "published", DC + "date")),
++    ("updated", (ATOM + "updated",)),
++    ("id", ("guid", ATOM + "id")),
++)
++_FEED_FIELDS = (
++    ("title", ("title", RSS1 + "title", ATOM + "title")),
++    ("subtitle", ("description", RSS1 + "description", ATOM + "subtitle")),
++)
++
++
++def _text(parent, tags):
++    for tag in tags:
++        el = parent.find(tag)
++        if el is not None:
++            return (el.text or "").strip()
++    return None
++
++
++def _link(parent):
++    """RSS puts the URL in <link>'s text; Atom in <link href=...>."""
++    for el in parent.findall("link") + parent.findall(RSS1 + "link"):
++        if el.text and el.text.strip():
++            return el.text.strip()
++    alternates = [el for el in parent.findall(ATOM + "link") if el.get("href")]
++    for el in alternates:
++        if el.get("rel", "alternate") == "alternate":
++            return el.get("href")
++    return alternates[0].get("href") if alternates else None
++
++
++def _fields(parent, spec):
++    out = {}
++    for key, tags in spec:
++        value = _text(parent, tags)
++        if value is not None:
++            out[key] = value
++    link = _link(parent)
++    if link is not None:
++        out["link"] = link
++    if "id" not in out and parent.get(RDF + "about"):  # RSS 1.0 items are identified by rdf:about
++        out["id"] = parent.get(RDF + "about")
++    return out
++
++
++def _fetch(source):
++    """A URL is fetched, an existing path is read, anything else is the document itself."""
++    if isinstance(source, bytes):
++        return source
++    if source.startswith(("http://", "https://")):
++        r = requests.get(source, headers={"User-Agent": "AppDaemon"}, timeout=30)
++        r.raise_for_status()
++        return r.content
++    if os.path.exists(source):
++        with open(source, "rb") as f:
++            return f.read()
++    return source.encode("utf-8")
++
++
++def parse(source):
++    try:
++        root = ET.fromstring(_fetch(source))
++        if root.tag == ATOM + "feed":
++            channel, items = root, root.findall(ATOM + "entry")
++        elif root.tag == RDF + "RDF":
++            channel = root.find(RSS1 + "channel")
++            items = root.findall(RSS1 + "item")
++        else:  # RSS 0.9x / 2.0
++            channel = root.find("channel")
++            items = root.findall("item") if channel is None else channel.findall("item")
++        feed = _fields(channel, _FEED_FIELDS) if channel is not None else {}
++        return {"feed": feed, "entries": [_fields(i, _ENTRY_FIELDS) for i in items], "bozo": 0}
++    except Exception as e:  # fetch or parse failure: the caller logs it and skips the feed
++        return {"feed": {}, "entries": [], "bozo": 1, "bozo_exception": e}
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..5b05378 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,24 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    "importlib-metadata; python_version<\"3.8\"",
++    "aiohttp >= 3.9.0,< 3.11.0",
++    "aiohttp_jinja2 >= 1.5.1,< 1.7.0",
++    "astral ~= 3.2",
++    "bcrypt >= 4.0.1,< 4.3.0",
++    "deepdiff == 8.0.1",
++    "iso8601 >= 1.1,< 2.2",
++    "paho-mqtt >= 1.6.1,< 2.2.0",
++    "pid ~= 3.0.4",
++    "python-dateutil >= 2.8.2,< 2.10.0",
++    "python-socketio >= 5.5,< 5.12",
++    "pytz >= 2022.7.1,< 2024.2.0",
++    "pyyaml ~= 6.0.1",
++    "requests >= 2.28.2,< 2.33.0",
++    "sockjs >= 0.11,< 0.14",
++    "uvloop==0.20.0; sys_platform != \"win32\"",
++    "tomli ~= 2.0.1",
++    "tomli_w ~= 1.0.0",
+ ]
+ 
+ classifiers= [
+diff --git a/tests/test_rss.py b/tests/test_rss.py
+new file mode 100644
+index 0000000..d445e87
+--- /dev/null
++++ b/tests/test_rss.py
+@@ -0,0 +1,38 @@
++from appdaemon import rss
++
++RSS2 = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>CNN Top</title><link>http://cnn.com</link>
++<description>desc</description>
++<item><title>Story &amp; one</title><link>http://cnn.com/1</link>
++<description>&lt;p&gt;Hello &lt;b&gt;bold&lt;/b&gt;&lt;/p&gt;</description>
++<pubDate>Wed, 02 Oct 2024 08:00:00 GMT</pubDate><guid>g1</guid></item>
++<item><title>Two</title><link>http://cnn.com/2</link></item></channel></rss>"""
++
++ATOM = b"""<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>A</title>
++<entry><title>E1</title><link href="http://x/1"/><summary>s</summary><updated>2024-10-02T08:00:00Z</updated></entry></feed>"""
++
++
++def test_rss2():
++    feed = rss.parse(RSS2)
++    assert "bozo_exception" not in feed
++    assert feed["feed"]["title"] == "CNN Top"
++    assert feed["feed"]["link"] == "http://cnn.com"
++    assert feed["feed"]["subtitle"] == "desc"
++    assert [e["title"] for e in feed["entries"]] == ["Story & one", "Two"]
++    assert feed["entries"][0]["summary"] == "<p>Hello <b>bold</b></p>"
++    assert feed["entries"][0]["link"] == "http://cnn.com/1"
++    assert feed["entries"][0]["published"] == "Wed, 02 Oct 2024 08:00:00 GMT"
++    assert feed["entries"][0]["id"] == "g1"
++    assert "summary" not in feed["entries"][1]
++
++
++def test_atom():
++    feed = rss.parse(ATOM)
++    assert feed["feed"]["title"] == "A"
++    assert feed["entries"] == [
++        {"title": "E1", "summary": "s", "updated": "2024-10-02T08:00:00Z", "link": "http://x/1"}
++    ]
++
++
++def test_bad_xml_and_bad_url_report_bozo_exception():
++    assert "bozo_exception" in rss.parse(b"<rss><channel><item><title>x</title></item>")
++    assert "bozo_exception" in rss.parse("http://127.0.0.1:9/nothing")
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..df48c25
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'feedparser' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['feedparser']
++_DEP = 'feedparser'
++_OWN = ['appdaemon']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..df48c25
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'feedparser' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['feedparser']
++_DEP = 'feedparser'
++_OWN = ['appdaemon']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

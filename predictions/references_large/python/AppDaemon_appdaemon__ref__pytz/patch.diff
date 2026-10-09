@@ -1,0 +1,668 @@
+diff --git a/appdaemon/__main__.py b/appdaemon/__main__.py
+index 90f59aa..574c733 100644
+--- a/appdaemon/__main__.py
++++ b/appdaemon/__main__.py
+@@ -15,7 +15,7 @@ import platform
+ import signal
+ import sys
+ 
+-import pytz
++from appdaemon import timezone
+ 
+ import appdaemon.appdaemon as ad
+ import appdaemon.utils as utils
+@@ -367,7 +367,7 @@ class ADMain:
+         self.logger = self.logging.get_logger()
+ 
+         if "time_zone" in config["appdaemon"]:
+-            self.logging.set_tz(pytz.timezone(config["appdaemon"]["time_zone"]))
++            self.logging.set_tz(timezone.timezone(config["appdaemon"]["time_zone"]))
+ 
+         # Startup message
+ 
+diff --git a/appdaemon/logging.py b/appdaemon/logging.py
+index de029c3..4c165be 100644
+--- a/appdaemon/logging.py
++++ b/appdaemon/logging.py
+@@ -9,7 +9,7 @@ from logging import Logger, StreamHandler
+ from logging.handlers import RotatingFileHandler
+ from typing import Any, Callable, Dict, List, Optional, Union
+ 
+-import pytz
++from appdaemon import timezone
+ 
+ import appdaemon.utils as utils
+ from appdaemon.appdaemon import AppDaemon
+@@ -359,7 +359,7 @@ class Logging:
+             ts = logger.AD.sched.get_now_sync().astimezone(logger.tz)
+         else:
+             if logger.tz is not None:
+-                ts = pytz.utc.localize(datetime.datetime.utcnow()).astimezone(logger.tz)
++                ts = timezone.utc.localize(datetime.datetime.utcnow()).astimezone(logger.tz)
+             else:
+                 ts = datetime.datetime.now()
+         if format is not None:
+diff --git a/appdaemon/plugins/hass/hassplugin.py b/appdaemon/plugins/hass/hassplugin.py
+index 6d0416a..2138588 100644
+--- a/appdaemon/plugins/hass/hassplugin.py
++++ b/appdaemon/plugins/hass/hassplugin.py
+@@ -13,7 +13,7 @@ from typing import Union
+ from urllib.parse import urlencode
+ 
+ import aiohttp
+-import pytz
++from appdaemon import timezone
+ from deepdiff import DeepDiff
+ 
+ import appdaemon.utils as utils
+@@ -565,8 +565,8 @@ class HassPlugin(PluginBase):
+             self.logger.warning("Value for 'time_zone' not found in metadata for plugin %s", self.name)
+             raise ValueError
+         try:
+-            pytz.timezone(meta["time_zone"])
+-        except pytz.exceptions.UnknownTimeZoneError:
++            timezone.timezone(meta["time_zone"])
++        except timezone.UnknownTimeZoneError:
+             self.logger.warning(
+                 "Invalid value for 'time_zone' ('%s') in metadata for plugin %s",
+                 meta["time_zone"],
+diff --git a/appdaemon/scheduler.py b/appdaemon/scheduler.py
+index 5539e05..407a6e9 100644
+--- a/appdaemon/scheduler.py
++++ b/appdaemon/scheduler.py
+@@ -10,7 +10,7 @@ from datetime import time, timedelta
+ from logging import Logger
+ from typing import TYPE_CHECKING
+ 
+-import pytz
++from appdaemon import timezone
+ from astral import SunDirection
+ from astral.location import Location, LocationInfo
+ 
+@@ -50,12 +50,12 @@ class Scheduler:
+         self.location = None
+         self.schedule = {}
+ 
+-        self.now = pytz.utc.localize(datetime.datetime.utcnow())
++        self.now = timezone.utc.localize(datetime.datetime.utcnow())
+ 
+         #
+         # If we were waiting for a timezone from metadata, we have it now.
+         #
+-        tz = pytz.timezone(self.AD.time_zone)
++        tz = timezone.timezone(self.AD.time_zone)
+         self.AD.tz = tz
+         self.AD.logging.set_tz(tz)
+ 
+@@ -76,7 +76,7 @@ class Scheduler:
+             if unaware_end is None:
+                 raise ValueError("Invalid end time for time travel")
+             aware_end = self.AD.tz.localize(unaware_end)
+-            self.endtime = aware_end.astimezone(pytz.utc)
++            self.endtime = aware_end.astimezone(timezone.utc)
+         else:
+             self.endtime = None
+ 
+@@ -101,9 +101,9 @@ class Scheduler:
+             if unaware_now is None:
+                 raise ValueError("Invalid start time for time travel")
+             aware_now = self.AD.tz.localize(unaware_now)
+-            self.now = aware_now.astimezone(pytz.utc)
++            self.now = aware_now.astimezone(timezone.utc)
+         else:
+-            self.now = pytz.utc.localize(datetime.datetime.utcnow())
++            self.now = timezone.utc.localize(datetime.datetime.utcnow())
+ 
+         if self.AD.timewarp != 1:
+             tt = True
+@@ -116,7 +116,7 @@ class Scheduler:
+ 
+     async def insert_schedule(self, name, aware_dt, callback, repeat, type_, **kwargs):
+         # aware_dt will include a timezone of some sort - convert to utc timezone
+-        utc = aware_dt.astimezone(pytz.utc)
++        utc = aware_dt.astimezone(timezone.utc)
+ 
+         # we get the time now
+         now = await self.get_now()
+@@ -487,7 +487,7 @@ class Scheduler:
+     #
+ 
+     def get_next_entries(self):
+-        next_exec = datetime.datetime.now(pytz.utc).replace(year=datetime.MAXYEAR, month=12, day=31)
++        next_exec = datetime.datetime.now(timezone.utc).replace(year=datetime.MAXYEAR, month=12, day=31)
+         for name in self.schedule.keys():
+             for entry in self.schedule[name].keys():
+                 if self.schedule[name][entry]["timestamp"] < next_exec:
+@@ -509,7 +509,7 @@ class Scheduler:
+         # I can't believe there isn't a better way to find the next DST transition but ...
+         # We know the lower and upper bounds of DST so do a search to find the actual transition time
+         # I don't want to rely on heuristics such as "it occurs at 2am" because I don't know if that holds
+-        # true for every timezone. With this method, as long as pytz's dst() function is correct, this should work
++        # true for every timezone. With this method, as long as the zone's dst() function is correct, this should work
+         #
+ 
+         # TODO : Convert this to some sort of binary search for efficiency
+@@ -530,7 +530,7 @@ class Scheduler:
+         self.AD.booted = await self.get_now_naive()
+ 
+         tt = self.set_start_time()
+-        self.last_fired = pytz.utc.localize(datetime.datetime.utcnow())
++        self.last_fired = timezone.utc.localize(datetime.datetime.utcnow())
+         if tt is True:
+             self.realtime = False
+             self.logger.info("Starting time travel ...")
+@@ -555,7 +555,7 @@ class Scheduler:
+                         self.AD.stop_function()
+                     else:
+                         self.stop()
+-                now = pytz.utc.localize(datetime.datetime.utcnow())
++                now = timezone.utc.localize(datetime.datetime.utcnow())
+                 if self.realtime is True:
+                     self.now = now
+ 
+@@ -574,7 +574,7 @@ class Scheduler:
+ 
+                     self.now = self.now + timedelta(seconds=delta)
+ 
+-                self.last_fired = pytz.utc.localize(datetime.datetime.utcnow())
++                self.last_fired = timezone.utc.localize(datetime.datetime.utcnow())
+                 self.logger.debug("self.now = %s", self.now)
+                 #
+                 # Now we're awake and know what time it is
+@@ -773,14 +773,14 @@ class Scheduler:
+ 
+     async def get_now(self):
+         if self.realtime is True:
+-            return pytz.utc.localize(datetime.datetime.utcnow())
++            return timezone.utc.localize(datetime.datetime.utcnow())
+         else:
+             return self.now
+ 
+     # Non async version of get_now(), required for logging time formatter - no locking but only used during time travel so should be OK ...
+     def get_now_sync(self):
+         if self.realtime is True:
+-            return pytz.utc.localize(datetime.datetime.utcnow())
++            return timezone.utc.localize(datetime.datetime.utcnow())
+         else:
+             return self.now
+ 
+@@ -1007,7 +1007,7 @@ class Scheduler:
+             ts = dt.timestamp()
+             rounded = round(base * round(float(ts) / base), prec)
+             result = datetime.datetime.utcfromtimestamp(rounded)
+-            aware_result = pytz.utc.localize(result)
++            aware_result = timezone.utc.localize(result)
+             return aware_result
+ 
+     def convert_naive(self, dt):
+diff --git a/appdaemon/timezone.py b/appdaemon/timezone.py
+new file mode 100644
+index 0000000..336e73d
+--- /dev/null
++++ b/appdaemon/timezone.py
+@@ -0,0 +1,47 @@
++"""Time zones for AppDaemon, on the standard library's ``zoneinfo``.
++
++``timezone(name)`` returns a zone object; ``utc`` is the UTC zone. Each zone has a
++``zone`` attribute (its IANA name) and ``localize(naive_datetime)``, which attaches
++the zone to a naive wall-clock time the way the scheduler needs: an ambiguous time
++(the repeated hour when clocks go back) is taken as standard time, the later of the
++two instants, and a time that does not exist (the skipped hour when clocks go
++forward) is read with the standard-time offset. ``UnknownTimeZoneError`` is raised
++for a name the zone database does not know.
++"""
++
++import datetime
++import zoneinfo
++
++
++class UnknownTimeZoneError(KeyError):
++    """The zone database has no zone of that name."""
++
++
++class Timezone(zoneinfo.ZoneInfo):
++    @property
++    def zone(self):
++        return self.key
++
++    def localize(self, dt):
++        """Attach this zone to a naive datetime without converting it."""
++        if dt.tzinfo is not None:
++            raise ValueError("Not naive datetime (tzinfo is already set)")
++        first = dt.replace(tzinfo=self, fold=0)
++        second = dt.replace(tzinfo=self, fold=1)
++        if first.utcoffset() == second.utcoffset():
++            return first
++        # The two folds disagree: either the wall time happens twice (choose the
++        # later, standard-time instant) or it never happens (keep the standard
++        # offset, which is what the first fold holds in the skipped hour).
++        round_trip = first.astimezone(datetime.timezone.utc).astimezone(self)
++        return first if round_trip.replace(tzinfo=None) != dt else second
++
++
++def timezone(name):
++    try:
++        return Timezone(name)
++    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
++        raise UnknownTimeZoneError(name) from None
++
++
++utc = timezone("UTC")
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..94519c6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,24 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    "importlib-metadata; python_version<\"3.8\"",
++    "aiohttp >= 3.9.0,< 3.11.0",
++    "aiohttp_jinja2 >= 1.5.1,< 1.7.0",
++    "astral ~= 3.2",
++    "bcrypt >= 4.0.1,< 4.3.0",
++    "deepdiff == 8.0.1",
++    "feedparser ~= 6.0.10",
++    "iso8601 >= 1.1,< 2.2",
++    "paho-mqtt >= 1.6.1,< 2.2.0",
++    "pid ~= 3.0.4",
++    "python-dateutil >= 2.8.2,< 2.10.0",
++    "python-socketio >= 5.5,< 5.12",
++    "pyyaml ~= 6.0.1",
++    "requests >= 2.28.2,< 2.33.0",
++    "sockjs >= 0.11,< 0.14",
++    "uvloop==0.20.0; sys_platform != \"win32\"",
++    "tomli ~= 2.0.1",
++    "tomli_w ~= 1.0.0",
+ ]
+ 
+ classifiers= [
+diff --git a/tests/test_timezone.py b/tests/test_timezone.py
+new file mode 100644
+index 0000000..2896159
+--- /dev/null
++++ b/tests/test_timezone.py
+@@ -0,0 +1,31 @@
++import datetime
++
++import pytest
++
++from appdaemon import timezone
++
++
++def test_zone_name_and_utc():
++    tz = timezone.timezone("Europe/Berlin")
++    assert tz.zone == "Europe/Berlin" and str(tz) == "Europe/Berlin"
++    assert timezone.utc.zone == "UTC"
++    now = timezone.utc.localize(datetime.datetime(2024, 7, 1, 12, 0))
++    assert now.utcoffset() == datetime.timedelta(0)
++
++
++def test_localize_normal_ambiguous_and_missing_times():
++    tz = timezone.timezone("Europe/Berlin")
++    assert tz.localize(datetime.datetime(2024, 7, 1, 12, 0)).isoformat() == "2024-07-01T12:00:00+02:00"
++    # 02:30 on 27 Oct 2024 happens twice: standard time (CET, +01:00) is chosen
++    assert tz.localize(datetime.datetime(2024, 10, 27, 2, 30)).isoformat() == "2024-10-27T02:30:00+01:00"
++    # 02:30 on 31 Mar 2024 never happens: read with the standard offset
++    assert tz.localize(datetime.datetime(2024, 3, 31, 2, 30)).isoformat() == "2024-03-31T02:30:00+01:00"
++    aware = tz.localize(datetime.datetime(2024, 7, 1, 12, 0))
++    assert aware.astimezone(timezone.utc).isoformat() == "2024-07-01T10:00:00+00:00"
++    with pytest.raises(ValueError):
++        tz.localize(aware)
++
++
++def test_unknown_zone():
++    with pytest.raises(timezone.UnknownTimeZoneError):
++        timezone.timezone("Mars/Olympus")
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..bb76b76
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'pytz' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['pytz', 'tz']
++_DEP = 'pytz'
++_OWN = ['appdaemon']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..bb76b76
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'pytz' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['pytz', 'tz']
++_DEP = 'pytz'
++_OWN = ['appdaemon']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<

@@ -1,0 +1,649 @@
+diff --git a/appdaemon/scheduler.py b/appdaemon/scheduler.py
+index 5539e05..36596c5 100644
+--- a/appdaemon/scheduler.py
++++ b/appdaemon/scheduler.py
+@@ -11,9 +11,8 @@ from logging import Logger
+ from typing import TYPE_CHECKING
+ 
+ import pytz
+-from astral import SunDirection
+-from astral.location import Location, LocationInfo
+ 
++from appdaemon.sun import SolarLocation, SunDirection
+ import appdaemon.utils as utils
+ 
+ if TYPE_CHECKING:
+@@ -399,7 +398,7 @@ class Scheduler:
+         if longitude < -180 or longitude > 180:
+             raise ValueError("Longitude needs to be -180 .. 180")
+ 
+-        self.location = Location(LocationInfo("", "", self.AD.tz.zone, latitude, longitude))
++        self.location = SolarLocation(self.AD.tz.zone, latitude, longitude)
+ 
+     def sun(self, type: str, secs_offset: int):
+         return self.get_next_sun_event(type, secs_offset) + datetime.timedelta(seconds=secs_offset)
+@@ -925,7 +924,7 @@ class Scheduler:
+             else:
+                 dir = SunDirection.SETTING
+ 
+-            # use astral.Location object to determine elevation
++            # use the SolarLocation object to determine elevation
+             dt = self.location.time_at_elevation(
+                 # time will be in UTC timezone
+                 elevation=float(match.group("N")),
+diff --git a/appdaemon/sun.py b/appdaemon/sun.py
+new file mode 100644
+index 0000000..8e9c5bd
+--- /dev/null
++++ b/appdaemon/sun.py
+@@ -0,0 +1,166 @@
++"""Sunrise, sunset and sun-elevation times for the scheduler.
++
++Solar position from the NOAA solar-calculator equations (Meeus), with the
++corrections the scheduler relied on: the sun's apparent radius, atmospheric
++refraction near the horizon, and the horizon dip for an elevated observer.
++Results are timezone-aware datetimes, in the location's zone when ``local``
++is true and in UTC otherwise. A ``ValueError`` is raised when the sun does not
++reach the requested zenith on that day (polar night or day, or an elevation
++the sun never attains at that latitude).
++"""
++
++import datetime
++import math
++from enum import Enum
++from zoneinfo import ZoneInfo
++
++SUN_APPARENT_RADIUS = 32.0 / (60.0 * 2.0)  # degrees
++EARTH_RADIUS = 6356900.0  # metres
++UTC = datetime.timezone.utc
++
++
++class SunDirection(Enum):
++    RISING = 1
++    SETTING = -1
++
++
++def _julian_day(date):
++    y, m = date.year, date.month
++    if m <= 2:
++        y, m = y - 1, m + 12
++    a = y // 100
++    b = 2 - a + a // 4
++    return int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + date.day + b - 1524.5
++
++
++def _declination_and_equation_of_time(jc):
++    """Sun declination (degrees) and equation of time (minutes) at Julian century jc."""
++    l0 = (280.46646 + jc * (36000.76983 + jc * 0.0003032)) % 360.0
++    m = math.radians(357.52911 + jc * (35999.05029 - 0.0001537 * jc))
++    e = 0.016708634 - jc * (0.000042037 + 0.0000001267 * jc)
++    centre = (
++        math.sin(m) * (1.914602 - jc * (0.004817 + 0.000014 * jc))
++        + math.sin(2 * m) * (0.019993 - 0.000101 * jc)
++        + math.sin(3 * m) * 0.000289
++    )
++    omega = math.radians(125.04 - 1934.136 * jc)
++    apparent_long = math.radians(l0 + centre - 0.00569 - 0.00478 * math.sin(omega))
++    arcsec = 21.448 - jc * (46.815 + jc * (0.00059 - jc * 0.001813))
++    obliquity = math.radians(23.0 + (26.0 + arcsec / 60.0) / 60.0 + 0.00256 * math.cos(omega))
++    declination = math.asin(math.sin(obliquity) * math.sin(apparent_long))
++    y = math.tan(obliquity / 2.0) ** 2
++    l0r = math.radians(l0)
++    eot = 4.0 * math.degrees(
++        y * math.sin(2 * l0r)
++        - 2 * e * math.sin(m)
++        + 4 * e * y * math.sin(m) * math.cos(2 * l0r)
++        - 0.5 * y * y * math.sin(4 * l0r)
++        - 1.25 * e * e * math.sin(2 * m)
++    )
++    return math.degrees(declination), eot
++
++
++def _refraction(zenith):
++    """Atmospheric refraction (degrees) for a body at the given true zenith angle."""
++    elevation = 90.0 - zenith
++    if elevation >= 85.0:
++        return 0.0
++    te = math.tan(math.radians(elevation))
++    if elevation > 5.0:
++        r = 58.1 / te - 0.07 / te**3 + 0.000086 / te**5
++    elif elevation > -0.575:
++        r = 1735.0 + elevation * (-518.2 + elevation * (103.4 + elevation * (-12.79 + elevation * 0.711)))
++    else:
++        r = -20.774 / te
++    return r / 3600.0
++
++
++def _horizon_dip(observer_elevation):
++    if observer_elevation <= 0.0:
++        return 0.0
++    return math.degrees(math.acos(EARTH_RADIUS / (EARTH_RADIUS + observer_elevation)))
++
++
++def _transit(latitude, longitude, observer_elevation, date, zenith, direction):
++    """UTC time on ``date`` at which the sun crosses ``zenith`` going in ``direction``.
++
++    Two passes: the second re-evaluates declination and the equation of time at the
++    time found by the first.
++    """
++    latitude = max(-89.8, min(89.8, latitude))
++    zenith += _horizon_dip(observer_elevation)
++    zenith += _refraction(zenith)
++    lat, zen = math.radians(latitude), math.radians(zenith)
++    jd = _julian_day(date)
++    minutes = 0.0
++    for _ in range(2):
++        declination, eot = _declination_and_equation_of_time((jd + minutes / 1440.0 - 2451545.0) / 36525.0)
++        dec = math.radians(declination)
++        cos_ha = (math.cos(zen) - math.sin(lat) * math.sin(dec)) / (math.cos(lat) * math.cos(dec))
++        if cos_ha > 1.0:
++            raise ValueError("below")
++        if cos_ha < -1.0:
++            raise ValueError("above")
++        hour_angle = math.degrees(math.acos(cos_ha)) * direction.value
++        offset = (-longitude - hour_angle) * 4.0 - eot
++        if offset < -720.0:  # an event before 00:00 UTC belongs to the previous UTC day
++            offset += 1440.0
++        minutes = 720.0 + offset
++    return datetime.datetime(date.year, date.month, date.day, tzinfo=UTC) + datetime.timedelta(minutes=minutes)
++
++
++class SolarLocation:
++    """Sun times for one place: ``sunrise``, ``sunset`` and ``time_at_elevation``."""
++
++    def __init__(self, timezone, latitude, longitude):
++        self.timezone = timezone
++        self.tzinfo = ZoneInfo(timezone)
++        self.latitude = latitude
++        self.longitude = longitude
++
++    def _tz(self, local):
++        return self.tzinfo if local else UTC
++
++    def _date(self, date, local):
++        return date if date is not None else datetime.datetime.now(self._tz(local)).date()
++
++    def _horizon(self, date, local, observer_elevation, direction):
++        """Sunrise or sunset falling on ``date`` in the requested zone.
++
++        The transit is computed on the UTC day; if that lands on a different
++        civil date in the requested zone, the adjacent day is computed instead.
++        """
++        date = self._date(date, local)
++        tz = self._tz(local)
++        try:
++            dt = _transit(self.latitude, self.longitude, observer_elevation, date,
++                          90.0 + SUN_APPARENT_RADIUS, direction).astimezone(tz)
++            if dt.date() != date:
++                step = datetime.timedelta(days=1 if dt.date() < date else -1)
++                dt = _transit(self.latitude, self.longitude, observer_elevation, date + step,
++                              90.0 + SUN_APPARENT_RADIUS, direction).astimezone(tz)
++                if dt.date() != date:
++                    raise ValueError("Unable to find a %s time on the date specified"
++                                     % ("sunrise" if direction is SunDirection.RISING else "sunset"))
++        except ValueError as e:
++            if e.args[0] in ("above", "below"):
++                raise ValueError(f"Sun is always {e.args[0]} the horizon on this day, at this location.") from None
++            raise
++        return dt
++
++    def sunrise(self, date=None, local=True, observer_elevation=0.0):
++        return self._horizon(date, local, observer_elevation, SunDirection.RISING)
++
++    def sunset(self, date=None, local=True, observer_elevation=0.0):
++        return self._horizon(date, local, observer_elevation, SunDirection.SETTING)
++
++    def time_at_elevation(self, elevation, date=None, direction=SunDirection.RISING, local=True):
++        if elevation > 90.0:
++            elevation = 180.0 - elevation
++            direction = SunDirection.SETTING if direction is SunDirection.RISING else SunDirection.RISING
++        date = self._date(date, local)
++        try:
++            dt = _transit(self.latitude, self.longitude, 0.0, date, 90.0 - elevation, direction)
++        except ValueError:
++            raise ValueError(f"Sun never reaches an elevation of {elevation} degrees at this location.") from None
++        return dt.astimezone(self._tz(local))
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..ae7c6ad 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,24 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    "importlib-metadata; python_version<\"3.8\"",
++    "aiohttp >= 3.9.0,< 3.11.0",
++    "aiohttp_jinja2 >= 1.5.1,< 1.7.0",
++    "bcrypt >= 4.0.1,< 4.3.0",
++    "deepdiff == 8.0.1",
++    "feedparser ~= 6.0.10",
++    "iso8601 >= 1.1,< 2.2",
++    "paho-mqtt >= 1.6.1,< 2.2.0",
++    "pid ~= 3.0.4",
++    "python-dateutil >= 2.8.2,< 2.10.0",
++    "python-socketio >= 5.5,< 5.12",
++    "pytz >= 2022.7.1,< 2024.2.0",
++    "pyyaml ~= 6.0.1",
++    "requests >= 2.28.2,< 2.33.0",
++    "sockjs >= 0.11,< 0.14",
++    "uvloop==0.20.0; sys_platform != \"win32\"",
++    "tomli ~= 2.0.1",
++    "tomli_w ~= 1.0.0",
+ ]
+ 
+ classifiers= [
+diff --git a/tests/test_sun.py b/tests/test_sun.py
+new file mode 100644
+index 0000000..e1a2772
+--- /dev/null
++++ b/tests/test_sun.py
+@@ -0,0 +1,57 @@
++import datetime
++
++import pytest
++
++from appdaemon.sun import SolarLocation, SunDirection
++
++TOL = datetime.timedelta(milliseconds=1)
++
++
++def close(a, b):
++    return abs(a - b) < TOL and a.utcoffset() == b.utcoffset()
++
++
++def test_berlin_sunrise_sunset_with_observer_elevation():
++    loc = SolarLocation("Europe/Berlin", 52.52, 13.405)
++    d = datetime.date(2024, 10, 2)
++    assert close(
++        loc.sunrise(date=d, local=True, observer_elevation=35.0),
++        datetime.datetime.fromisoformat("2024-10-02T07:08:41.399644+02:00"),
++    )
++    assert close(
++        loc.sunrise(date=d, local=False, observer_elevation=35.0),
++        datetime.datetime.fromisoformat("2024-10-02T05:08:41.399644+00:00"),
++    )
++    assert close(
++        loc.sunset(date=d, local=True, observer_elevation=35.0),
++        datetime.datetime.fromisoformat("2024-10-02T18:41:30.621186+02:00"),
++    )
++
++
++def test_time_at_elevation():
++    loc = SolarLocation("Europe/Berlin", 52.52, 13.405)
++    dt = loc.time_at_elevation(elevation=10.0, direction=SunDirection.SETTING, date=datetime.date(2024, 10, 2), local=False)
++    assert close(dt, datetime.datetime.fromisoformat("2024-10-02T15:27:52.217590+00:00"))
++    rising = loc.time_at_elevation(elevation=10.0, direction=SunDirection.RISING, date=datetime.date(2024, 10, 2), local=False)
++    assert rising < dt
++
++
++def test_event_is_reported_on_the_requested_local_date():
++    # far-west longitude in a far-east zone: the UTC-day transit lands on the next local date
++    loc = SolarLocation("Pacific/Auckland", -22.9017, -125.6943)
++    dt = loc.sunrise(date=datetime.date(2020, 7, 16), local=True)
++    assert dt.date() == datetime.date(2020, 7, 16)
++    assert close(dt, datetime.datetime.fromisoformat("2020-07-16T03:03:11.117541+12:00"))
++
++
++def test_polar_night_and_unreachable_elevation_raise_value_error():
++    svalbard = SolarLocation("UTC", 78.2, 15.6)
++    with pytest.raises(ValueError, match="always below the horizon"):
++        svalbard.sunrise(date=datetime.date(2024, 12, 21), local=False)
++    with pytest.raises(ValueError, match="never reaches an elevation"):
++        svalbard.time_at_elevation(elevation=60, date=datetime.date(2024, 6, 21), local=False)
++
++
++def test_default_date_is_today_in_the_requested_zone():
++    loc = SolarLocation("UTC", 51.4733, -0.0008333)
++    assert loc.sunrise(local=False).date() == datetime.datetime.now(datetime.timezone.utc).date()
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..83b355e
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'astral' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['astral']
++_DEP = 'astral'
++_OWN = ['appdaemon']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..83b355e
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,170 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'astral' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['astral']
++_DEP = 'astral'
++_OWN = ['appdaemon']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++# <<< UnpinBench injected block <<<
