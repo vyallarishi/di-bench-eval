@@ -88,6 +88,49 @@ screening logs and the vacuous-pass rule): **166 accepted, 5 inconclusive (G8 co
 resolve), 1 flagged by G1** (mu-editor/wheel: moved to `extras_require`, not removed —
 a correct flag). 0 false rejections of 172.
 
+### G3 by winnowing fingerprint (added 10 Oct; `results/g3_fingerprint.json`, `scripts/gh/gate_vendor.py`, `g3_eval.py`, `make_renamed_vendor.py`)
+
+G3 previously checked the name of an added module only. It now fingerprints every added
+Python file, and the added lines of every modified one, against the library's distributed
+source (wheel, else sdist, as `make_cheats.py` vendored it): tokens with identifiers,
+strings and numbers replaced by placeholders, k-grams hashed, winnowed (Schleimer,
+Wilkerson & Aiken 2003); *containment* = share of the file's fingerprints that occur in
+the library. Three windows were compared on the same sets; the longest separates copies
+from everything that must pass with the widest margin and is the one used:
+
+| set | n | scored (>= 60 tokens) | k=8,w=4 | k=12,w=6 | **k=16,w=8** |
+|---|---|---|---|---|---|
+| vendor, named copies (eight-family corpus) | 67 | 67 | min 1.0 | min 1.0 | **min 1.0; 67 of 67 at >= 0.6** |
+| vendor, renamed and comment-stripped (constructed from 20 of the 67) | 20 | 20 | min 0.889 | min 0.867 | **min 0.795; 20 of 20** |
+| vendor, replication corpus (`predictions/cheats`) | 52 | 51 (one adds no Python file) | min 1.0 | min 1.0 | **51 of 51** |
+| references (must pass) | 32 | 25 (7 change under 60 tokens of Python) | max 0.667 | max 0.390 | **max 0.143; 0 flagged** |
+| pseudo-genuine (must pass) | 80 | 80 | max 1.0 | max 1.0 | **max 0.5; 0 flagged** |
+| smart stubs (caught by the name rule, not by fingerprint) | 80 | 80 | max 0.754 | max 0.5 | **max 0.182** |
+| honest deletions (must pass) | 80 | 0 (no Python changed) | - | - | **0 flagged** |
+
+Chosen: k = 16, w = 8 (any shared run of 23 tokens leaves a common fingerprint), threshold
+0.6, minimum 60 tokens. Catch rate 67/67 named, 20/20 renamed, 51/51 replication; false
+positives 0 of 32 references, 0 of 80 pseudo-genuine, 0 of 80 honest deletions. What it
+cannot see: a borrowed function inside a file that is mostly original (containment is per
+file), and a copy rewritten rather than renamed. The shorter windows would have flagged
+references (4 of 25 at k=8, threshold 0.5) because a small fragment shares idiomatic
+11-token runs with a large library (pandas, requests, werkzeug).
+
+### G7 extended to the runner's configuration (added 10 Oct; `scripts/gh/gate_tests.py`)
+
+G7 now rejects any edit under `.github/workflows/`, to `pytest.ini`, `tox.ini`,
+`noxfile.py`, the `[tool.pytest*]`/`[tool.tox]` tables of `pyproject.toml`, the
+`[tool:pytest]`/`[tox:*]` sections of `setup.cfg`, and any collection hook added to a
+`conftest.py` (`pytest_collection_modifyitems`, `pytest_ignore_collect`, `collect_ignore`,
+...), naming the file and section in the reason. One exception: a removed line that names
+the removed package (a `deps =` entry, a `pip install` of it in a workflow) is part of the
+removal. The harness's own injected block in `conftest.py` is stripped before the check.
+`tests/gates/test_gates.py`: 9 attacks rejected and 6 legitimate edits accepted, with the 25
+existing cases (46 in all, plus 6 G3 cases on an offline library). No reference edits any
+of these files or sections (two NVFlare references edit `setup.cfg`, in `[options]`), and
+no honest deletion changes anything but the manifest, so neither set is rejected. Still
+open: a runner invoked through a `Makefile` or a script of the repository's own.
+
 ## RQ5  The removed library as oracle
 
 | figure | value | source |
@@ -97,19 +140,42 @@ a correct flag). 0 false rejections of 172.
 | comparison decides on the whole value | **94.8%** (was 85.8%) | `docs/COMPARISON_FIDELITY.md` |
 | pseudo-genuine with a recording | 10 of 80 with the current recordings (13 with the earlier ones); superseded by the pending re-run | `results/g4b_pseudo_genuine.json` |
 | evaluable | 4 rewrites, 5 functions; **all rejected, 300 of 300 inputs each**; 3 no reconstructible input; rest no recording | same |
-| references, CI under the block | **30 of 32 pass**; 2 fail on the workflow's lint step (humanlayer/python_dotenv: mypy on an edited test; inscriptis/requests: flake8 D401 and S310) | `results/references_ci.json` |
-| references, structural gates | 30 pass every structural gate; the 2 above rejected by G2 only; G4a pending | `results/references_structural.json` |
-| references, behavioural gate (replay on recorded inputs, local run; pairing by site and order, type-lenient equality, temporary paths normalised) | 21 inconclusive (the local run recorded no library calls; 14 of these because the suite is not runnable on this machine); **11 evaluable: 6 reproduced every recorded call, 4 "missing", 1 "divergent"** | `results/references_g4.json` |
+| references, CI under the block | **32 of 32 pass** (10 Oct re-dispatch after the lint fixes: inscriptis/requests D401 wording and S310 noqa; humanlayer/python_dotenv test annotations and a PathLike-accepting loader); the block announced itself in 31 of 32 logs (cgen/pytools: pytest runs from a subdirectory, no announcement) | `results/references_ci.json` (runs 37995732107, 37998121262, 37996126137) |
+| references, structural gates | 32 pass every structural gate, G3 by fingerprint included (`results/g3_fingerprint.json`); G4a in the table below | `results/references_structural.json`, `results/g3_fingerprint.json` |
+| references, behavioural gate (10 Oct rerun, two levels: library boundary where a replacement module is named, usage sites always; `data/reference_modules.tsv` gives each reference's interpreter, test arguments and replacement module) | of the 11 previously called evaluable: **accepted 5, rejected 0, inconclusive 6** (table below); the other 21 recorded no library call in the 9 Oct local run and were not rerun | `results/references_g4.json` |
 
-By where the replacement lives, which decides whether the library-boundary recorder can observe it:
+By where the replacement lives (`data/reference_modules.tsv`). Library-boundary calls are
+calls from repository frames into the library (reference) or into a replacement module
+named as a target (candidate); usage-site calls are calls of the project's own functions
+that use the library, wrapped in both phases:
 
-| replacement | evaluable | reproduced | rejected | why |
-|---|---|---|---|---|
-| a new repository module, named as a target | 4 (wcwidth, python_slugify, cli_ui, docopt) | **4** | 0 | observed directly; docopt reproduced only after temporary paths were normalised |
-| a new module but the candidate suite failed locally | 1 (flask_sqlalchemy) | 0 | 1 (missing) | runner limitation, not a gate verdict |
-| inside a modified module, or inlined | 6 (python_dateutil, boltons, iso8601, colorama, pandas, pytools) | 2 | 4 | the recorder cannot observe a replacement that is not a callable in a module of its own: naming the modified module records the project's own API instead (colorama, pytools), an inlined rewrite produces no call (pandas), a relocated call never reaches the recorded site (iso8601) |
+| reference | replacement | library calls ref/cand | usage calls ref/cand | verdict | decided at | why |
+|---|---|---|---|---|---|---|
+| wikitextparser / wcwidth | new module | 44 / 56 | 53 / 53 | **accepted** | both | 97 paired calls agree |
+| humanlayer / python_slugify | new module | 20 / 31 | 21 / 21 | **accepted** | both | 41 agree |
+| tbump / cli_ui | new module | 776 / 776 | 490 / 490 | **accepted** | both | 1227 agree; 39 usage-level differences in `git.py::run_git_captured` discarded, the reference's own calls with equal inputs return different git hashes (nondeterministic) |
+| tbump / docopt | new module | 36 / 36 | 36 / 36 | **accepted** | both | 72 agree |
+| IAMActionHunter / pandas | modified (csv.DictWriter inlined) | 4 / 0 | 1 / 1 | **accepted** | usage | the boundary sees nothing (no replacement callable); the enclosing function `create_csv` agrees, which covers the 4 boundary sites |
+| NVFlare / flask_sqlalchemy | new module | 1 / 5 | 0 / 0 | inconclusive | library | the one reference call is a module-level `SQLAlchemy()` at `application/__init__.py:21`; no function to observe; the candidate's 5 calls are at other sites |
+| tplot / colorama | modified | 1 / 0 | 0 / 0 | inconclusive | - | the only use is a module-level `init()`; nothing callable to compare |
+| cgen / pytools | modified | 2 / 0 | 0 / 0 | inconclusive | - | two decorator applications at import; the decorated functions are not called by the one test the suite runs |
+| AppDaemon / iso8601 | modified | 0 / 0 | 0 / 0 | inconclusive | - | the local runner collects one AppDaemon test; the parser is never called (CI runs 16) |
+| AppDaemon / python_dateutil | modified | 0 / 0 | 0 / 21 | inconclusive | - | as above; the reference's own added tests call the replacement (21 usage calls in the candidate), the reference run has nothing to pair them with |
+| eliot / boltons | modified | 0 / 0 | 0 / 0 | inconclusive | - | eliot's suite fails at collection on this machine (22 errors); not runnable locally |
 
-So where the gate can observe the replacement it accepted every correct rewrite (4 of 4); where it cannot, it must return inconclusive rather than a verdict, and detecting that condition automatically is open. Three fixes were needed to get here and are committed: pairing by call site and order rather than by arguments (a rewrite hands its own objects where the library's were handed), equality that ignores a differing type name when the structure is equal, and normalisation of checkout and temporary paths. Before them the gate rejected 7 of 11.
+By class: new module 4 accepted, 1 inconclusive; modified module or inlined 1 accepted, 5
+inconclusive; **rejected 0** in either class. The 9 Oct verdicts of 4 "missing" and 1
+"divergent" are withdrawn: three of the "11 evaluable" (iso8601, python_dateutil, boltons)
+had been evaluable only because the modified module was named as a target, which recorded
+the project's own API (`appdaemon.utils.sync_wrapper`, ...) as if it were the library's;
+colorama's "divergent" paired `tplot.figure` API calls at coinciding line numbers; cli_ui's
+one divergence was a git hash. "missing" is no longer a verdict: an unreached site is
+credited to the usage level when its enclosing function agrees and is otherwise reported
+as not observable, with the reason, and the gate returns inconclusive. A reference the
+recorder cannot see therefore costs an inconclusive, never a rejection, which was the
+target. The gate's own fixture (`tests/g4/run_fixture.py`): honest and an inlined rewrite
+identical (the latter decided at the usage level), pseudo and hollow identical at G4a and
+separated by G4b (39/200 and 177/200 generated inputs diverge).
 
 **Pending re-runs (dispatched 9 October 18:28Z, runs 37973530805, 37973536037,
 37973540628, 37973545522):** the recorder and the block were found to lose their output

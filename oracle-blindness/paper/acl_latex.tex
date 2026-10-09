@@ -676,7 +676,7 @@ Total & \nPairs{} & \nRefs{} \\
 \end{table}
 
 Table~\ref{tab:pool} gives the composition.
-Of \nRefs{} hand-written references, \nRefsPass{} pass the workflow with the package blocked and every structural gate; the two that fail do so on the workflow's lint step, on the reference's own code.
+Of \nRefs{} hand-written references, \nRefsPass{} pass the workflow with the package blocked and every structural gate, two of them after a lint fix to the reference's own code (an imperative docstring, a \code{noqa}, and type annotations).
 In the pilot, \nAgents{} agents made \nAgentAttempts{} attempts on \nAgentTasks{} pairs and \nAgentPass{} passed the suite, the number a conventional benchmark would report.
 \todo{Grader verdicts on the \nAgentPass: rejected by tests or behaviour; rejected on a constraint the prompt did not state (trade, vendor); inconclusive because the pair has no recording. With coverage at \nTracedPairs{} of \nPairs, inconclusive is the likely majority, and the paragraph should say what that means: the grader withholds a verdict it cannot support rather than inheriting the suite's.}
 
