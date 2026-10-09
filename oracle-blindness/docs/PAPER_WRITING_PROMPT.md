@@ -1,6 +1,6 @@
 # Session brief: write the paper
 
-You are writing an ACL main-track submission from a finished body of work. The
+You are writing an NAACL main-track submission from a finished body of work. The
 experiments are done and measured; your job is the paper. You were not involved
 in the work, which is an advantage: you will write what the evidence supports
 rather than what the authors hoped for.
@@ -28,9 +28,12 @@ cd DependencyRefactoring
    Limitations are up to date. The rest is older and must be checked against
    the docs below before any number is kept.
 4. `docs/BLIND_SPOT_ANATOMY.md`, `docs/ROBUSTNESS.md`, `docs/CROSS_ORACLE.md`,
-   `docs/PREDICTOR.md`, `docs/GRADER_DESIGN.md`, `docs/LEAKAGE.md` — one per
-   result, each with the exact figures and the honest caveats. These are the
-   source of truth for every claim.
+   `docs/PREDICTOR.md`, `docs/GRADER_DESIGN.md`, `docs/LEAKAGE.md`,
+   `docs/COMPARISON_FIDELITY.md`, `docs/FLAKINESS.md` — one per result, each
+   with the exact figures and the honest caveats. These are the source of
+   truth for every claim. The last two feed Limitations: how much of a
+   recorded value the behavioural comparison can see, and whether the CI
+   verdict is stable across two runs of the same patch.
 5. `docs/BENCHMARK_AUDIT_REPORT.md` — an independent adversarial audit. Not for
    citing; for knowing what a hostile reader will look for.
 
