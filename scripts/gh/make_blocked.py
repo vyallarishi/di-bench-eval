@@ -268,20 +268,13 @@ def _install():
         sys.stderr.flush()
     except Exception:
         pass
-    # stderr reaches the CI log for only some workflows; say it on fd 1 as well
-    try:
-        os.write(_ANNOUNCE_FD, ("UnpinBench blocker active: %s (pid %d, root %s)"
-                                % (_DEP, os.getpid(), _ROOT) + chr(10)).encode("utf-8", "replace"))
-    except Exception:
-        pass
 
 
-try:
-    _ANNOUNCE_FD = os.dup(1)        # before pytest can redirect fd 1
-except Exception:
-    _ANNOUNCE_FD = 1
-
-
+# Nothing may be written to fd 1 at interpreter start: tools such as Poetry
+# introspect the interpreter by parsing a subprocess's stdout as JSON, and a
+# line there fails 35 of 53 blind-side runs before any test runs. The console
+# announcement below therefore happens only inside pytest, through the saved
+# console descriptor, where stdout is the test log.
 def _unpinbench_pytest_fd(config):
     # Loaded through conftest.py, this module imported after pytest redirected
     # fd 1; pytest keeps the real console on targetfd_save. Announce there, so

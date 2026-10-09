@@ -1,9 +1,9 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..a603840
+index 0000000..8a8605d
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,416 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -86,7 +86,7 @@ index 0000000..a603840
 +            r = _is_repo_file(fn)
 +            if r is not None:
 +                try:
-+                    rel = os.path.relpath(os.path.abspath(fn), _ROOT)
++                    rel = os.path.relpath(os.path.realpath(fn), os.path.realpath(_ROOT))
 +                except ValueError:
 +                    rel = fn
 +                return r, "%s:%d" % (rel, f.f_lineno)
@@ -390,7 +390,6 @@ index 0000000..a603840
 +        if name.split(".")[0] in _TARGETS:
 +            del sys.modules[name]
 +    try:
-+        os.write(_TRACE_FD, ("UnpinBench recorder active: targets=%r out=%s pid=%d" % (_TARGETS, _OUT, os.getpid()) + chr(10)).encode("utf-8", "replace"))
 +        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
 +                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
 +        sys.stderr.flush()
@@ -453,10 +452,10 @@ index 01385d5..29ebc03 100644
  classifiers= [
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..a603840
+index 0000000..8a8605d
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,416 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -539,7 +538,7 @@ index 0000000..a603840
 +            r = _is_repo_file(fn)
 +            if r is not None:
 +                try:
-+                    rel = os.path.relpath(os.path.abspath(fn), _ROOT)
++                    rel = os.path.relpath(os.path.realpath(fn), os.path.realpath(_ROOT))
 +                except ValueError:
 +                    rel = fn
 +                return r, "%s:%d" % (rel, f.f_lineno)
@@ -843,7 +842,6 @@ index 0000000..a603840
 +        if name.split(".")[0] in _TARGETS:
 +            del sys.modules[name]
 +    try:
-+        os.write(_TRACE_FD, ("UnpinBench recorder active: targets=%r out=%s pid=%d" % (_TARGETS, _OUT, os.getpid()) + chr(10)).encode("utf-8", "replace"))
 +        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
 +                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
 +        sys.stderr.flush()

@@ -1,9 +1,9 @@
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
-index 0000000..17fe34c
+index 0000000..96551a5
 --- /dev/null
 +++ b/conftest.py
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,416 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -86,7 +86,7 @@ index 0000000..17fe34c
 +            r = _is_repo_file(fn)
 +            if r is not None:
 +                try:
-+                    rel = os.path.relpath(os.path.abspath(fn), _ROOT)
++                    rel = os.path.relpath(os.path.realpath(fn), os.path.realpath(_ROOT))
 +                except ValueError:
 +                    rel = fn
 +                return r, "%s:%d" % (rel, f.f_lineno)
@@ -390,7 +390,6 @@ index 0000000..17fe34c
 +        if name.split(".")[0] in _TARGETS:
 +            del sys.modules[name]
 +    try:
-+        os.write(_TRACE_FD, ("UnpinBench recorder active: targets=%r out=%s pid=%d" % (_TARGETS, _OUT, os.getpid()) + chr(10)).encode("utf-8", "replace"))
 +        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
 +                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
 +        sys.stderr.flush()
@@ -449,10 +448,10 @@ index 693b8da..11e6771 100644
  en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
-index 0000000..17fe34c
+index 0000000..96551a5
 --- /dev/null
 +++ b/sitecustomize.py
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,416 @@
 +# >>> UnpinBench injected block (do not edit) >>>
 +# fmt: off
 +# flake8: noqa
@@ -535,7 +534,7 @@ index 0000000..17fe34c
 +            r = _is_repo_file(fn)
 +            if r is not None:
 +                try:
-+                    rel = os.path.relpath(os.path.abspath(fn), _ROOT)
++                    rel = os.path.relpath(os.path.realpath(fn), os.path.realpath(_ROOT))
 +                except ValueError:
 +                    rel = fn
 +                return r, "%s:%d" % (rel, f.f_lineno)
@@ -839,7 +838,6 @@ index 0000000..17fe34c
 +        if name.split(".")[0] in _TARGETS:
 +            del sys.modules[name]
 +    try:
-+        os.write(_TRACE_FD, ("UnpinBench recorder active: targets=%r out=%s pid=%d" % (_TARGETS, _OUT, os.getpid()) + chr(10)).encode("utf-8", "replace"))
 +        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
 +                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
 +        sys.stderr.flush()
