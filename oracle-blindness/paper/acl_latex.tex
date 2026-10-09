@@ -399,35 +399,49 @@ We suspect many would not survive it.
 \section*{Limitations}
 \label{sec:limitations}
 
-\paragraph{Pilot scale.}
-The agent results rest on 28 runs over 16 instances and two models, sized to a \$3 budget.
-Confidence intervals on proportions at this scale span roughly $\pm$18 points; we report counts, not rates.
-The mutation and cheat results, which carry the paper's main claims, rest on 531 and 176 executed variants respectively.
+\paragraph{Winnability is verified by rule, not demonstrated.}
+Every pair is admitted only when CI fails attributably to the repository's own use of the package, and pairs that cannot be won are excluded by rule: a dependency that is optional by design (7), one installed from a second source CI reads (5), one whose failure arises inside another package (12), one whose name shadows a standard-library module (2).
+What those rules cannot establish is that a correct removal \emph{exists} for the pairs that remain.
+That requires writing one, and we have written none at scale.
+This is the benchmark's largest open risk and the first thing a reader should discount.
 
-\paragraph{Step budget confound.}
-\code{deepseek-v3.2} exhausted its step budget on 13 of 15 runs, so its patches are frequently incomplete work rather than considered answers.
-Its lower success rate partly reflects our budget, not the model.
+\paragraph{False rejection is bounded from below, not above.}
+We measure it at 0 of 172 using removals that are correct by construction: the package appears nowhere in the repository, so deleting the declaration and changing no code is the right answer.
+Those removals require no rewriting, so they exercise the manifest and closure gates far more than the behavioural one.
+A rate measured on harder removals could be higher, and nothing here rules that out.
+
+\paragraph{The behavioural gate speaks for a minority of pairs.}
+It compares what the library did against what the replacement does, which requires the test suite to call the library at least once.
+Recording under the real CI harness yielded traces for 86 instances and 38{,}381 calls; for the remainder either the suite never touches the dependency, in which case there is nothing to compare, or our recorder did not load under that project's test runner.
+Where the gate cannot speak it says so, and the structural gates carry the grade.
+We report the coverage rather than the detection rate alone.
+
+\paragraph{Pilot scale.}
+The agent results rest on 52 patches over 15 instances, sized to a small budget, of which 7 pass CI.
+Confidence intervals on proportions at this scale are wide; we report counts, not rates, and treat the pilot as evidence that the task is neither trivial nor impossible rather than as a measurement of any model.
+
+\paragraph{The cross-oracle comparison is derived, not observed.}
+Our 42\% blindness figure for CI replay is measured.
+The 47\% for a static import check follows from what that oracle inspects, applied to footprints we computed on \emph{our} population; we have not run EnvBench's harness over its own repositories.
+The ordering of the three oracles is sound and their mechanisms are verified in source, but the precise figure for another benchmark's population is not ours to claim.
 
 \paragraph{Benchmark decay.}
-Only 51 of 96 gold patches still pass.
-We condition on gold-passing instances throughout, but the surviving set may be systematically simpler, for instance better pinned.
+Only 51 of 96 published gold patches still pass their own suites.
+We condition on gold-passing repositories throughout, but the surviving set may be systematically simpler, for instance better pinned.
 
-\paragraph{Harness fidelity.}
-We found and report two defects in the upstream evaluation path: the fake-package check crashes on VCS-URL dependencies, and \code{act} prints \emph{Job succeeded} for a job that never started, which an evaluator that ignores the exit code records as a pass.
-We fixed both; results predating the fix are excluded.
-Measurement infrastructure requires auditing as much as the systems it measures.
+\paragraph{Static prediction.}
+Test reachability predicts blindness at precision 0.65 and recall 0.77 from import statements alone.
+The dependency-closure layer, which predicts transitively installed packages, no longer contributes: blocking the import removes the mechanism it detects, and of the 76 pairs it flags CI notices 50 anyway.
+Both layers under-approximate dynamic imports.
 
-\paragraph{Static predictor approximations.}
-The dependency layer ignores extras-conditioned requirements and installs driven by CI configuration rather than the manifest, which is the main source of its missed phantoms.
-The code layer under-approximates dynamic imports.
+\paragraph{Cheat realism.}
+The 617 variants are constructed, not observed in the wild.
+They establish what an oracle \emph{admits}, not what agents \emph{do}.
+The two corpora also overlap: 57 variants are identical triples and our three families are a subset of the eight, so they are not independent evidence and we do not sum them.
 
 \paragraph{Language scope.}
 All results are Python.
 The mechanisms, transitive installation and uneven test coverage, are not Python-specific, but their magnitudes certainly are: ecosystems with stricter dependency resolution should exhibit fewer phantoms.
-
-\paragraph{Cheat realism.}
-Our cheats are constructed, not observed.
-They establish what the oracle \emph{admits}, not what agents \emph{do}.
 
 \section*{Acknowledgments}
 
