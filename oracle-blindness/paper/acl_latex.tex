@@ -251,7 +251,7 @@ It is \emph{detected} if the workflow fails.
 It is \emph{silent} if the workflow passes.
 It is \emph{unscreenable} if the distribution's import name is also the name of a standard-library module, because blocking that name would sever the standard library, and such candidates are excluded with that reason.
 The block announces itself in the log when it loads, at interpreter start or inside the test runner, and a detected pair whose first error the block raised from a repository frame shows that the workflow attributes frames to the working tree.
-A silent verdict is counted only when its log carries the announcement and the same repository has such a detected pair, or the package is never imported by the repository, in which case nothing could have triggered the block and its activation is immaterial.
+A silent verdict is counted only when its log carries the announcement, or the package is never imported by the repository, in which case nothing could have triggered the block and its activation is immaterial; that the same repository has a detected pair raised from a repository frame is reported as corroboration but does not count on its own.
 A silent run that meets neither condition is replayed, and excluded as inconclusive if it still meets neither.
 For the running example the block raises at the import of \code{wcwidth}, from a frame in the repository's source file, and the workflow fails: the candidate is detected.
 
