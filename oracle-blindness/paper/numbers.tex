@@ -30,10 +30,10 @@
 \newcommand{\nCounterfeit}{537} % counterfeit removals (seven kinds)
 \newcommand{\nHonest}{80}       % honest deletions (control)
 \newcommand{\nPseudo}{80}       % well-formed-but-incorrect rewrites
-\newcommand{\nPseudoTraced}{10} % of which fall on a recorded pair
-\newcommand{\nTracedPairs}{85}  % pairs with a recording
-\newcommand{\nTraceInst}{85}    % recordings in total
-\newcommand{\nTraceCalls}{37{,}947}
+\newcommand{\nPseudoTraced}{15} % of which fall on a recorded pair
+\newcommand{\nTracedPairs}{143}  % pairs with a recording
+\newcommand{\nTraceInst}{172}    % recordings in total
+\newcommand{\nTraceCalls}{68{,}942}   % published copy; 87,675 recorded
 \newcommand{\nFuzzInputs}{300}  % generated inputs per function
 % agent pilot
 \newcommand{\nAgents}{4}
@@ -55,7 +55,7 @@
 \newcommand{\nCollectionSilent}{309}
 \newcommand{\nImportSilent}{224}
 \newcommand{\nScreened}{569}
-\newcommand{\fidelityWhole}{94.8}
+\newcommand{\fidelityWhole}{89.9}
 \newcommand{\nRefsEvaluable}{11}
 \newcommand{\nRefsObservable}{5}
 \newcommand{\nRefsObservableAccepted}{5}
@@ -114,10 +114,10 @@
 \newcommand{\nStubSurvive}{15}
 \newcommand{\nVendorSurvive}{19}
 \newcommand{\nWeakenSurvive}{2}
-\newcommand{\nRecLoadedNoCall}{77}
-\newcommand{\nRecNotObserved}{168}
-\newcommand{\nRecNotGreen}{62}
-\newcommand{\nPseudoOutside}{76}
+\newcommand{\nRecLoadedNoCall}{117}
+\newcommand{\nRecNotObserved}{6}
+\newcommand{\nRecNotGreen}{64}
+\newcommand{\nPseudoOutside}{65}
 % ---- references through the two-level behavioural gate (results/references_g4.json, 10 Oct)
 \newcommand{\nRefsAccepted}{5}
 \newcommand{\nRefsInconclusive}{6}
@@ -185,3 +185,6 @@
 \newcommand{\nAgentRejected}{2}      % openant/pyusb, omniduct/progressbar2: the declaration was never removed (G1; G8, G5 follow)
 \newcommand{\nAgentInconclusive}{4}  % behavioural gate could not observe the replacement
 \newcommand{\nAgentUnstated}{0}      % rejections resting only on a constraint the prompt did not state (trade, vendor)
+\newcommand{\nRecNotObservedOld}{168}  % recorder never loaded, before the saved-fd fix
+\newcommand{\nTracedPairsOld}{85}
+\newcommand{\nTraceCallsRecorded}{87{,}675}  % before one trace was capped per site for publication

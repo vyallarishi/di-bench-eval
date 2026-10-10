@@ -119,20 +119,39 @@ a pass on a pair whose values are mostly exact. The grade carries that
 coverage.
 
 
-## After the recorder change
+## After the recorder change (corrected runs, 10 Oct)
 
-The same classification over the 85 reference traces re-recorded with the
-current recorder (`results/trace_states.json` lists the outcome per pair):
+The same classification over the traces recorded under CI by the current recorder, now
+writing through pytest's saved console descriptor so that a recorder loaded through
+`conftest.py` is no longer silent (runs 37981747401 and 37981752738;
+`results/trace_states.json` lists the outcome per pair, `results/trace_fidelity.txt` the
+split):
 
 | class | values | share |
 |---|---|---|
-| exact | 30,977 | 81.6% |
-| hashed (past a cap, hash decides) | 2,724 | 7.2% |
-| opaque (repr only) | 1,982 | 5.2% |
-| array, content inlined | 1,489 | 3.9% |
-| structural (public attributes and length) | 508 | 1.3% |
-| exception (compared by type) | 261 | 0.7% |
-| truncated, no hash | 6 | 0.0% |
+| exact | 42,625 | 61.8% |
+| array, content inlined | 10,933 | 15.9% |
+| opaque (repr only) | 6,416 | 9.3% |
+| structural (public attributes and length) | 3,815 | 5.5% |
+| hashed (past a cap, hash decides) | 3,754 | 5.4% |
+| exception (compared by type) | 853 | 1.2% |
+| bytes whose decoded length is below their byte count | 546 | 0.8% |
 
-37,947 recorded return values; **94.8%** decided on the whole value, 5.2% on
-a repr or prefix (was 85.8% / 14.2%).
+68,942 return values over 172 traced instances (143 pairs with a green suite);
+**89.9%** decided on the whole value, 10.1% on a repr or prefix. 87,675 calls were
+recorded; one trace is published capped at 400 records per call site
+(`mandiant_speakeasy / pefile`, 21,387 records averaging 6.8 KB, 138 MB, over GitHub's
+file limit), keeping all 24 of its sites and all 14 library functions and dropping 18,733
+records from the four hottest sites, all of them `exact` integers, which is why the share
+is lower than the 92.1% over everything recorded. `cap_traces.py` applies the cap and
+writes the counts into the trace's own first line; `trace_fidelity.py` reports them. The
+population also changed with the fd fix (recorder never loaded: 168 pairs → 6; traced
+pairs 85 → 143), which is why neither figure is the 94.8% measured over the 85 pairs the
+earlier runs could see. The last row is not a cap: a `bytes` value is recorded as its UTF-8 decoding with
+replacement characters, so an invalid byte sequence decodes to fewer characters than it
+has bytes; equality is over the decoded content, and two values that differ only in
+invalid bytes mapping to the same replacement character would compare equal (546 values,
+all from python-adaptive's pickled learners and speakeasy's buffers).
+
+Coverage of the pool after the fix: traced 143 of 330, loaded but no call 117, not green
+under the recorder 64, never loaded 6.

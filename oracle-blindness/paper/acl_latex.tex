@@ -604,6 +604,7 @@ That flag is correct, and it also means one candidate the attribution called ove
 \paragraph{Coverage.}
 Recordings exist for \nTracedPairs{} of the \nPairs{} pairs, \nTraceCalls{} calls in all, re-recorded with the current recorder; \fidelityWhole\% of recorded values are compared on the whole value rather than on a representation, against \fidelityWholeBefore\% for the same projects recorded under the earlier summariser, which capped long values instead of hashing them.
 For the remaining pairs the recorder loaded but recorded no call (\nRecLoadedNoCall, which is a property of those suites rather than a gap in the method), was not observed loading (\nRecNotObserved), or the suite was not green under it (\nRecNotGreen).
+Before the recorder wrote through pytest's saved console descriptor, \nRecNotObservedOld{} pairs were in the second group and \nTracedPairsOld{} were traced; the fix moved almost all of them into the first two.
 Coverage, not fidelity, is the binding limit on this gate, and we report it as such.
 
 
@@ -693,7 +694,7 @@ A held-out set, and mutation analysis of the observable references, are the meas
 
 \paragraph{The gate speaks for a minority of pairs.}
 Recordings exist for \nTracedPairs{} of \nPairs{} pairs, and \nRefsInconclusive{} of \nRefsEvaluable{} references are inconclusive because the suite never calls the library on our machine or uses it only at module level.
-Where the gate cannot see it says so, and the structural gates and the tests carry the grade; coverage is reported with every verdict, and the corrected recorder runs may change it.
+Where the gate cannot see it says so, and the structural gates and the tests carry the grade; coverage is reported with every verdict.
 
 \paragraph{Thirteen silent runs are set aside, not resolved.}
 The activation rule excludes \nExclInconclusive{} silent runs from seven repositories; they were replayed with the corrected block and it never announced itself, so whether their suites are blind or merely never loaded the block is unknown, and the census is reported with and without them.

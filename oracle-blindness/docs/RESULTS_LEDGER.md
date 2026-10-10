@@ -172,10 +172,10 @@ open: a runner invoked through a `Makefile` or a script of the repository's own.
 
 | figure | value | source |
 |---|---|---|
-| recordings | 85 pairs of 330, 37,947 calls (re-recorded with the current recorder) | `results/trace_states.json`, `data/traces/` |
-| recorder outcome over the 330 | traced 85; loaded, no call 77; never loaded 168; CI not green under the recorder 62 | same |
-| comparison decides on the whole value | **94.8%** (was 85.8%) | `docs/COMPARISON_FIDELITY.md` |
-| pseudo-genuine with a recording | 10 of 80 with the current recordings (13 with the earlier ones); superseded by the pending re-run | `results/g4b_pseudo_genuine.json` |
+| recordings (corrected runs 37981747401, 37981752738) | **143 pairs of 330**, 87,675 calls recorded over 172 traced instances; the published copy holds 68,942, one trace capped at 400 records per call site (speakeasy/pefile: 138 MB, over GitHub's file limit; all 24 sites and 14 functions kept, `cap_traces.py`) | `results/trace_states.json`, `data/traces/`, `results/trace_fidelity.{txt,json}` |
+| recorder outcome over the 330 | traced 143; loaded, no call 117; never loaded **6** (was 168: the recorder loaded through `conftest.py` wrote to a redirected fd 1); CI not green under the recorder 64 | same |
+| comparison decides on the whole value | **89.9%** of the 68,942 published values (92.1% over all 87,675 recorded; 94.8% over the 85 pairs of the earlier run, a different population) | `docs/COMPARISON_FIDELITY.md`, `results/trace_fidelity.json` |
+| pseudo-genuine with a recording | **15 of 80** on a traced pair (was 10); 43 of the 80 sit on pairs outside the 330-pair pool, which has no recording by construction | `results/g4b_pseudo_genuine.json` |
 | evaluable | 4 rewrites, 5 functions; **all rejected, 300 of 300 inputs each**; 3 no reconstructible input; rest no recording | same |
 | references, CI under the block | **32 of 32 pass** (10 Oct re-dispatch after the lint fixes: inscriptis/requests D401 wording and S310 noqa; humanlayer/python_dotenv test annotations and a PathLike-accepting loader); the block announced itself in 31 of 32 logs (cgen/pytools: pytest runs from a subdirectory, no announcement) | `results/references_ci.json` (runs 37995732107, 37998121262, 37996126137) |
 | references, structural gates | 32 pass every structural gate, G3 by fingerprint included (`results/g3_fingerprint.json`); G4a in the table below | `results/references_structural.json`, `results/g3_fingerprint.json` |
@@ -214,12 +214,11 @@ target. The gate's own fixture (`tests/g4/run_fixture.py`): honest and an inline
 identical (the latter decided at the usage level), pseudo and hollow identical at G4a and
 separated by G4b (39/200 and 177/200 generated inputs diverge).
 
-**Pending re-runs (dispatched 9 October 18:28Z, runs 37973530805, 37973536037,
-37973540628, 37973545522):** the recorder and the block were found to lose their output
-whenever they load through `conftest.py` rather than `sitecustomize.py`, because pytest
-has redirected fd 1 by then. Both now write through pytest's saved console descriptor.
-The trace sets and the blind-side sets were regenerated and re-dispatched; the recording
-coverage and the activation confirmation above will be replaced by their results.
+**Corrected runs (10 Oct).** The recorder and the block write through pytest's saved
+console descriptor and nothing to fd 1 at interpreter start (commits 71d619b, 32b7378). The
+trace sets (runs 37981747401, 37981752738) and the blind-side sets (37981758207,
+37981762948 with two pull-limited shards re-run as 37996130281, 37996134281) replace the
+coverage and activation figures above; nothing in this section is pending.
 
 ## RQ6  Benchmark and agents
 

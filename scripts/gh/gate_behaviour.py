@@ -131,9 +131,14 @@ def load(path) -> list[dict]:
         if not line:
             continue
         try:
-            out.append(json.loads(line))
+            rec = json.loads(line)
         except json.JSONDecodeError:
             continue
+        # a published trace may carry a header saying it was capped per site
+        # (see cap_traces.py); it is metadata, not a call
+        if isinstance(rec, dict) and rec.get("unpinbench_capped"):
+            continue
+        out.append(rec)
     return out
 
 

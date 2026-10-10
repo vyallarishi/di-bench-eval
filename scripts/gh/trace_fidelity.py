@@ -62,13 +62,19 @@ RANK = {"exact": 0, "array": 1, "hashed": 2, "structural": 3, "opaque": 4, "trun
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--traces", default="oracle-blindness/data/traces")
+    ap.add_argument("--json", default=None)
     a = ap.parse_args()
     tally = collections.Counter()
+    capped = []
     for f in sorted(pathlib.Path(a.traces).glob("*.jsonl")):
         for line in f.read_text(errors="ignore").splitlines():
             try:
                 r = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if r.get("unpinbench_capped"):      # cap header, not a call
+                capped.append(dict(trace=f.name, **{k: v for k, v in r.items()
+                                                    if k != "unpinbench_capped"}))
                 continue
             tally["exception" if "raised" in r else classify(r.get("ret"))] += 1
     n = sum(tally.values())
@@ -79,6 +85,18 @@ def main():
     print(f"\ncomparison decides on the whole value: {decided}/{n} = {decided / n:.1%}")
     print(f"repr-only or truncated (a divergence there can be missed): "
           f"{n - decided}/{n} = {(n - decided) / n:.1%}")
+    if capped:
+        dropped = sum(c["records_dropped"] for c in capped)
+        print(f"\nthis directory is the published copy: {len(capped)} trace(s) capped per call "
+              f"site, {dropped} records dropped, so the shares above are over {n} of "
+              f"{n + dropped} recorded values (see cap_traces.py)")
+        for c in capped:
+            print(f"  {c['trace']}: kept {c['records_kept']} of {c['records_recorded']} "
+                  f"across {c['sites']} sites, {c['sites_capped']} capped at {c['per_site']}")
+    if a.json:
+        pathlib.Path(a.json).write_text(json.dumps(
+            dict(values=n, classes=dict(tally), decided_on_whole_value=decided,
+                 share_decided=round(decided / n, 4), capped=capped), indent=1))
 
 
 if __name__ == "__main__":
