@@ -82,6 +82,28 @@ replacement produces what the library produced on the inputs the suite
 exercises. That is the only submission in this run the behavioural gate could
 both reach and confirm.
 
+## Reading the nineteen
+
+Gate verdicts leave eleven submissions "inconclusive", which is honest and
+uninformative. All nineteen diffs were therefore read; `AGENT_INSPECTION.md`
+records each one. The result partitions the nineteen exactly:
+
+| what the diff actually does | n |
+|---|---|
+| a correct removal | 3 |
+| correct but the pair needs no code change (indirect track) | 1 |
+| a real rewrite, no recording, so unverifiable | 4 |
+| **the dependency is gone but what it did is not reproduced** | **4** |
+| rejected by a gate: 3 never removed it, 4 leave it in the environment | 7 |
+
+The fourth row is what reading added and gates did not. `tda-api` / `authlib`
+is the clearest: a **two-line** change aliasing `httpx.Client` to the name
+`OAuth2Client`, so every call site still compiles and the mocked tests pass,
+while token refresh and the OAuth2 flow simply cease to exist. No gate rejects
+it, because no recording exists for the pair. That is a harder failure mode
+than the `django` case and a direct argument for the behavioural gate's
+coverage being the thing to extend.
+
 ## The honest limit
 
 **G4a is unverified on 18 of the 19.** For 17 of those there is no recording
