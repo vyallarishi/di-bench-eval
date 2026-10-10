@@ -108,7 +108,7 @@ We then construct \nVariants{} variants, \nCounterfeit{} counterfeit removals of
 The structural gates alone reject 72\% to 100\% of each of six kinds and none of the seventh: a replacement with the form of a genuine rewrite that returns incorrect values.
 The behavioural gate records the library during the project's own tests and compares the replacement against the record.
 It can speak only where a recording exists, which is currently \nTracedPairs{} of the \nPairs{} pairs.
-Only \nPseudoTraced{} of the \nPseudo{} counterfeit rewrites fall on such a pair; the gate could evaluate four of them, five functions in all, and it rejects every one.
+Only \nPseudoTraced{} of the \nPseudo{} counterfeit rewrites fall on such a pair; the gate could evaluate \nPseudoEvaluable{} of them, \nPseudoFunctions{} functions in all, and it rejects every one.
 Where it cannot speak, the grader does not return a pass: it reports the structural verdict and marks the behavioural one as inconclusive.
 Of \nOverDeclGraded{} removals that are correct by construction, the candidates the code never uses, the grader accepts \nFRAccepted, cannot resolve the dependency closure of \nFRInconclusive, and flags \nFRFlagged{} that was not in fact a removal.
 Of the \nRefsEvaluable{} hand-written rewrites whose suites call the library locally, the behavioural gate accepts \nRefsAccepted, returns inconclusive on \nRefsInconclusive{} it cannot observe, and rejects none; where it cannot see, it says so rather than guessing.
@@ -616,7 +616,7 @@ Coverage, not fidelity, is the binding limit on this gate, and we report it as s
 \hline
  & \textbf{Replacement observable} & \textbf{Not observable} \\
 \hline
-Counterfeit (pseudo-genuine) & \nPseudoEvaluable{} of \nPseudoEvaluable{} rejected, each on \nFuzzInputs{} of \nFuzzInputs{} inputs & \nPseudoOutside{} of \nPseudo{} outside coverage \\
+Counterfeit (pseudo-genuine) & \nPseudoFunctions{} of \nPseudoFunctions{} functions rejected, over \nPseudoEvaluable{} rewrites & \nPseudoOutside{} of \nPseudo{} outside coverage, \nPseudoCannotSpeak{} traced with no evaluable function \\
 Correct (reference) & \nRefsAccepted{} of \nRefsAccepted{} accepted, 0 rejected & \nRefsInconclusive{} inconclusive, 0 rejected \\
 \hline
 \end{tabular}
@@ -626,7 +626,7 @@ Correct (reference) & \nRefsAccepted{} of \nRefsAccepted{} accepted, 0 rejected 
 
 \paragraph{The boundary.}
 Table~\ref{tab:boundary} crosses correct against counterfeit with observable against not.
-Of the \nPseudo{} pseudo-genuine rewrites, \nPseudoTraced{} fall on a recorded pair and \nPseudoEvaluable{} expose a function the recording shows the repository calling; all \nPseudoEvaluable{} are rejected, each on every one of \nFuzzInputs{} generated inputs, including the running example.
+Of the \nPseudo{} pseudo-genuine rewrites, \nPseudoTraced{} fall on a recorded pair and \nPseudoEvaluable{} expose a function the recording shows the repository calling; all \nPseudoFunctions{} such functions are rejected, seven of them on every one of \nFuzzInputs{} generated inputs and one on 139, including the running example.
 Of the \nRefs{} references, \nRefsEvaluable{} are evaluable in the local run.
 The gate accepts \nRefsAccepted: \nRefsNewModuleAccepted{} whose replacement is a new module, reproduced at the library boundary, and one inlined rewrite, reproduced at the usage site where the boundary saw nothing.
 It returns inconclusive on \nRefsInconclusive{} and rejects none: \nRefsNoCalls{} suites record no library call on our machine, and \nRefsNotObservable{} use the library only at module level or in a decorator that no test exercises, so there is nothing at either level to compare.
@@ -639,11 +639,11 @@ One accepted reference showed 39 usage-level differences, all from a function re
   xlabel={fraction of compared inputs that diverge}, xlabel style={font=\small},
   ytick={1,2}, yticklabels={correct, counterfeit}, y tick label style={font=\small},
   tick label style={font=\small}, xtick={0,0.25,0.5,0.75,1}]
-\addplot[only marks, mark=*, mark size=2.2pt, black] coordinates {(1,2) (1,2) (1,2) (1,2) (1,2)};
+\addplot[only marks, mark=*, mark size=2.2pt, black] coordinates {(1,2) (1,2) (1,2) (1,2) (1,2) (1,2) (1,2) (0.463,2)};
 \addplot[only marks, mark=o, mark size=2.2pt, black] coordinates {(0,1) (0,1) (0,1) (0,1) (0,1)};
 \end{axis}
 \end{tikzpicture}
-\caption{Separation where the gate can observe. Counterfeit: five functions from four pseudo-genuine rewrites, each diverging on \nFuzzInputs{} of \nFuzzInputs{} generated inputs. Correct: five references, each agreeing on every recorded input. The inputs differ by row and the counts are small; the margin, not the count, is the evidence.}
+\caption{Separation where the gate can observe. Counterfeit: \nPseudoFunctions{} functions from \nPseudoEvaluable{} pseudo-genuine rewrites, seven diverging on \nFuzzInputs{} of \nFuzzInputs{} generated inputs and one on 139. Correct: \nRefsAccepted{} references, each agreeing on every recorded input. The inputs differ by row and the counts are small; the margin, not the count, is the evidence.}
 \label{fig:separation}
 \end{figure}
 
