@@ -254,11 +254,35 @@ as `test_wcswidth.py` and `run_test.py` at the repository root, which the local 
 collects) and recorded nothing at either level, so the gate returns inconclusive rather than
 a verdict; CI, which runs the workflow's own command, passes it.
 
+## Nothing pending
+
+Every figure above comes from a result file in this repository, produced by a script in
+`scripts/gh/`. The six tasks of the 10 October session are done: the corrected trace and
+blind-side runs are processed (RQ1, RQ5), the behavioural gate observes usage sites (RQ5),
+the replication cheat corpus has measured behavioural verdicts (RQ4), G3 fingerprints
+copies and G7 reads the runner's configuration (RQ4), the agent pilot is graded (RQ6), and
+all 32 references pass CI under the block (RQ5). No harness run is outstanding.
+
 ## Open items for the authors
 
-1. Agent pilot through the seven gates.
-2. The two reference lint failures: rephrase the docstring and add a `noqa` for S310
-   in the inscriptis reference; add return annotations to the two test functions in the
-   humanlayer reference; re-dispatch `references`.
-3. Reference provenance for §3.3: who wrote them, selection, written before the gates.
-4. Corpus provenance for §4.3.
+These need a person, not a measurement.
+
+1. **Reference provenance for §3.3**: who wrote the 32 removals, how the pairs were chosen,
+   and that they were written before the gates existed. The mock-target question is also
+   theirs: four references repoint a `mock.patch` target string from the library's module
+   path to the project's own function (mobly/portpicker, inscriptis/requests,
+   davinci/openai, tbump/cli_ui); G7 does not flag it, and the pool's rules should say
+   whether it is allowed.
+2. **Corpus provenance for §4.3**: which pairs the eight-family corpus covers, who built
+   it, with which generator, and whether that author also wrote G7 and G8.
+3. **The abstract's numbers**: it still carries the pre-block literals (226 silent, 149 /
+   23 / 8 / 46 in the decomposition, 18.8%, 35 of 51, 348 pairs). The current figures are
+   226 silent of 609 counted, 173 / 14 / 5 / 34, median 18.8%, incidence 33 of 49, 330
+   pairs. The decomposition and the pair count changed; the abstract is §1 prose and was
+   left alone.
+4. **A held-out reference set.** The behavioural gate's acceptance of 5 of 5 observable
+   references is a development result: four changes to the gate were made while grading
+   those same references. §5 says so, and the measurement that would replace it is a set
+   written after the gate was frozen.
+5. **G6**, specified and not instantiated, and **G4c** over the references, which would
+   say how much of each replacement the suite constrains.
