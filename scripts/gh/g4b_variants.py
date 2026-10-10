@@ -44,9 +44,9 @@ def added_files(patch: str) -> dict[str, str]:
     out, cur, lines = {}, None, None
     for line in patch.splitlines():
         if line.startswith("diff --git"):
-            if cur:
+            if cur and cur != "?" and lines is not None:
                 out[cur] = "\n".join(lines) + "\n"
-            cur, lines = None, None
+            cur, lines = None, None      # a binary file has a header and no text body
         elif line.startswith("new file mode"):
             cur = "?"
         elif line.startswith("+++ ") and cur == "?":
@@ -58,7 +58,7 @@ def added_files(patch: str) -> dict[str, str]:
                 lines.append(line[1:])
             elif line.startswith("@@") or line.startswith("\\"):
                 continue
-    if cur and cur != "?":
+    if cur and cur != "?" and lines is not None:
         out[cur] = "\n".join(lines) + "\n"
     return out
 
@@ -89,17 +89,30 @@ def main():
         if not files:
             rows.append(dict(id=d.name, fn=None, outcome="no added module"))
             continue
-        src = max(files.values(), key=len)          # the replacement module
         by_fn = collections.defaultdict(list)
         for r in recs:
+            if r.get("level") == "usage":
+                continue
             by_fn[(r.get("q") or "").split(".")[-1]].append(r)
         names = import_names(dep)
         for fn, calls in sorted(by_fn.items()):
-            if not fn or f"def {fn}(" not in src and f"class {fn}" not in src:
+            # the added file that defines the function; the whole set of added
+            # files travels with it so a package's relative imports resolve
+            defining = [pth for pth, src in files.items()
+                        if f"def {fn}(" in src or f"class {fn}" in src or f"class {fn}(" in src]
+            if not fn or not defining:
                 continue
-            spec = dict(import_names=names, src=src, fn=fn, calls=calls[:200], n=a.n)
-            p = subprocess.run([a.python, str(HERE / "g4b_one.py"), json.dumps(spec)],
+            spec = dict(import_names=names, files=files, defining=defining[0], fn=fn,
+                        calls=calls[:200], n=a.n)
+            # the spec travels through a file: a vendored package is far too
+            # large for an argument vector
+            import tempfile
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+                json.dump(spec, fh)
+                spec_path = fh.name
+            p = subprocess.run([a.python, str(HERE / "g4b_one.py"), spec_path],
                                capture_output=True, text=True, timeout=600)
+            pathlib.Path(spec_path).unlink(missing_ok=True)
             try:
                 res = json.loads(p.stdout.strip().splitlines()[-1])
             except Exception:

@@ -90,6 +90,41 @@ screening logs and the vacuous-pass rule): **166 accepted, 5 inconclusive (G8 co
 resolve), 1 flagged by G1** (mu-editor/wheel: moved to `extras_require`, not removed —
 a correct flag). 0 false rejections of 172.
 
+### The replication corpus through the behavioural gates (added 10 Oct; `results/g4_cheats.json`, `results/g4b_cheats.json`)
+
+The 176 hide/stub/vendor variants with CI verdicts (`results/cheats/`) were run through
+`run_g4.py` with the two-level recorder (one local reference run per pair, candidate run
+per variant) and, where a reference trace exists and the variant adds a module, through
+G4b (`g4b_variants.py`, library and replacement on inputs derived from the recorded ones;
+the replacement is now loaded as a package under an alias so a stub or vendored package
+resolves its relative imports). The earlier `results/g4_cheats.json` (every verdict
+"missing", pairing broken across checkouts) is replaced. Only CI-passing variants are
+reported, because the gate's question is what survives the tests:
+
+| kind | variants | CI pass | G4a identical / divergent / inconclusive / not evaluable | G4b caught / agrees / cannot speak |
+|---|---|---|---|---|
+| hide | 62 | 35 | 4 / 0 / 2 / 29 | 0 / 0 / 35 (no added module: nothing for G4b to run) |
+| stub | 62 | 8 | 1 / 1 / 1 / 5 | 1 / 0 / 7 |
+| vendor | 52 | 18 | 4 / 0 / 1 / 13 | 0 / 1 / 17 |
+
+Readings. A hidden declaration and a vendored copy *are* the library, so "identical" is
+the correct behavioural verdict and G1 / G3 carry the rejection; the one hide variant
+first reported divergent (fuzzy-c-means / joblib) was 43 random-initialisation results
+that the library's own repeated calls also disagree on, which the nondeterminism rule,
+now applied at the library boundary as well as at usage sites, sets aside. Of the 3
+stubs the gate could evaluate, humanlayer / python_slugify is rejected (20 of 41 calls
+divergent; G4b 300 of 300 generated inputs), flask-sock / simple_websocket is
+inconclusive (one call fewer than the reference), and tplot / colorama is identical:
+the only recorded call is `init()`, which returns None from the library and from the
+stub, and on Linux colorama's `init()` does nothing, so the stub is behaviourally
+equivalent on the platform CI runs on. **Not evaluable** is the dominant cell (47 of 61):
+the reference suite is not runnable by the local runner (34: hide 23, vendor 10, stub 1),
+the repository imports jax or torch whose x86 wheels hang under Rosetta (11: cascades,
+flashbax, dvclive, SDGym), or the reference run recorded no library call (2). The earlier
+"12 of 12" was a count over stubs with broken pairing and is withdrawn; the measured
+statement is: of the 61 CI-passing variants, the behavioural gate could speak for 14, and
+it rejected the one stub whose work it could see.
+
 ### G3 by winnowing fingerprint (added 10 Oct; `results/g3_fingerprint.json`, `scripts/gh/gate_vendor.py`, `g3_eval.py`, `make_renamed_vendor.py`)
 
 G3 previously checked the name of an added module only. It now fingerprints every added

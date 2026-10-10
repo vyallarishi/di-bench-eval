@@ -181,26 +181,60 @@ def _divergence(r: dict, c: dict, level: str) -> dict:
                 reference=_outcome(r)[1], candidate=_outcome(c)[1])
 
 
+def _same_args(a: dict, b: dict) -> bool:
+    aa, ba = a.get("args") or [], b.get("args") or []
+    ak, bk = a.get("kwargs") or {}, b.get("kwargs") or {}
+    if len(aa) != len(ba) or set(ak) != set(bk):
+        return False
+    return (all(values_equal(x, y) for x, y in zip(aa, ba))
+            and all(values_equal(ak[k], bk[k]) for k in ak))
+
+
+def _site_nondeterministic(refs: list[dict]) -> bool:
+    """Did the library itself return different values at this site for equal arguments?"""
+    seen: list[tuple[dict, tuple]] = []
+    for r in refs:
+        out = _outcome(r)
+        for other, o2 in seen:
+            if _same_args(r, other):
+                if not (out[0] == o2[0] and (out[1] == o2[1] if out[0] == "raised"
+                                               else values_equal(out[1], o2[1]))):
+                    return True
+                break
+        else:
+            seen.append((r, out))
+    return False
+
+
 def _pair_library(reference, candidate):
-    """Pair by site and order. Returns (matched, divergences, unreached records)."""
+    """Pair by site and order. Returns (matched, divergences, unreached, extra, discarded).
+
+    A site at which the library's own recorded calls disagree on equal
+    arguments (a random initialisation, a timestamp, a parallel result in
+    arrival order) is nondeterministic; differences there are reported but
+    are not evidence against the replacement.
+    """
     ref_by: dict[tuple, list[dict]] = collections.defaultdict(list)
     for r in reference:
         ref_by[_pair_key(r)].append(r)
     cand_by: dict[tuple, list[dict]] = collections.defaultdict(list)
     for c in candidate:
         cand_by[_pair_key(c)].append(c)
-    matched, divergences, unreached = 0, [], []
+    matched, divergences, unreached, discarded = 0, [], [], []
     for key, refs in ref_by.items():
         cands = cand_by.get(key, [])
+        nondet = _site_nondeterministic(refs)
         for i, r in enumerate(refs):
             if i >= len(cands):
                 unreached.append(r)
             elif _same_outcome(r, cands[i]):
                 matched += 1
+            elif nondet:
+                discarded.append(_divergence(r, cands[i], "library"))
             else:
                 divergences.append(_divergence(r, cands[i], "library"))
     extra = sum(max(0, len(v) - len(ref_by.get(k, []))) for k, v in cand_by.items())
-    return matched, divergences, unreached, extra
+    return matched, divergences, unreached, extra, discarded
 
 
 def _nondeterministic(refs: list[dict]) -> bool:
@@ -306,7 +340,7 @@ def compare(reference: list[dict], candidate: list[dict],
     cand_lib = [c for c in candidate if _level(c) == "library"]
     cand_use = [c for c in candidate if _level(c) == "usage"]
 
-    lib_m, lib_d, lib_u, lib_x = _pair_library(ref_lib, cand_lib)
+    lib_m, lib_d, lib_u, lib_x, lib_discarded = _pair_library(ref_lib, cand_lib)
     use_m, use_d, use_u, use_x, per_fn, use_discarded = _pair_usage(ref_use, cand_use)
     lib_observable = bool(cand_lib)
     observed_fns = {q for q, v in per_fn.items() if v["candidate"] > 0 and v["divergent"] == 0}
@@ -358,8 +392,8 @@ def compare(reference: list[dict], candidate: list[dict],
         verdict, passed = "identical", True
         reason = (f"{lib_m + use_m} paired calls reproduce the library's values"
                   + (f", {covered} boundary call(s) verified through the enclosing function" if covered else "")
-                  + (f"; {len(use_discarded)} usage-level difference(s) in nondeterministic function(s) not counted"
-                     if use_discarded else ""))
+                  + (f"; {len(use_discarded) + len(lib_discarded)} difference(s) at nondeterministic function(s) or site(s) not counted"
+                     if (use_discarded or lib_discarded) else ""))
 
     decided = ("both" if (lib_observable and ref_use and cand_use) else
                "usage" if (ref_use and cand_use) else
@@ -383,11 +417,11 @@ def compare(reference: list[dict], candidate: list[dict],
         divergent=len(divergences),
         missing=len(not_observable),
         not_observable=len(not_observable),
-        discarded_nondeterministic=len(use_discarded),
+        discarded_nondeterministic=len(use_discarded) + (len(lib_discarded) if lib_observable else 0),
         extra_candidate_calls=lib_x + use_x,
         usage_functions={q: v for q, v in per_fn.items()},
         divergences=divergences[:20],
-        discarded=use_discarded[:5],
+        discarded=(use_discarded + (lib_discarded if lib_observable else []))[:5],
         missing_calls=not_observable[:20],
     )
 
