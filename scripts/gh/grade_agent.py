@@ -99,12 +99,23 @@ def main():
         g = grader.grade(patch, repo, dep, gold_patch=rows[base]["patch"],
                          tests_passed=(ci[mid] == "pass"), reference=ref, candidate=cand,
                          ci_log=logs.get(mid), site_function=sf)
-        if r.get("status") == "ok" and not r.get("reference_tests_passed"):
+        if r.get("status") == "skipped":
+            g["gates"]["G4a_behaviour"] = dict(status="unverified", evidence={},
+                                               reason=r.get("why", "the behavioural run skipped this attempt")[:160])
+        elif r.get("status") == "ok" and not r.get("reference_tests_passed"):
             g["gates"]["G4a_behaviour"] = dict(status="unverified", evidence={},
                                                reason="the reference suite is not runnable by the local runner")
         elif r.get("status") == "ok" and not r.get("reference_calls"):
             g["gates"]["G4a_behaviour"] = dict(status="unverified", evidence={},
                                                reason="the reference run recorded no call into the library")
+        elif r.get("status") == "ok" and ref is None:
+            # traces not kept per instance: take the verdict the run computed
+            g4a = r.get("g4a") or {}
+            passed = g4a.get("passed")
+            g["gates"]["G4a_behaviour"] = dict(
+                status="pass" if passed else ("unverified" if passed is None else "fail"),
+                reason=f"{g4a.get('verdict')} [{g4a.get('decided_at')}]: {g4a.get('reason', '')}"[:200],
+                evidence={k: v for k, v in g4a.items() if k != "usage_functions"})
         elif not r:
             g["gates"]["G4a_behaviour"] = dict(status="unverified", evidence={},
                                                reason="the behavioural run did not cover this attempt")

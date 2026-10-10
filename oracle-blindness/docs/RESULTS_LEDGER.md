@@ -224,8 +224,36 @@ coverage and the activation confirmation above will be replaced by their results
 ## RQ6  Benchmark and agents
 
 Pilot: 4 agents on 15 tasks, 52 attempts, 7 pass CI (DeepSeek-V3.2 5 of 15, GPT-5.1
-1 of 16, Claude Sonnet 5 1 of 8, Qwen3-Coder 0 of 13). Gate verdicts on the 7: *pending
-(authors)*. Source: `results/agent_final/`.
+1 of 16, Claude Sonnet 5 1 of 8, Qwen3-Coder 0 of 13). Source: `results/agent_final/`.
+
+**Through the grader (added 10 Oct; `results/agent_grader.json`, `scripts/gh/grade_agent.py`).**
+Every attempt graded with its CI verdict as G2, its install log (run 37128121165,
+re-downloaded) for G5, and the two-level behavioural run (`run_g4.py` over
+`predictions/agent`; 47 of 52 attempts run, 5 on jax/torch repositories not runnable here).
+The 7 CI passes:
+
+| attempt | G1 | G3 | G4a | G5 | G7 | G8 | verdict | rests on |
+|---|---|---|---|---|---|---|---|---|
+| humanlayer / python_slugify, DeepSeek | pass | pass | **pass** (identical, 21 usage-site calls) | pass | pass | pass | **accepted** | — |
+| openant / pyusb, DeepSeek | **fail** | pass | inconclusive (no reference call) | **fail** | pass | **fail** | rejected | the declaration was never removed (`pyusb` still in `pyproject.toml`); G8 and G5 follow from it |
+| omniduct / progressbar2, DeepSeek | **fail** | pass | inconclusive (suite not runnable locally) | pass | pass | **fail** | rejected | the declaration was never removed |
+| wikitextparser / wcwidth, DeepSeek | pass | pass | inconclusive | pass | pass | pass | inconclusive | the candidate recorded no call at either level (see below) |
+| tplot / colorama, DeepSeek / GPT-5.1 / Sonnet 5 | pass | pass | inconclusive | pass | pass | pass | inconclusive | the only library call is a module-level `init()`; nothing to observe |
+
+So: **accepted 1, rejected 2, inconclusive 4**; rejections resting on a constraint the prompt
+never stated (trade, vendor): **0**; rejections resting on tests or behaviour: 0; both
+rejections rest on the removal itself not having happened, which a conventional grader
+reports as a pass because the package stays installed. No agent patch is flagged by G3's
+fingerprint check or by G7's configuration rule (the DeepSeek wikitextparser patch adds
+scratch files `run_test.py`, `test_wcswidth.py` at the root, which G7 allows as new tests).
+Over all 52: 45 fail CI and are rejected by G2; among those, G1 also fails on 16 (the
+declaration was left in place), G8 on 27 (closure grew or the package is still in it), G7
+on 2 (a test weakened), G3 on 0, G4a divergent on 3. The wikitextparser attempt rewrites
+`wcswidth` inside `_wikitext.py`; its reference run recorded 44 boundary and 53 usage-site
+calls, but the candidate suite fails in the local runner (the patch drops scratch files such
+as `test_wcswidth.py` and `run_test.py` at the repository root, which the local pytest
+collects) and recorded nothing at either level, so the gate returns inconclusive rather than
+a verdict; CI, which runs the workflow's own command, passes it.
 
 ## Open items for the authors
 
