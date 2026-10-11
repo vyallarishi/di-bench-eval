@@ -1,0 +1,169 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 6c15ed9..34cfe10 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "SQLAlchemy>=1.4",
++]
+ 
+ [project.urls]
+ Code            = "https://github.com/falcony-io/sqlalchemy-searchable"
+diff --git a/sqlalchemy_searchable/__init__.py b/sqlalchemy_searchable/__init__.py
+index 03c3f19..885543e 100644
+--- a/sqlalchemy_searchable/__init__.py
++++ b/sqlalchemy_searchable/__init__.py
+@@ -1,23 +1,42 @@
+-import os
+-from functools import reduce
+-
+-import sqlalchemy as sa
+-from sqlalchemy import event
+-from sqlalchemy.ext.compiler import compiles
+-from sqlalchemy.schema import DDL, DDLElement
+-from sqlalchemy.sql.expression import Executable
+-from sqlalchemy_utils import TSVectorType
+-
+-from .vectorizers import Vectorizer
+-
+-__version__ = "2.1.0"
+-
+-
+-vectorizer = Vectorizer()
+-"""
+-An instance of :class:`Vectorizer` that keeps a track of the registered vectorizers. Use
+-this as a decorator to register a function as a vectorizer.
+-"""
++import re
++import uuid
++from collections.abc import Iterable
++from functools import partial
++
++from sqlalchemy import event, text
++from sqlalchemy.dialects.postgresql import TSVECTOR
++from sqlalchemy.orm import Mapper, class_mapper
++from sqlalchemy.schema import Column, DDL, Table
++from sqlalchemy.sql import func, select
++from sqlalchemy.types import TypeDecorator, UserDefinedType
++
++
++class TSVectorType(TypeDecorator):
++    """A TSVector type that mimics sqlalchemy_utils.TSVectorType.
++    
++    This is a simplified replacement for sqlalchemy_utils.TSVectorType
++    that provides the same interface for this package.
++    """
++    impl = TSVECTOR
++    
++    def __init__(self, *columns, **options):
++        """Initialize TSVectorType.
++        
++        Args:
++            *columns: Column names to include in the search vector
++            **options: Additional options for the vector
++        """
++        self.columns = columns
++        self.options = options
++        super().__init__()
++    
++    def process_bind_param(self, value, dialect):
++        # Just pass through the value as-is for TSVECTOR
++        return value
++    
++    def process_result_value(self, value, dialect):
++        # Just pass through the value as-is for TSVECTOR
++        return value
+ 
+ 
+ class SearchQueryMixin:
+diff --git a/tests/conftest.py b/tests/conftest.py
+index e5d18cd..e535ada 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -17,7 +17,7 @@ from sqlalchemy.orm import (
+     declarative_base,
+     sessionmaker,
+ )
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable import TSVectorType
+ 
+ from sqlalchemy_searchable import (
+     make_searchable,
+diff --git a/tests/test_multiple_vectors_per_class.py b/tests/test_multiple_vectors_per_class.py
+index a7290c2..4e5e3b4 100644
+--- a/tests/test_multiple_vectors_per_class.py
++++ b/tests/test_multiple_vectors_per_class.py
+@@ -1,6 +1,6 @@
+ import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable import TSVectorType
+ 
+ from sqlalchemy_searchable import search
+ from tests.schema_test_case import SchemaTestCase
+diff --git a/tests/test_schema_creation.py b/tests/test_schema_creation.py
+index 4fc4d8f..65bf9b5 100644
+--- a/tests/test_schema_creation.py
++++ b/tests/test_schema_creation.py
+@@ -1,6 +1,6 @@
+ import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable import TSVectorType
+ 
+ from tests.schema_test_case import SchemaTestCase
+ 
+diff --git a/tests/test_searchable.py b/tests/test_searchable.py
+index e1e5032..6360ff3 100644
+--- a/tests/test_searchable.py
++++ b/tests/test_searchable.py
+@@ -1,6 +1,6 @@
+ import pytest
+ from sqlalchemy import func, select
+-from sqlalchemy.orm.query import Query
++from sqlalchemy_searchable import TSVectorType
+ 
+ from sqlalchemy_searchable import search, SearchQueryMixin
+ 
+diff --git a/tests/test_single_table_inheritance.py b/tests/test_single_table_inheritance.py
+index 21a52f3..0ae14f8 100644
+--- a/tests/test_single_table_inheritance.py
++++ b/tests/test_single_table_inheritance.py
+@@ -1,6 +1,6 @@
+ import pytest
+ import sqlalchemy as sa
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable import TSVectorType
+ 
+ from tests.schema_test_case import SchemaTestCase
+ 
+diff --git a/tests/test_vectorizers.py b/tests/test_vectorizers.py
+index a43bd21..7dfcefb 100644
+--- a/tests/test_vectorizers.py
++++ b/tests/test_vectorizers.py
+@@ -1,7 +1,7 @@
+ import pytest
+ import sqlalchemy as sa
+ from sqlalchemy.dialects.postgresql import HSTORE
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable import TSVectorType
+ 
+ from sqlalchemy_searchable import vectorizer
+ 
+diff --git a/tests/test_weighted_search_vector.py b/tests/test_weighted_search_vector.py
+index 3d561d0..b6d7a6e 100644
+--- a/tests/test_weighted_search_vector.py
++++ b/tests/test_weighted_search_vector.py
+@@ -3,7 +3,7 @@ import re
+ import pytest
+ import sqlalchemy as sa
+ from sqlalchemy import text
+-from sqlalchemy_utils import TSVectorType
++from sqlalchemy_searchable import TSVectorType
+ 
+ from sqlalchemy_searchable import search
+ from tests.schema_test_case import SchemaTestCase

@@ -1,0 +1,123 @@
+diff --git a/mu/modes/api/flask.py b/mu/modes/api/flask.py
+index 39dd834..9bea8a3 100644
+--- a/mu/modes/api/flask.py
++++ b/mu/modes/api/flask.py
+@@ -30,42 +30,12 @@ FLASK_APIS = [
+     _("AppContext.pop(exc=&lt;object object&gt;) \nPops the app context.\n"),
+     _("AppContext.push() \nBinds the app context to the current context.\n"),
+     _("AppContext.push() \nBinds the app context to the current context.\n"),
+-    _(
+-        "AppGroup(name=None, commands=None, **attrs) \nThis works similar to a regular click Group but it\nchanges the behavior of the command() decorator so that it\nautomatically wraps the functions in with_appcontext().\n\nNot to be confused with FlaskGroup.\n\n"
+-    ),
+-    _(
+-        "AppGroup(name=None, commands=None, **attrs) \nThis works similar to a regular click Group but it\nchanges the behavior of the command() decorator so that it\nautomatically wraps the functions in with_appcontext().\n\nNot to be confused with FlaskGroup.\n\n"
+-    ),
+-    _(
+-        "AppGroup.command(*args, **kwargs) \nThis works exactly like the method of the same name on a regular\nclick.Group but it wraps callbacks in with_appcontext()\nunless it’s disabled by passing with_appcontext=False.\n"
+-    ),
+-    _(
+-        "AppGroup.command(*args, **kwargs) \nThis works exactly like the method of the same name on a regular\nclick.Group but it wraps callbacks in with_appcontext()\nunless it’s disabled by passing with_appcontext=False.\n"
+-    ),
+-    _(
+-        "AppGroup.group(*args, **kwargs) \nThis works exactly like the method of the same name on a regular\nclick.Group but it defaults the group class to\nAppGroup.\n"
+-    ),
+-    _(
+-        "AppGroup.group(*args, **kwargs) \nThis works exactly like the method of the same name on a regular\nclick.Group but it defaults the group class to\nAppGroup.\n"
+-    ),
+     _(
+         "Blueprint(name, import_name, static_folder=None, static_url_path=None, template_folder=None, url_prefix=None, subdomain=None, url_defaults=None, root_path=None) \nRepresents a blueprint.  A blueprint is an object that records\nfunctions that will be called with the\nBlueprintSetupState later to register functions\nor other things on the main application.  See Modular Applications with Blueprints for more\ninformation.\n\n"
+     ),
+     _(
+         "Blueprint(name, import_name, static_folder=None, static_url_path=None, template_folder=None, url_prefix=None, subdomain=None, url_defaults=None, root_path=None) \nRepresents a blueprint.  A blueprint is an object that records\nfunctions that will be called with the\nBlueprintSetupState later to register functions\nor other things on the main application.  See Modular Applications with Blueprints for more\ninformation.\n\n"
+     ),
+-    _(
+-        "Blueprint.add_app_template_filter(f, name=None) \nRegister a custom template filter, available application wide.  Like\nFlask.add_template_filter() but for a blueprint.  Works exactly\nlike the app_template_filter() decorator.\n\n\n\n\nParameters:name -- the optional name of the filter, otherwise the\nfunction name will be used.\n\n\n\n"
+-    ),
+-    _(
+-        "Blueprint.add_app_template_filter(f, name=None) \nRegister a custom template filter, available application wide.  Like\nFlask.add_template_filter() but for a blueprint.  Works exactly\nlike the app_template_filter() decorator.\n\n\n\n\nParameters:name -- the optional name of the filter, otherwise the\nfunction name will be used.\n\n\n\n"
+-    ),
+-    _(
+-        "Blueprint.add_app_template_global(f, name=None) \nRegister a custom template global, available application wide.  Like\nFlask.add_template_global() but for a blueprint.  Works exactly\nlike the app_template_global() decorator.\n\nChangelog\nNew in version 0.10.\n\n\n\n\n\nParameters:name -- the optional name of the global, otherwise the\nfunction name will be used.\n\n\n\n"
+-    ),
+-    _(
+-        "Blueprint.add_app_template_global(f, name=None) \nRegister a custom template global, available application wide.  Like\nFlask.add_template_global() but for a blueprint.  Works exactly\nlike the app_template_global() decorator.\n\nChangelog\nNew in version 0.10.\n\n\n\n\n\nParameters:name -- the optional name of the global, otherwise the\nfunction name will be used.\n\n\n\n"
+-    ),
+     _(
+         "Blueprint.add_app_template_test(f, name=None) \nRegister a custom template test, available application wide.  Like\nFlask.add_template_test() but for a blueprint.  Works exactly\nlike the app_template_test() decorator.\n\nChangelog\nNew in version 0.10.\n\n\n\n\n\nParameters:name -- the optional name of the test, otherwise the\nfunction name will be used.\n\n\n\n"
+     ),
+@@ -2148,10 +2118,4 @@ FLASK_APIS = [
+     _(
+         "url_for(endpoint, **values) \nGenerates a URL to the given endpoint with the method provided.\nVariable arguments that are unknown to the target endpoint are appended\nto the generated URL as query arguments.  If the value of a query argument\nis None, the whole pair is skipped.  In case blueprints are active\nyou can shortcut references to the same blueprint by prefixing the\nlocal endpoint with a dot (.).\nThis will reference the index function local to the current blueprint:\nurl_for('.index')\n\n\nFor more information, head over to the Quickstart.\nTo integrate applications, Flask has a hook to intercept URL build\nerrors through Flask.url_build_error_handlers.  The url_for\nfunction results in a BuildError when the current\napp does not have a URL for the given endpoint and values.  When it does, the\ncurrent_app calls its url_build_error_handlers if\nit is not None, which can return a string to use as the result of\nurl_for (instead of url_for’s default to raise the\nBuildError exception) or re-raise the exception.\nAn example:\ndef external_url_handler(error, endpoint, values):\n    \"Looks up an external URL when `url_for` cannot build a URL.\"\n    # This is an example of hooking the build_error_handler.\n    # Here, lookup_url is some utility function you've built\n    # which looks up the endpoint in some external URL registry.\n    url = lookup_url(endpoint, **values)\n    if url is None:\n        # External lookup did not have a URL.\n        # Re-raise the BuildError, in context of original traceback.\n        exc_type, exc_value, tb = sys.exc_info()\n        if exc_value is error:\n            raise exc_type, exc_value, tb\n        else:\n            raise error\n    # url_for will use this result, instead of raising BuildError.\n    return url\n\napp.url_build_error_handlers.append(external_url_handler)\n\n\nHere, error is the instance of BuildError, and\nendpoint and values are the arguments passed into url_for.  Note\nthat this is for building URLs outside the current application, and not for\nhandling 404 NotFound errors.\n\nChangelog\nNew in version 0.10: The _scheme parameter was added.\n\n\nNew in version 0.9: The _anchor and _method parameters were added.\n\n\nNew in version 0.9: Calls Flask.handle_build_error() on\nBuildError.\n\n\n\n\n\nParameters:\nendpoint -- the endpoint of the URL (name of the function)\nvalues -- the variable arguments of the URL rule\n_external -- if set to True, an absolute URL is generated. Server\naddress can be changed via SERVER_NAME configuration variable which\ndefaults to localhost.\n_scheme -- a string specifying the desired URL scheme. The _external\nparameter must be set to True or a ValueError is raised. The default\nbehavior uses the same scheme as the current request, or\nPREFERRED_URL_SCHEME from the app configuration if no\nrequest context is available. As of Werkzeug 0.10, this also can be set\nto an empty string to build protocol-relative URLs.\n_anchor -- if provided this is added as anchor to the URL.\n_method -- if provided this explicitly specifies an HTTP method.\n\n\n\n\n\n"
+     ),
+-    _(
+-        "with_appcontext(f) \nWraps a callback so that it’s guaranteed to be executed with the\nscript’s application context.  If callbacks are registered directly\nto the app.cli object then they are wrapped with this function\nby default unless it’s disabled.\n"
+-    ),
+-    _(
+-        "with_appcontext(f) \nWraps a callback so that it’s guaranteed to be executed with the\nscript’s application context.  If callbacks are registered directly\nto the app.cli object then they are wrapped with this function\nby default unless it’s disabled.\n"
+-    ),
+ ]
+diff --git a/setup.py b/setup.py
+index 2d3f12d..2a0e5dc 100644
+--- a/setup.py
++++ b/setup.py
+@@ -21,6 +21,60 @@ with open(os.path.join(base_dir, "CHANGES.rst"), encoding="utf8") as f:
+ 
+ 
+ install_requires = [
++    #
++    # The core 'install_requires' should only be things
++    # which are needed for the main editor to function.
++    #
++    "PyQt5==5.13.2"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    "QScintilla==2.11.3"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    "PyQtChart==5.13.1"
++    + ';"arm" not in platform_machine and "aarch" not in platform_machine',
++    # FIXME: jupyter-client added for Py3.5 compatibility, to be dropped after
++    # Mu v1.1 release. So, qtconsole < 5 and jupyter-client < 6.2 (issue #1444)
++    "jupyter-client>=4.1,<6.2",
++    # FIXME: ipykernel max added for macOS 10.13 compatibility, min taken from
++    # qtconsole 4.7.7. Full line can be removed after Mu v1.1 release.
++    # Dependency mirrored for user venv in mu/wheels/__init__.py
++    "ipykernel>=4.1,<6",
++    # FIXME: ipykernel<6 depends on ipython_genutils, but it isn't explicitly
++    # declared as a dependency. It also depends on traitlets, which
++    # incidentally brought ipython_genutils, but in v5.1 it was dropped, so as
++    # a workaround we need to manually specify it here.
++    "ipython_genutils>=0.2.0",
++    "qtconsole==4.7.7",
++    #
++    # adafruit-board-toolkit is used to find serial ports and help identify
++    # CircuitPython boards in the CircuitPython mode.
++    "adafruit-board-toolkit~=1.1",
++    "pyserial~=3.5",
++    "nudatus>=0.0.3",
++    # `flake8` is actually a testing/packaging dependency that, among other
++    # packages, brings in `pycodestyle` and `pyflakes` which are runtime
++    # dependencies. For the sake of "locality", it is being declared here,
++    # though. Regarding these packages' versions, please refer to:
++    # http://flake8.pycqa.org/en/latest/faq.html#why-does-flake8-use-ranges-for-its-dependencies
++    "flake8 >= 3.8.3",
++    # Clamp click max version to workaround incompatibility with black<22.1.0
++    "click<=8.0.4",
++    "black>=19.10b0,<22.1.0;python_version>'3.5'",
++    "platformdirs>=2.0.0,<3.0.0",
++    "semver>=2.8.0",
++    # virtualenv vendors pip, we need at least pip v19.3 to install some
++    # rust based dependencies. virtualenv >=v20 is required for the --symlinks
++    # flag needed by AppImage, and it packs pip v20.0.2.
++    "virtualenv>=20.0.0",
++    #
++    # Needed for packaging
++    #
++    "wheel",
++    # Needed to deploy from web mode
++    "requests>=2.0.0",
++    #
++    # Needed to resolve an issue with paths in the user virtual environment
++    #
++    "pywin32; sys_platform=='win32'",
+ ]
+ 
+ 

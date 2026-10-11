@@ -1,0 +1,162 @@
+diff --git a/omniduct/caches/base.py b/omniduct/caches/base.py
+index ff5f23c..13109cc 100644
+--- a/omniduct/caches/base.py
++++ b/omniduct/caches/base.py
+@@ -5,9 +5,12 @@ from abc import abstractmethod
+ import dateutil
+ import pandas
+ import yaml
+-from decorator import decorator
+ from interface_meta import inherit_docs
+ 
++from omniduct.duct import Duct
++from omniduct.utils.config import config
++from omniduct.utils.debug import logger
++from omniduct.utils.decorators import function_args_as_kwargs, require_connection
+ from omniduct.duct import Duct
+ from omniduct.utils.config import config
+ from omniduct.utils.debug import logger
+@@ -67,8 +70,6 @@ def cached_method(
+             the underlying exceptions raised by the Cache instance will be
+             reraised.
+     """
+-
+-    @decorator
+     def wrapped(method, self, *args, **kwargs):
+         kwargs = function_args_as_kwargs(method, self, *args, **kwargs)
+         kwargs.pop("self")
+@@ -114,15 +115,13 @@ def cached_method(
+                 metadata=_metadata,
+             )
+             # Return from cache every time, just in case serialization operation was
+-            # destructive (e.g. reading from cursors)
++            # destructive (e.g. cursor consumption in SQL queries)
+             return _cache.get(_key, namespace=_namespace, serializer=_serializer)
+-        except:  # pylint: disable=bare-except
+-            logger.warning(
+-                "Failed to save results to cache. If needed, please save them manually."
+-            )
++        except Exception as e:  # pylint: disable=broad-exception-caught
++            logger.warning("Failed to save results to cache [%s].", e)
+             if config.cache_fail_hard:
+                 raise
+-            return value  # As a last resort, return value object (which could be mutated by serialization).
++            return value
+ 
+     return wrapped
+ 
+diff --git a/omniduct/databases/base.py b/omniduct/databases/base.py
+index 3b8a0f9..160d172 100644
+--- a/omniduct/databases/base.py
++++ b/omniduct/databases/base.py
+@@ -10,7 +10,7 @@ from abc import abstractmethod
+ import jinja2
+ import jinja2.meta
+ import sqlparse
+-from decorator import decorator
++from interface_meta import inherit_docs, override
+ from interface_meta import inherit_docs, override
+ 
+ from omniduct.caches.base import cached_method
+@@ -28,10 +28,6 @@ from . import _cursor_formatters
+ from ._cursor_serializer import CursorSerializer
+ from ._namespaces import ParsedNamespaces
+ 
+-logging.getLogger("requests").setLevel(logging.WARNING)
+-
+-
+-@decorator
+ def render_statement(method, self, statement, *args, **kwargs):
+     """
+     Pre-render a statement template prior to wrapped function execution.
+@@ -48,6 +44,18 @@ def render_statement(method, self, statement, *args, **kwargs):
+     return method(self, statement, *args, **kwargs)
+ 
+ 
++def database_client_method(f):
++    """
++    A decorator to ensure that database client methods are called with a valid connection.
++    """
++    @functools.wraps(f)
++    def wrapper(self, *args, **kwargs):
++        if not self._Duct__connected:
++            self.connect()
++        return f(self, *args, **kwargs)
++    return wrapper
++
++
+ class DatabaseClient(Duct, MagicsProvider):
+     """
+     An abstract class providing the common API for all database clients.
+diff --git a/omniduct/utils/decorators.py b/omniduct/utils/decorators.py
+index 82519bd..ca38bb7 100644
+--- a/omniduct/utils/decorators.py
++++ b/omniduct/utils/decorators.py
+@@ -1,7 +1,6 @@
++import functools
+ import inspect
+ 
+-import decorator
+-
+ 
+ def function_args_as_kwargs(func, *args, **kwargs):
+     arguments = inspect.signature(func).parameters.keys()
+@@ -9,8 +8,31 @@ def function_args_as_kwargs(func, *args, **kwargs):
+     return kwargs
+ 
+ 
+-@decorator.decorator
+-def require_connection(f, self, *args, **kwargs):
++def require_connection(f):
++    """
++    A wrapper to allow restoring of connection status in the event that
++    connection issues result in failures. If so, we will attempt to retry the
++    failed function call once more.
++    """
++
++    @functools.wraps(f)
++    def wrapper(self, *args, **kwargs):
++        if not self._Duct__connected:
++            self.connect()
++
++        try:
++            return f(self, *args, **kwargs)
++        except Exception:  # pylint: disable=broad-exception-caught
++            # Check to see if it is possible that we failed due to connection issues.
++            # If so, try again once more. If we fail again, raise.
++            # TODO: Explore adding a DuctConnectionError class and filter this
++            # handling to errors of that class.
++            if not self.is_connected():
++                self.connect()
++                return f(self, *args, **kwargs)
++            raise
++
++    return wrapper
+     """
+     A wrapper to allow restoring of connection status in the event that
+     connection issues result in failures. If so, we will attempt to retry the
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..4763ae6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,19 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

@@ -1,0 +1,78 @@
+diff --git a/requirements.txt b/requirements.txt
+index e079f8a..2abfd54 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1 +1,4 @@
+ pytest
++requests==2.32.0
++wheel==0.38.1
++aiohttp==3.10.2
+diff --git a/telebot/apihelper.py b/telebot/apihelper.py
+index bc15e93..427cf0e 100644
+--- a/telebot/apihelper.py
++++ b/telebot/apihelper.py
+@@ -8,16 +8,23 @@ try:
+ except ImportError:
+     import json
+ 
+-import requests
+-from requests.exceptions import HTTPError, ConnectionError, Timeout
+-from requests.adapters import HTTPAdapter
++import urllib.request
++import urllib.error
++import urllib.parse
++from urllib.request import Request, urlopen
++from urllib.error import HTTPError, URLError
+ 
+ try:
+-    # noinspection PyUnresolvedReferences
+-    from requests.packages.urllib3 import fields
+-    format_header_param = fields.format_header_param
++    import ssl
+ except ImportError:
+-    format_header_param = None
++    ssl = None
++
++try:
++    # Try to import from aiohttp for async compatibility
++    from aiohttp import ClientTimeout, ClientError
++except ImportError:
++    ClientTimeout = None
++    ClientError = None
+ import telebot
+ from telebot import types
+ from telebot import util
+@@ -41,30 +48,10 @@ RETRY_ON_ERROR = False
+ RETRY_TIMEOUT = 2
+ MAX_RETRIES = 15
+ RETRY_ENGINE = 1
+-
+-CUSTOM_SERIALIZER = None
+-CUSTOM_REQUEST_SENDER = None
+-
+-ENABLE_MIDDLEWARE = False
+-
+-
+ def _get_req_session(reset=False):
+-    if SESSION_TIME_TO_LIVE:
+-        # If session TTL is set - check time passed
+-        creation_date = util.per_thread('req_session_time', lambda: datetime.now(), reset)
+-        # noinspection PyTypeChecker
+-        if (datetime.now() - creation_date).total_seconds() > SESSION_TIME_TO_LIVE:
+-            # Force session reset
+-            reset = True
+-            # Save reset time
+-            util.per_thread('req_session_time', lambda: datetime.now(), True)
+-
+-    if SESSION_TIME_TO_LIVE == 0:
+-        # Session is one-time use
+-        return requests.sessions.Session()
+-    else:
+-        # Session lives some time or forever once created. Default
+-        return util.per_thread('req_session', lambda: session if session else requests.sessions.Session(), reset)
++    # For urllib, we don't need session management like requests
++    # Just return None to indicate we'll use direct urllib calls
++    return None
+ 
+ 
+ def _make_request(token, method_name, method='get', params=None, files=None):

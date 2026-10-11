@@ -1,0 +1,77 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..5ed4e77 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,17 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++  "dvc>=3.48.4",
++  "dvc-render>=1.0.0,<2",
++  "dvc-studio-client>=0.20,<1",
++  "funcy",
++  "gto",
++  "ruamel.yaml",
++  "scmrepo>=3,<4",
++  "psutil",
++  "pynvml"
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/dvclive/dvc.py b/src/dvclive/dvc.py
+index e3e18d0..b1ce1fc 100644
+--- a/src/dvclive/dvc.py
++++ b/src/dvclive/dvc.py
+@@ -1,19 +1,29 @@
+-# ruff: noqa: SLF001
+-import copy
+-import logging
+-import os
+-from pathlib import Path
+-from typing import TYPE_CHECKING, Any, List, Optional
++# ruff: noqa: ARG002
++from __future__ import annotations
+ 
+-from dvclive import env
+-from dvclive.plots import Image, Metric
+-from dvclive.serialize import dump_yaml
+-from dvclive.utils import StrPath, rel_path
++import os
++from typing import TYPE_CHECKING
+ 
+ if TYPE_CHECKING:
+     from dvc.repo import Repo
+     from dvc.stage import Stage
+ 
++try:
++    from dvc.exceptions import DvcException
++    from dvc.repo import Repo
++    from dvc.scm import NoSCMError
++    from dvc.stage import Stage
++    from scmrepo.exceptions import SCMError
++
++    DVC_AVAILABLE = True
++except ImportError:
++    DVC_AVAILABLE = False
++    DvcException = Exception
++    Repo = object
++    Stage = object
++    NoSCMError = Exception
++    SCMError = Exception
++
+ logger = logging.getLogger("dvclive")
+ 
+ 
+@@ -41,6 +51,9 @@ def _find_dvc_root(root: Optional[StrPath] = None) -> Optional[str]:
+ 
+ 
+ def get_dvc_repo() -> Optional["Repo"]:
++    if not DVC_AVAILABLE:
++        return None
++    
+     from dvc.exceptions import NotDvcRepoError
+     from dvc.repo import Repo
+     from dvc.scm import Git, SCMError

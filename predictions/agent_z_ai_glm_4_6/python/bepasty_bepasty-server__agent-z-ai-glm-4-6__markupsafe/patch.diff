@@ -1,0 +1,39 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c7b34c0..2400e65 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,7 +29,21 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "werkzeug",
++    "Flask",
++    "markupsafe",
++    "Pygments>=2.12.0",
++    "xstatic",
++    "XStatic-asciinema-player",
++    "xstatic-bootbox>=5.4.0",
++    "xstatic-bootstrap>=4.0.0.0,<5.0.0.0",
++    "xstatic-font-awesome<5.0",
++    "xstatic-jquery",
++    "xstatic-jquery-ui",
++    "xstatic-jquery-file-upload",
++    "xstatic-pygments",
++]
+ 
+ [project.scripts]
+ bepasty-server = "bepasty.cli.server:main"
+diff --git a/src/bepasty/app.py b/src/bepasty/app.py
+index dbc09a9..9bfff04 100644
+--- a/src/bepasty/app.py
++++ b/src/bepasty/app.py
+@@ -9,7 +9,6 @@ from flask import (
+     render_template,
+     session,
+ )
+-from markupsafe import Markup
+ 
+ from .apis import blueprint as blueprint_apis
+ from .storage import create_storage

@@ -1,0 +1,195 @@
+diff --git a/omniduct/caches/base.py b/omniduct/caches/base.py
+index ff5f23c..38b94f1 100644
+--- a/omniduct/caches/base.py
++++ b/omniduct/caches/base.py
+@@ -1,11 +1,9 @@
+-import datetime
+ import functools
+ from abc import abstractmethod
+ 
+ import dateutil
+ import pandas
+ import yaml
+-from decorator import decorator
+ from interface_meta import inherit_docs
+ 
+ from omniduct.duct import Duct
+diff --git a/omniduct/databases/base.py b/omniduct/databases/base.py
+index 3b8a0f9..df855a7 100644
+--- a/omniduct/databases/base.py
++++ b/omniduct/databases/base.py
+@@ -9,8 +9,7 @@ from abc import abstractmethod
+ 
+ import jinja2
+ import jinja2.meta
+-import sqlparse
+-from decorator import decorator
++import functools
+ from interface_meta import inherit_docs, override
+ 
+ from omniduct.caches.base import cached_method
+@@ -28,24 +27,25 @@ from . import _cursor_formatters
+ from ._cursor_serializer import CursorSerializer
+ from ._namespaces import ParsedNamespaces
+ 
+-logging.getLogger("requests").setLevel(logging.WARNING)
+ 
+ 
+-@decorator
+-def render_statement(method, self, statement, *args, **kwargs):
++def render_statement(method):
+     """
+     Pre-render a statement template prior to wrapped function execution.
+ 
+     This decorator expects to act as wrapper on functions which
+     takes statements as the second argument.
+     """
+-    if kwargs.pop("template", True):
+-        statement = self.template_render(
+-            statement,
+-            context=kwargs.pop("context", {}),
+-            by_name=False,
+-        )
+-    return method(self, statement, *args, **kwargs)
++    @functools.wraps(method)
++    def wrapper(self, statement, *args, **kwargs):
++        if kwargs.pop("template", True):
++            statement = self.template_render(
++                statement,
++                context=kwargs.pop("context", {}),
++                by_name=False,
++            )
++        return method(self, statement, *args, **kwargs)
++    return wrapper
+ 
+ 
+ class DatabaseClient(Duct, MagicsProvider):
+diff --git a/omniduct/utils/debug.py b/omniduct/utils/debug.py
+index 322edda..185dec6 100644
+--- a/omniduct/utils/debug.py
++++ b/omniduct/utils/debug.py
+@@ -6,7 +6,7 @@ import sys
+ import time
+ 
+ import progressbar
+-from decorator import decorate
++import functools
+ 
+ from .config import config
+ 
+@@ -300,19 +300,20 @@ def logging_scope(name, *wargs, **wkwargs):
+     the duration of the call is shown.
+     """
+ 
+-    def logging_scope(func, *args, **kwargs):
+-        logger._scope_enter(name, *wargs, **wkwargs)
+-        success = True
+-        try:
+-            f = func(*args, **kwargs)
+-            return f
+-        except Exception:  # pylint: disable=broad-exception-caught
+-            success = False
+-            raise
+-        finally:
+-            logger._scope_exit(success)
+-
+-    return lambda func: decorate(func, logging_scope)
+-
++    def logging_scope_wrapper(func):
++        @functools.wraps(func)
++        def wrapper(*args, **kwargs):
++            logger._scope_enter(name, *wargs, **wkwargs)
++            success = True
++            try:
++                return func(*args, **kwargs)
++            except Exception:  # pylint: disable=broad-exception-caught
++                success = False
++                raise
++            finally:
++                logger._scope_exit(success)
++        return wrapper
++
++    return logging_scope_wrapper
+ 
+ logger = StatusLogger()
+diff --git a/omniduct/utils/decorators.py b/omniduct/utils/decorators.py
+index 82519bd..ddb1fc9 100644
+--- a/omniduct/utils/decorators.py
++++ b/omniduct/utils/decorators.py
+@@ -1,32 +1,32 @@
++import functools
+ import inspect
+ 
+-import decorator
+-
+-
+ def function_args_as_kwargs(func, *args, **kwargs):
+     arguments = inspect.signature(func).parameters.keys()
+     kwargs.update(dict(zip(list(arguments), args)))
+     return kwargs
+ 
+ 
+-@decorator.decorator
+-def require_connection(f, self, *args, **kwargs):
++def require_connection(method):
+     """
+     A wrapper to allow restoring of connection status in the event that
+     connection issues result in failures. If so, we will attempt to retry the
+     failed function call once more.
+     """
+-    if not self._Duct__connected:
+-        self.connect()
+-
+-    try:
+-        return f(self, *args, **kwargs)
+-    except Exception:  # pylint: disable=broad-exception-caught
+-        # Check to see if it is possible that we failed due to connection issues.
+-        # If so, try again once more. If we fail again, raise.
+-        # TODO: Explore adding a DuctConnectionError class and filter this
+-        # handling to errors of that class.
+-        if not self.is_connected():
++    @functools.wraps(method)
++    def wrapper(self, *args, **kwargs):
++        if not self._Duct__connected:
+             self.connect()
+-            return f(self, *args, **kwargs)
+-        raise
++
++        try:
++            return method(self, *args, **kwargs)
++        except Exception:  # pylint: disable=broad-exception-caught
++            # Check to see if it is possible that we failed due to connection issues.
++            # If so, try again once more. If we fail again, raise.
++            # TODO: Explore adding a DuctConnectionError class and filter this
++            # handling to errors of that class.
++            if not self.is_connected():
++                self.connect()
++                return method(self, *args, **kwargs)
++            raise
++    return wrapper
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..7b1981b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

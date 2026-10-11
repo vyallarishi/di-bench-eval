@@ -1,0 +1,120 @@
+diff --git a/gpiozero/output_devices.py b/gpiozero/output_devices.py
+index 9680f15..b99121e 100644
+--- a/gpiozero/output_devices.py
++++ b/gpiozero/output_devices.py
+@@ -18,7 +18,6 @@
+ import warnings
+ from threading import Lock
+ from itertools import repeat, cycle, chain
+-from colorzero import Color
+ from collections import OrderedDict
+ from math import log2
+ 
+@@ -822,17 +821,7 @@ class RGBLED(SourceMixin, Device):
+         from gpiozero import RGBLED
+ 
+         led = RGBLED(2, 3, 4)
+-        led.color = (1, 1, 0)
+-
+-    The `colorzero`_ library is also supported::
+-
+-        from gpiozero import RGBLED
+-        from colorzero import Color
+-
+-        led = RGBLED(2, 3, 4)
+-        led.color = Color('yellow')
+-
+-    :type red: int or str
++        led.color = (1, 1, 0)  # yellow
+     :param red:
+         The GPIO pin that controls the red component of the RGB LED. See
+         :ref:`pin-numbering` for valid pin numbers. If this is :data:`None` a
+@@ -855,11 +844,9 @@ class RGBLED(SourceMixin, Device):
+         The initial color for the RGB LED. Defaults to black ``(0, 0, 0)``.
+ 
+     :param bool pwm:
+-        If :data:`True` (the default), construct :class:`PWMLED` instances for
+-        each component of the RGBLED. If :data:`False`, construct regular
+-        :class:`LED` instances, which prevents smooth color graduations.
+-
+-    :type pin_factory: Factory or None
++    :type initial_value: tuple
++    :param initial_value:
++        The initial color for the RGB LED. Defaults to black ``(0, 0, 0)``.
+     :param pin_factory:
+         See :doc:`api_pins` for more information (this is an advanced feature
+         which most users can ignore).
+@@ -873,7 +860,6 @@ class RGBLED(SourceMixin, Device):
+         if not all(p is not None for p in [red, green, blue]):
+             raise GPIOPinMissing('red, green, and blue pins must be provided')
+         LEDClass = PWMLED if pwm else LED
+-        super().__init__(pin_factory=pin_factory)
+         self._leds = tuple(
+             LEDClass(pin, active_high=active_high, pin_factory=pin_factory)
+             for pin in (red, green, blue))
+@@ -928,16 +914,20 @@ class RGBLED(SourceMixin, Device):
+ 
+     is_lit = is_active
+ 
++    @property
+     @property
+     def color(self):
+         """
+-        Represents the color of the LED as a :class:`~colorzero.Color` object.
++        Represents the color of the LED as an RGB tuple (r, g, b)
++        where each value is between 0 and 1.
+         """
+-        return Color(*self.value)
+-
+-    @color.setter
+-    def color(self, value):
+-        self.value = value
++    @property
++    def color(self):
++        """
++        Represents the color of the LED as an RGB tuple (r, g, b)
++        where each value is between 0 and 1.
++        """
++        return self.value
+ 
+     @property
+     def red(self):
+@@ -946,13 +936,12 @@ class RGBLED(SourceMixin, Device):
+         object.
+         """
+         return self.color.red
+-
+-    @red.setter
+-    def red(self, value):
+-        self._stop_blink()
+-        r, g, b = self.value
+-        self.value = value, g, b
+-
++    @color.setter
++    def color(self, value):
++        if isinstance(value, (tuple, list)) and len(value) == 3:
++            self.value = tuple(max(0, min(1, v)) for v in value)
++        else:
++            raise ValueError("Color must be a tuple or list of 3 values between 0 and 1")
+     @property
+     def green(self):
+         """
+diff --git a/setup.cfg b/setup.cfg
+index ad2d94e..c0d0607 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -29,12 +29,13 @@ classifiers =
+ packages = find:
+ python_requires = >=3.9
+ install_requires =
++    importlib_resources~=5.0;python_version<'3.10'
++    importlib_metadata~=4.6;python_version<'3.10'
+ 
+ [options.package_data]
+ gpiozero =
+     fonts/*.txt
+ 
+-[options.extras_require]
+ test =
+     pytest
+     pytest-cov

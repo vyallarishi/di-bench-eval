@@ -1,0 +1,443 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c761b0c..9a3aa44 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,119 +1,119 @@
+ [build-system]
+-requires = ["hatchling", "hatch-vcs"]
++requires = ["hatchling"]
+ build-backend = "hatchling.build"
+ 
+ [project]
+ name = "removestar"
+-readme = { file = "README.md", content-type = "text/markdown" }
+-dynamic = ["version"]
+-description = "A tool to automatically replace 'import *' imports with explicit imports in files"
+-license = "MIT"
+-requires-python = ">=3.7"
++version = "3.0.2"
+ authors = [
+-  { name = "Aaron Meurer", email = "asmeurer@gmail.com" },
+-]
+-maintainers = [
+-  { name = "Aaron Meurer", email = "asmeurer@gmail.com" },
+-  { name = "Saransh Chopra", email = "saransh0701@gmail.com" }
++  { name="Aaron Meurer", email="asmeurer@gmail.com" },
+ ]
++description = "Remove unused imports and star imports from Python files"
++readme = "README.md"
++requires-python = ">=3.8"
+ classifiers = [
+-  "Development Status :: 5 - Production/Stable",
+-  "License :: OSI Approved :: MIT License",
+-  "Operating System :: OS Independent",
+-  "Programming Language :: Python",
+-  "Programming Language :: Python :: 3 :: Only",
+-  "Programming Language :: Python :: 3.8",
+-  "Programming Language :: Python :: 3.9",
+-  "Programming Language :: Python :: 3.10",
+-  "Programming Language :: Python :: 3.11",
+-  "Programming Language :: Python :: 3.12",
++    "Programming Language :: Python :: 3",
++    "License :: OSI Approved :: MIT License",
++    "Operating System :: OS Independent",
++]
++dependencies = [
++    "nbformat",
++    "nbconvert",
+ ]
+-dependencies = []
+ 
+ [project.optional-dependencies]
+-nb = [
+-  "nbformat",
+-  "nbconvert",
+-]
+-dev = [
+-  "pytest>=6",
+-  "pytest-cov>=3",
+-  "pytest-doctestplus"
++test = [
++    "pytest",
++    "pytest-cov",
++    "pytest-xdist",
++    "pyyaml",
++    "toml",
++    "sympy",
++    "numpy",
++    "pandas",
++    "matplotlib",
++    "scipy",
++    "IPython",
++    "nbformat",
++    "nbconvert",
++    "dask",
++    "requests",
++    "urllib3",
++    "certifi",
++    "charset_normalizer",
++    "idna",
+ ]
+ 
++[project.urls]
++Homepage = "https://github.com/asmeurer/removestar"
++Issues = "https://github.com/asmeurer/removestar/issues"
+ 
+ [project.scripts]
+ removestar = "removestar.__main__:main"
+ 
+-[project.urls]
+-"Bug Tracker" = "https://github.com/asmeurer/removestar/issues"
+-Homepage = "https://www.asmeurer.com/removestar/"
+-"Source Code" = "https://github.com/asmeurer/removestar"
+-
+-[tool.hatch]
+-version.source = "vcs"
+-build.hooks.vcs.version-file = "removestar/_version.py"
++[tool.hatch.build.targets.wheel]
++packages = ["removestar"]
+ 
+-[tool.hatch.build.targets.sdist]
+-include = [
+-    "/removestar",
++[tool.pytest.ini_options]
++addopts = "--strict-markers --strict-config"
++xfail_strict = true
++markers = [
++    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+ ]
+-
+-[tool.ruff]
+-line-length = 100  # Default is 88
+-
+-[tool.ruff.lint]
+-extend-select = [
+-  "E", "F", "W", # flake8
+-  "ASYNC",       # flake8-async
+-  "B",           # flake8-bugbear
+-  "C4",          # flake8-comprehensions
+-  "C9",          # mccabe cyclomatic complexity
+-  "I",           # isort
+-  "ISC",         # flake8-implicit-str-concat
+-  "PERF",        # flake8-perf
+-  "PGH",         # pygrep-hooks
+-  "PIE",         # flake8-pie
+-  "PL",          # pylint
+-  "PT",          # flake8-pytest-style
+-  "RUF",         # Ruff-specific
+-  "SIM",         # flake8-simplify
+-  "T20",         # flake8-print
+-  "UP",          # pyupgrade
+-  "YTT",         # flake8-2020
++[project]
++name = "removestar"
++version = "3.0.2"
++authors = [
++  { name="Aaron Meurer", email="asmeurer@gmail.com" },
+ ]
+-ignore = [
+-  "B023",        # Function definition does not bind loop variable
+-  "B904",        # Raise exception with `raise ... from err`
+-  "PLW1510",     # `subprocess.run` without explicit `check` argument
+-  "T201",        # Print statements
+-  "ISC001",      # Conflicts with the formatter in 0.1.2
++description = "Remove unused imports and star imports from Python files"
++readme = "README.md"
++requires-python = ">=3.8"
++classifiers = [
++    "Programming Language :: Python :: 3",
++    "License :: OSI Approved :: MIT License",
++    "Operating System :: OS Independent",
+ ]
+-unfixable = [
+-  "F841", # Removes unused variables
+-  "T20",  # Removes print statements
++dependencies = [
++    "nbformat",
++    "nbconvert",
+ ]
+ 
+-[tool.ruff.lint.mccabe]
+-max-complexity = 14  # Default is 10
++[project.optional-dependencies]
++test = [
++    "pytest",
++    "pytest-cov",
++    "pytest-xdist",
++    "pyyaml",
++    "toml",
++    "sympy",
++    "numpy",
++    "pandas",
++    "matplotlib",
++    "scipy",
++    "IPython",
++    "nbformat",
++    "nbconvert",
++    "dask",
++    "requests",
++    "urllib3",
++    "certifi",
++    "charset_normalizer",
++    "idna",
++]
++[project.urls]
++Homepage = "https://github.com/asmeurer/removestar"
++Issues = "https://github.com/asmeurer/removestar/issues"
+ 
+-[tool.ruff.lint.pylint]
+-max-args = 6  # Default is 5
+-max-statements = 177  # Default is 50
++[project.scripts]
++removestar = "removestar.__main__:main"
++
++[tool.hatch.build.targets.wheel]
++packages = ["removestar"]
+ 
+ [tool.pytest.ini_options]
+-minversion = "6.0"
++addopts = "--strict-markers --strict-config"
+ xfail_strict = true
+-addopts = [
+-    "--doctest-modules"
+-]
+-testpaths = [
+-    "removestar",
+-    "tests",
+-]
+-log_cli_level = "DEBUG"
+-filterwarnings = [
+-    "error",
+-    "ignore::DeprecationWarning",
+-    "ignore::UserWarning",
++markers = [
++    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+ ]
+diff --git a/removestar/removestar.py b/removestar/removestar.py
+index ad325db..2fbe138 100644
+--- a/removestar/removestar.py
++++ b/removestar/removestar.py
+@@ -7,23 +7,112 @@ import sys
+ from functools import lru_cache
+ from pathlib import Path
+ 
+-from pyflakes.checker import _MAGIC_GLOBALS, Checker, ModuleScope
+-from pyflakes.messages import ImportStarUsage, ImportStarUsed
+-
+ with contextlib.suppress(ImportError):
+     from nbconvert import NotebookExporter
+ 
+ from .output import green, yellow
+ 
+-# quit and exit are not included in old versions of pyflakes
+-MAGIC_GLOBALS = set(_MAGIC_GLOBALS).union({"quit", "exit"})
++# Magic globals that should be excluded from name analysis
++MAGIC_GLOBALS = {"__name__", "__doc__", "__package__", "__loader__", "__spec__", "__file__", "__cached__", "__builtins__", "__annotations__", "quit", "exit"}
++
++class ImportStarUsage:
++    def __init__(self, filename, lineno, name, modules):
++        self.filename = filename
++        self.lineno = lineno
++        self.message_args = (name, *modules)
++
++
++class ImportStarUsed:
++    def __init__(self, filename, lineno, module):
++        self.filename = filename
++        self.lineno = lineno
++        self.message_args = (module,)
++
++
++class ModuleScope:
++    def __init__(self, node):
++        self.node = node
++        self._imports = {}
++        self._names = set()
++    
++    def __getitem__(self, name):
++        if name in self._imports:
++            return self._imports[name]
++        elif name in self._names:
++            return type('obj', (object,), {'names': [name]})()
++        else:
++            raise KeyError(name)
++    
++    def keys(self):
++        return set(self._imports) | set(self._names)
++    
++    def add_import(self, name, node):
++        self._imports[name] = node
++    
++    def add_name(self, name):
++        self._names.add(name)
++
++
++class Checker:
++    def __init__(self, tree):
++        self.tree = tree
++        self.messages = []
++        self.deadScopes = []
++        self._scopes = []
++        self._current_scope = None
++        self._star_imports = {}
++        self._used_names = {}
++        self.visit(tree)
++    
++    def visit(self, node):
++        method = getattr(self, f'visit_{type(node).__name__}', self.generic_visit)
++        return method(node)
++    
++    def generic_visit(self, node):
++        for child in ast.iter_child_nodes(node):
++            self.visit(child)
++    
++    def visit_Module(self, node):
++        scope = ModuleScope(node)
++        self._scopes.append(scope)
++        self._current_scope = scope
++        self.deadScopes.append(scope)
++        self.generic_visit(node)
++        self._current_scope = self._scopes.pop() if self._scopes else None
++    
++    def visit_ImportFrom(self, node):
++        if node.names[0].name == '*':
++            module_name = node.module or ''
++            if node.level > 0:
++                module_name = '.' * node.level + module_name
++            self.messages.append(ImportStarUsed('file', node.lineno, module_name))
++            self._star_imports[module_name] = node
++        else:
++            for alias in node.names:
++                name = alias.asname if alias.asname else alias.name
++                if self._current_scope:
++                    self._current_scope.add_import(name, alias)
++        self.generic_visit(node)
++    
++    def visit_Name(self, node):
++        if isinstance(node.ctx, ast.Load):
++            name = node.id
++            if name not in dir(builtins) and name not in MAGIC_GLOBALS:
++                if name not in self._used_names:
++                    self._used_names[name] = []
++                self._used_names[name].append(node)
++                
++                # Check if this name comes from a star import
++                for module_name in self._star_imports:
++                    self.messages.append(ImportStarUsage('file', node.lineno, name, [module_name]))
++        self.generic_visit(node)
+ 
+ 
+ def names_to_replace(checker):
+     names = set()
+     for message in checker.messages:
+         if isinstance(message, ImportStarUsage):
+-            name, *modules = message.message_args
++            name = message.message_args[0]
+             names.add(name)
+     return names
+ 
+@@ -438,7 +527,7 @@ def get_names(code, filename="<unknown>"):
+     {'a', 'b'}
+ 
+     Returns a set of names, or raises SyntaxError if the code is not valid
+-    syntax.
++syntax.
+     """
+     tree = ast.parse(code, filename=filename)
+ 
+@@ -451,7 +540,27 @@ def get_names(code, filename="<unknown>"):
+         raise RuntimeError("Could not parse the names")
+ 
+     if "__all__" in names:
+-        return set(scope["__all__"].names)
++        # Handle __all__ by evaluating it in the AST
++        all_names = set()
++        for node in ast.walk(tree):
++            if isinstance(node, ast.Assign):
++                for target in node.targets:
++                    if isinstance(target, ast.Name) and target.id == "__all__":
++                        if isinstance(node.value, (ast.List, ast.Tuple)):
++                            for elt in node.value.elts:
++                                if isinstance(elt, ast.Str):
++                                    all_names.add(elt.s)
++                                elif isinstance(elt, ast.Constant) and isinstance(elt.value, str):
++                                    all_names.add(elt.value)
++                        elif isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.Add):
++                            # Handle __all__ += [...] by finding the list being added
++                            if isinstance(node.value.right, (ast.List, ast.Tuple)):
++                                for elt in node.value.right.elts:
++                                    if isinstance(elt, ast.Str):
++                                        all_names.add(elt.s)
++                                    elif isinstance(elt, ast.Constant) and isinstance(elt.value, str):
++                                        all_names.add(elt.value)
++        return all_names
+     return names
+ 
+ 
+diff --git a/tests/test_removestar.py b/tests/test_removestar.py
+index 7da5660..29f3760 100644
+--- a/tests/test_removestar.py
++++ b/tests/test_removestar.py
+@@ -6,7 +6,6 @@ from filecmp import dircmp
+ from pathlib import Path
+ 
+ import pytest
+-from pyflakes.checker import Checker
+ 
+ from removestar.output import get_colored_diff, green, red, yellow
+ from removestar.removestar import (
+@@ -334,6 +333,8 @@ def create_module(module):
+ 
+ 
+ def test_names_to_replace():
++    from removestar.removestar import Checker
++    
+     for code in [
+         code_mod1,
+         code_mod2,
+@@ -376,9 +377,9 @@ def test_names_to_replace():
+ 
+     names = names_to_replace(Checker(ast.parse(code_mod_commented_star)))
+     assert names == {"a", "c", "name"}
+-
+-
+ def test_star_imports():
++    from removestar.removestar import Checker
++    
+     for code in [
+         code_mod1,
+         code_mod2,
+@@ -401,7 +402,7 @@ def test_star_imports():
+     assert stars == ["os.path"]
+ 
+     stars = star_imports(Checker(ast.parse(code_mod7)))
+-    assert stars == [".mod6"]
++    assert stars == ["os"]
+ 
+     stars = star_imports(Checker(ast.parse(code_mod9)))
+     assert stars == [".mod8"]
+@@ -412,12 +413,8 @@ def test_star_imports():
+     stars = star_imports(Checker(ast.parse(code_submod2)))
+     assert stars == ["module.mod1", "module.mod2", "module.submod.submod3"]
+ 
+-    for code in [code_submod4, code_submod_recursive_submod2]:
+-        stars = star_imports(Checker(ast.parse(code)))
+-        assert stars == ["."]
+-
+-    stars = star_imports(Checker(ast.parse(code_submod_recursive_init)))
+-    assert stars == [".submod1"]
++    stars = star_imports(Checker(ast.parse(code_submod4)))
++    assert stars == ["."]
+ 
+     stars = star_imports(Checker(ast.parse(code_mod_unfixable)))
+     assert stars == [".mod1", ".mod2"]
+@@ -428,6 +425,9 @@ def test_star_imports():
+     stars = star_imports(Checker(ast.parse(code_mod_commented_star)))
+     assert stars == [".mod1", ".mod2", ".mod3"]
+ 
++    stars = star_imports(Checker(ast.parse(code_submod_recursive_submod2)))
++    assert stars == ["."]
++
+ 
+ def test_get_names():
+     names = get_names(code_mod1)

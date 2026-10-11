@@ -1,0 +1,76 @@
+diff --git a/appdaemon/http.py b/appdaemon/http.py
+index 8f19821..431d541 100644
+--- a/appdaemon/http.py
++++ b/appdaemon/http.py
+@@ -1,23 +1,27 @@
++"""
++HTTP API Subsystem
++
++This module provides the HTTP server functionality for AppDaemon,
++handling REST API endpoints and serving static files.
++"""
++
+ import asyncio
+-import concurrent.futures
+ import json
++import logging
+ import os
+-import re
+-import ssl
+-import time
+-import traceback
+-import uuid
+-from socket import gaierror
+-from typing import TYPE_CHECKING, Callable, Optional
+-from urllib.parse import urlparse
+-
+-import bcrypt
+-import feedparser
+-from aiohttp import web
+-from jinja2 import Environment, FileSystemLoader, select_autoescape
+-
+-import appdaemon.admin as adadmin
+-import appdaemon.dashboard as addashboard
++import threading
++from functools import partial
++from http.server import BaseHTTPRequestHandler, HTTPServer
++from socketserver import ThreadingMixIn
++from urllib.parse import parse_qs, urlparse
++
++import iso8601
++import jinja2
++import pytz
++import requests
++import yaml
++from jinja2 import Environment, FileSystemLoader
++
+ import appdaemon.stream.adstream as stream
+ import appdaemon.utils as utils
+ from appdaemon.exceptions import StartupAbortedException
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..c381606 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,22 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    'importlib-metadata; python_version<"3.8"',
++    'astral ~= 3.2',
++    'bcrypt >= 4.0.1,< 4.3.0',
++    'deepdiff == 8.0.1',
++    'iso8601 >= 1.1,< 2.2',
++    'paho-mqtt >= 1.6.1,< 2.2.0',
++    'pid ~= 3.0.4',
++    'python-dateutil >= 2.8.2,< 2.10.0',
++    'python-socketio >= 5.5,< 5.12',
++    'pytz >= 2022.7.1,< 2024.2.0',
++    'pyyaml ~= 6.0.1',
++    'requests >= 2.28.2,< 2.33.0',
++    'sockjs >= 0.11,< 0.14',
++    'uvloop==0.20.0; sys_platform != "win32"',
++    'tomli ~= 2.0.1',
++    'tomli_w ~= 1.0.0'
+ ]
+ 
+ classifiers= [

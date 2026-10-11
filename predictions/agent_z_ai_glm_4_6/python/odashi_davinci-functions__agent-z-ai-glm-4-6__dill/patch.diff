@@ -1,0 +1,27 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 2ab79bd..f455fb3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,8 @@ classifiers = [
+     "Programming Language :: Python :: 3.10",
+     "Programming Language :: Python :: 3.11",
+ ]
+-dependencies = []
++    "openai>=0.27.0",
++]
+ dynamic = [
+     "version"
+ ]
+diff --git a/src/davinci_functions/_explain.py b/src/davinci_functions/_explain.py
+index 1712f45..d946ad0 100644
+--- a/src/davinci_functions/_explain.py
++++ b/src/davinci_functions/_explain.py
+@@ -6,7 +6,7 @@ import textwrap
+ from collections.abc import Callable
+ from typing import Any
+ 
+-import dill  # type: ignore[import]
++import inspect
+ import openai
+ 
+ 

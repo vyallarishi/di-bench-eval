@@ -1,0 +1,121 @@
+diff --git a/aioclock/__init__.py b/aioclock/__init__.py
+index 6df661e..c511fa4 100644
+--- a/aioclock/__init__.py
++++ b/aioclock/__init__.py
+@@ -1,4 +1,4 @@
+-from fast_depends import Depends
++from aioclock.depends import Depends
+ 
+ from aioclock.app import AioClock
+ from aioclock.group import Group
+diff --git a/aioclock/api.py b/aioclock/api.py
+index f0b7b1d..c5745e4 100644
+--- a/aioclock/api.py
++++ b/aioclock/api.py
+@@ -18,7 +18,7 @@ import sys
+ from typing import Any, Awaitable, Callable, TypeVar, Union
+ from uuid import UUID
+ 
+-from fast_depends import inject
++from aioclock.depends import Depends, inject
+ from pydantic import BaseModel
+ 
+ from aioclock.app import AioClock
+diff --git a/aioclock/depends.py b/aioclock/depends.py
+new file mode 100644
+index 0000000..86a4394
+--- /dev/null
++++ b/aioclock/depends.py
+@@ -0,0 +1,69 @@
++"""
++Simple dependency injection system to replace fast_depends.
++"""
++
++from typing import Any, Callable, TypeVar, cast
++from functools import wraps
++import inspect
++
++T = TypeVar("T")
++
++
++class Depends:
++    """Dependency injection marker."""
++    
++    def __init__(self, dependency: Callable[..., Any]) -> None:
++        self.dependency = dependency
++
++
++class SimpleProvider:
++    """Simple dependency provider."""
++    
++    def __init__(self) -> None:
++        self._dependencies: dict[str, Callable[..., Any]] = {}
++    
++    def provide(self, param_name: str, dependency: Callable[..., Any]) -> None:
++        """Register a dependency for a parameter name."""
++        self._dependencies[param_name] = dependency
++    
++    def resolve(self, param_name: str) -> Callable[..., Any] | None:
++        """Get a dependency for a parameter name."""
++        return self._dependencies.get(param_name)
++
++
++# Global provider instance
++_provider = SimpleProvider()
++
++
++def get_provider() -> SimpleProvider:
++    """Get the global dependency provider."""
++    return _provider
++
++
++async def inject(func: Callable[..., Any], dependency_overrides_provider: SimpleProvider | None = None) -> Callable[[], Any]:
++    """Inject dependencies into a function and return a callable that executes it."""
++    
++    sig = inspect.signature(func)
++    parameters = sig.parameters
++    
++    # Build kwargs for the function
++    kwargs: dict[str, Any] = {}
++    
++    for param_name, param in parameters.items():
++        if param.default is inspect.Parameter.empty:
++            continue  # No default, skip
++            
++        # Check if the default is a Depends instance
++        if isinstance(param.default, Depends):
++            dependency = param.default.dependency
++            # Call the dependency to get the value
++            if inspect.iscoroutinefunction(dependency):
++                kwargs[param_name] = await dependency()
++            else:
++                kwargs[param_name] = dependency()
++    
++    @wraps(func)
++    async def wrapper() -> Any:
++        return await func(**kwargs)
++    
++    return wrapper
+\ No newline at end of file
+diff --git a/pyproject.toml b/pyproject.toml
+index 9c4c5ad..ca7ad30 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,11 +1,15 @@
+-[project]
+ name = "aioclock"
+ version = "0.3.0"
+ description = "An asyncio-based scheduling framework designed for execution of periodic task with integrated support for dependency injection, enabling efficient and flexible task management"
+ authors = [{ name = "Mani Mozaffar", email = "mani.mozaffar@gmail.com" }]
+ readme = "README.md"
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "pydantic[timezone]>=2.9.0",
++    "fast-depends>=2.4.0",
++    "asyncer>=0.0.7",
++    "croniter>=2.0.5",
++]
+ license = 'MIT'
+ 
+ 

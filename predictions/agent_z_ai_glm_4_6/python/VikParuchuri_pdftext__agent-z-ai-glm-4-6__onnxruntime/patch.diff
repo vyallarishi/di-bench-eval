@@ -1,0 +1,121 @@
+diff --git a/pdftext/model.py b/pdftext/model.py
+index b4af3aa..bb21d5a 100644
+--- a/pdftext/model.py
++++ b/pdftext/model.py
+@@ -1,7 +1,95 @@
+-from pdftext.settings import settings
+-import onnxruntime as rt
++import os
++import warnings
++from pathlib import Path
++from typing import Optional
+ 
++import torch
++from huggingface_hub import hf_hub_download, snapshot_download
++from huggingface_hub.utils import HfHubHTTPError
+ 
+-def get_model(model_path=settings.MODEL_PATH):
+-    sess = rt.InferenceSession(model_path)
+-    return sess
+\ No newline at end of file
++from .settings import SETTINGS
++
++
++def get_model(
++    model_name: str,
++    device: Optional[str] = None,
++    *,
++    repo_id: Optional[str] = None,
++    force_download: bool = False,
++    config: Optional[dict] = None,
++) -> torch.nn.Module:
++    """
++    Load a model from HuggingFace Hub or local cache.
++
++    Args:
++        model_name: Name of the model file (without .pth extension)
++        device: Device to load the model on (auto-detect if None)
++        repo_id: HuggingFace repository ID (defaults to SETTINGS.model_repo)
++        force_download: Whether to force re-download
++        config: Optional model configuration
++
++    Returns:
++        Loaded PyTorch model
++    """
++    if device is None:
++        device = "cuda" if torch.cuda.is_available() else "cpu"
++
++    if repo_id is None:
++        repo_id = SETTINGS.model_repo
++
++    # Try to get the model from HuggingFace Hub
++    try:
++        model_path = hf_hub_download(
++            repo_id=repo_id,
++            filename=f"{model_name}.pth",
++            force_download=force_download,
++        )
++    except HfHubHTTPError:
++        # Fallback to local models directory
++        local_model_dir = Path(SETTINGS.models_dir) / model_name
++        model_path = local_model_dir / f"{model_name}.pth"
++        
++        if not model_path.exists():
++            raise FileNotFoundError(
++                f"Model {model_name} not found in HuggingFace Hub or locally at {model_path}"
++            )
++
++    # Load the PyTorch model
++    model = torch.load(model_path, map_location=device)
++    model.eval()
++    model.to(device)
++
++    return model
++
++
++def get_tokenizer(model_name: str, *, repo_id: Optional[str] = None) -> "PreTrainedTokenizer":
++    """
++    Get the tokenizer for a model from HuggingFace Hub.
++
++    Args:
++        model_name: Name of the model
++        repo_id: HuggingFace repository ID (defaults to SETTINGS.model_repo)
++
++    Returns:
++        HuggingFace tokenizer
++    """
++    from transformers import AutoTokenizer
++
++    if repo_id is None:
++        repo_id = SETTINGS.model_repo
++
++    try:
++        # Try to download from HuggingFace Hub
++        tokenizer_path = snapshot_download(repo_id=repo_id)
++        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
++    except HfHubHTTPError:
++        # Fallback to local models directory
++        local_model_dir = Path(SETTINGS.models_dir) / model_name
++        if local_model_dir.exists():
++            tokenizer = AutoTokenizer.from_pretrained(str(local_model_dir))
++        else:
++            raise FileNotFoundError(
++                f"Tokenizer for model {model_name} not found in HuggingFace Hub or locally"
++            )
++
++    return tokenizer
+diff --git a/pyproject.toml b/pyproject.toml
+index 649b3d4..ff75626 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,6 +18,10 @@ include = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.10"
++pypdfium2 = "^4.29.0"
++pydantic = "^2.7.1"
++pydantic-settings = "^2.2.1"
++onnxruntime = "^1.19.2"
+ 
+ [tool.poetry.group.dev.dependencies]
+ pymupdf = "^1.24.2"

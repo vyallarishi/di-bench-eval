@@ -1,0 +1,228 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..b46949f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,7 +15,12 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
+ 
+ [tool.poetry.dev-dependencies]
+ # Task runner
+diff --git a/tbump/cli.py b/tbump/cli.py
+index e2b726e..523b7cf 100644
+--- a/tbump/cli.py
++++ b/tbump/cli.py
+@@ -1,14 +1,13 @@
++import argparse
+ import sys
+-import textwrap
+ import urllib.parse
+ from contextlib import suppress
+ from dataclasses import dataclass
+ from enum import Enum
+ from pathlib import Path
+-from typing import Dict, List, Optional, Union, cast
++from typing import List, Optional, cast
+ 
+ import cli_ui as ui
+-import docopt
+ from packaging.version import InvalidVersion
+ from packaging.version import parse as parse_version
+ 
+@@ -23,29 +22,69 @@ from tbump.init import init
+ 
+ TBUMP_VERSION = "6.11.0"
+ 
+-USAGE = textwrap.dedent(
+-    """
+-Usage:
+-  tbump [options] <new_version>
+-  tbump [options] current-version
+-  tbump [options] init [--pyproject] <current_version>
+-  tbump --help
+-  tbump --version
+-
+-Options:
+-   -h --help           Show this screen.
+-   -v --version        Show version.
+-   -C --cwd=<path>     Set working directory to <path>.
+-   -c --config=<path>  Use specified toml config file. When not set, `tbump.toml` is assumed.
+-   --non-interactive   Never prompt for confirmation. Useful for automated scripts.
+-   --dry-run           Only display the changes that would be made.
+-   --tag-message=<msg> Message to use for tag instead of being based on the tag template
+-   --only-patch        Only patches files, skipping any git operations or hook commands.
+-   --no-tag            Do not create a tag
+-   --no-push           Do not push after creating the commit and/or tag
+-   --no-tag-push       Create a tag, but don't push it
+-"""
+-)
++
++def build_parser() -> argparse.ArgumentParser:
++    parser = argparse.ArgumentParser(
++        prog="tbump",
++        description="Bump software releases",
++    )
++    parser.add_argument(
++        "-v", "--version", action="store_true", help="Show version."
++    )
++    parser.add_argument(
++        "-C", "--cwd", help="Set working directory to <path>."
++    )
++    parser.add_argument(
++        "-c",
++        "--config",
++        help="Use specified toml config file. When not set, `tbump.toml` is assumed.",
++    )
++    parser.add_argument(
++        "--non-interactive",
++        action="store_true",
++        help="Never prompt for confirmation. Useful for automated scripts.",
++    )
++    parser.add_argument(
++        "--dry-run",
++        action="store_true",
++        help="Only display the changes that would be made.",
++    )
++    parser.add_argument(
++        "--tag-message",
++        help="Message to use for tag instead of being based on the tag template",
++    )
++    parser.add_argument(
++        "--only-patch",
++        action="store_true",
++        help="Only patches files, skipping any git operations or hook commands.",
++    )
++    parser.add_argument(
++        "--no-tag", action="store_true", help="Do not create a tag"
++    )
++    parser.add_argument(
++        "--no-push",
++        action="store_true",
++        help="Do not push after creating the commit and/or tag",
++    )
++    parser.add_argument(
++        "--no-tag-push",
++        action="store_true",
++        help="Create a tag, but don't push it",
++    )
++    parser.add_argument(
++        "--pyproject",
++        action="store_true",
++        help="Use pyproject.toml instead of tbump.toml (for init command)",
++    )
++    parser.add_argument(
++        "new_version", nargs="?", help="The new version to bump to"
++    )
++    parser.add_argument(
++        "current_version",
++        nargs="?",
++        help="Current version (for init command)",
++    )
++    return parser
+ 
+ 
+ class Canceled(Error):
+@@ -109,63 +148,49 @@ class GivenCliArguments:
+     no_push: bool
+     no_tag_push: bool
+ 
+-    @classmethod
+-    def from_opts(
+-        cls, opt_dict: Dict[str, Union[bool, Optional[str]]]
+-    ) -> "GivenCliArguments":
+-        def _get_path(key: str) -> Optional[Path]:
+-            value = opt_dict[key]
+-            if value is None:
+-                return None
+-            return Path(cast(str, value))
+-
+-        def _get_str(key: str) -> Optional[str]:
+-            return cast(Optional[str], opt_dict[key])
+-
+-        def _get_bool(key: str) -> bool:
+-            return cast(bool, opt_dict[key])
+-
+-        # docopt has a hard time parsing the commands because run_bump uses that same cli slot for
+-        # the new version. This corrects those issues.
+-        command = Command.bump
+-        new_version = opt_dict["<new_version>"]
+-        if new_version == "init" or opt_dict["init"]:
+-            command = Command.init
+-        elif new_version == "current-version":
+-            command = Command.current_version
+-        elif opt_dict["--version"]:
+-            command = Command.version
+-
+-        return cls(
+-            command=command,
+-            bump_new_version=_get_str("<new_version>"),
+-            init_current_version=_get_str("<current_version>"),
+-            init_pyproject=_get_bool("--pyproject"),
+-            working_path=_get_path("--cwd"),
+-            config_path=_get_path("--config"),
+-            non_interactive=_get_bool("--non-interactive"),
+-            dry_run=_get_bool("--dry-run"),
+-            only_patch=_get_bool("--only-patch"),
+-            tag_message=_get_str("--tag-message"),
+-            no_tag=_get_bool("--no-tag"),
+-            no_push=_get_bool("--no-push"),
+-            no_tag_push=_get_bool("--no-tag-push"),
+-        )
+-
+ 
+ def run(cmd: List[str]) -> None:
+-    opt_dict = docopt.docopt(USAGE, argv=cmd)
+-    arguments = GivenCliArguments.from_opts(opt_dict)
++    parser = build_parser()
++    args = parser.parse_args(cmd)
++
++    # Determine command
++    command = Command.bump
++    new_version = args.new_version
++    if new_version == "init":
++        command = Command.init
++    elif new_version == "current-version":
++        command = Command.current_version
++    elif args.version:
++        command = Command.version
++
++    working_path = Path(args.cwd) if args.cwd else None
++    config_path = Path(args.config) if args.config else None
++
++    arguments = GivenCliArguments(
++        command=command,
++        bump_new_version=args.new_version,
++        init_current_version=args.current_version,
++        init_pyproject=args.pyproject,
++        working_path=working_path,
++        config_path=config_path,
++        non_interactive=args.non_interactive,
++        dry_run=args.dry_run,
++        only_patch=args.only_patch,
++        tag_message=args.tag_message,
++        no_tag=args.no_tag,
++        no_push=args.no_push,
++        no_tag_push=args.no_tag_push,
++    )
+ 
+     if arguments.command == Command.version:
+         print("tbump", TBUMP_VERSION)
+         return
+ 
+     # when running `tbump init` (with current_version missing),
+-    # docopt thinks we are running `tbump` with new_version = "init"
+     # bail out early in this case
+     if arguments.command == Command.init and arguments.init_current_version is None:
+-        sys.exit(USAGE)
++        parser.print_help()
++        sys.exit(1)
+ 
+     # if a path wasn't given, use current working directory
+     working_path = arguments.working_path or Path.cwd()

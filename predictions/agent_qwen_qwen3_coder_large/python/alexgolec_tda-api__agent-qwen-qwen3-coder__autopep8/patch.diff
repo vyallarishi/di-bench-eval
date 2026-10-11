@@ -1,0 +1,46 @@
+diff --git a/setup.py b/setup.py
+index 3a662b6..ff2f03a 100644
+--- a/setup.py
++++ b/setup.py
+@@ -30,6 +30,15 @@ setuptools.setup(
+     ],
+     python_requires='>=3.7',
+     install_requires=[
++        'authlib',
++        'httpx',
++        'prompt_toolkit',
++        'python-dateutil',
++        'selenium',
++        'prompt_toolkit',
++        'python-dateutil',
++        'selenium', 
++        'websockets>=9.0.0'
+     ],
+     extras_require={
+         'dev': [
+diff --git a/tda/contrib/orders.py b/tda/contrib/orders.py
+index 54ad0f8..d778715 100644
+--- a/tda/contrib/orders.py
++++ b/tda/contrib/orders.py
+@@ -1,4 +1,3 @@
+-import autopep8
+ import tda
+ 
+ from tda.orders.generic import OrderBuilder
+@@ -132,11 +131,11 @@ def code_for_builder(builder, var_name=None):
+     else:
+         var_prefix = ''
+ 
+-    return autopep8.fix_code(
+-            '\n'.join(import_lines) + 
+-            '\n\n' +
+-            var_prefix +
+-            '\n'.join(lines))
++    # Join the import lines and code lines
++    code = '\n'.join(import_lines) + '\n\n' + var_prefix + '\n'.join(lines)
++    
++    # Simple formatting: ensure consistent line endings
++    return code.replace('\r\n', '\n').replace('\r', '\n')
+ 
+ 
+ class FirstTriggersSecondAST:

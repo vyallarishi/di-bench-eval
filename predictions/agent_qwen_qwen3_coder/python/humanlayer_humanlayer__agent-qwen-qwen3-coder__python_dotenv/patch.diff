@@ -1,0 +1,185 @@
+diff --git a/examples/controlflow/controlflow_math.py b/examples/controlflow/controlflow_math.py
+index 84ed79b..043b64d 100644
+--- a/examples/controlflow/controlflow_math.py
++++ b/examples/controlflow/controlflow_math.py
+@@ -1,4 +1,4 @@
+-from dotenv import load_dotenv
++from dotenv_helper import load_dotenv
+ 
+ from humanlayer import HumanLayer
+ 
+diff --git a/examples/crewai/crewai_math.py b/examples/crewai/crewai_math.py
+index 0e27e17..f4600bd 100644
+--- a/examples/crewai/crewai_math.py
++++ b/examples/crewai/crewai_math.py
+@@ -1,4 +1,4 @@
+-from dotenv import load_dotenv
++from dotenv_helper import load_dotenv
+ 
+ load_dotenv()
+ 
+diff --git a/examples/crewai/crewai_onboarding_agent_human_as_tool.py b/examples/crewai/crewai_onboarding_agent_human_as_tool.py
+index ff1f464..ddbba53 100644
+--- a/examples/crewai/crewai_onboarding_agent_human_as_tool.py
++++ b/examples/crewai/crewai_onboarding_agent_human_as_tool.py
+@@ -1,7 +1,7 @@
+ from channels import dm_with_head_of_marketing
+ from crewai import Agent, Crew, Task
+ from crewai_tools import tool
+-from dotenv import load_dotenv
++from dotenv_helper import load_dotenv
+ 
+ load_dotenv()
+ 
+diff --git a/examples/dotenv_helper.py b/examples/dotenv_helper.py
+new file mode 100644
+index 0000000..3722496
+--- /dev/null
++++ b/examples/dotenv_helper.py
+@@ -0,0 +1,36 @@
++import os
++from typing import Optional
++
++def load_dotenv(dotenv_path: Optional[str] = None) -> bool:
++    """Load environment variables from a .env file."""
++    if dotenv_path is None:
++        dotenv_path = ".env"
++    
++    if not os.path.exists(dotenv_path):
++        # Try to find .env in parent directories
++        current_dir = os.getcwd()
++        while current_dir != os.path.dirname(current_dir):
++            env_path = os.path.join(current_dir, ".env")
++            if os.path.exists(env_path):
++                dotenv_path = env_path
++                break
++            current_dir = os.path.dirname(current_dir)
++        
++        if not os.path.exists(dotenv_path):
++            return False
++    
++    try:
++        with open(dotenv_path, 'r') as f:
++            for line in f:
++                line = line.strip()
++                if line and not line.startswith('#') and '=' in line:
++                    if '#' in line:
++                        line = line.split('#', 1)[0].strip()
++                    key, value = line.split('=', 1)
++                    key = key.strip()
++                    value = value.strip().strip('"\'')
++                    if key and value:
++                        os.environ[key] = value
++        return True
++    except Exception:
++        return False
+diff --git a/examples/langchain/00-math_no_approvals.py b/examples/langchain/00-math_no_approvals.py
+index 6ed782c..8963e0c 100644
+--- a/examples/langchain/00-math_no_approvals.py
++++ b/examples/langchain/00-math_no_approvals.py
+@@ -2,9 +2,11 @@
+ # for comparison, a bare-bones math example
+ # with no approvals required
+ #
+-from dotenv import load_dotenv
++from dotenv_helper import load_dotenv
+ from langchain_openai import ChatOpenAI
++load_dotenv()
+ 
++from langchain_openai import ChatOpenAI
+ from langchain.agents import AgentType, initialize_agent
+ from langchain.tools import tool
+ 
+diff --git a/examples/langchain/00a-math_example_cli.py b/examples/langchain/00a-math_example_cli.py
+index d274069..9a8638e 100644
+--- a/examples/langchain/00a-math_example_cli.py
++++ b/examples/langchain/00a-math_example_cli.py
+@@ -4,9 +4,11 @@
+ # via functionlayer, and HumanLayer is configured to
+ # use local / CLI mode
+ #
+-from dotenv import load_dotenv
++from dotenv_helper import load_dotenv
+ from langchain_openai import ChatOpenAI
+ 
++load_dotenv()
++
+ from humanlayer import HumanLayer
+ from langchain.agents import AgentType, initialize_agent
+ from langchain.tools import tool
+diff --git a/examples/langchain/01-math_example.py b/examples/langchain/01-math_example.py
+index fe808e5..8f4a5c8 100644
+--- a/examples/langchain/01-math_example.py
++++ b/examples/langchain/01-math_example.py
+@@ -3,7 +3,7 @@
+ # where the multiply function requires approval
+ # via humanlayer
+ #
+-from dotenv import load_dotenv
++from dotenv_helper import load_dotenv
+ from langchain_openai import ChatOpenAI
+ 
+ from humanlayer.core.approval import HumanLayer
+diff --git a/examples/langchain/07-grocery-slack-blocks.py b/examples/langchain/07-grocery-slack-blocks.py
+index 9a01abf..4089198 100644
+--- a/examples/langchain/07-grocery-slack-blocks.py
++++ b/examples/langchain/07-grocery-slack-blocks.py
+@@ -2,7 +2,7 @@ from datetime import datetime
+ from typing import Any
+ 
+ import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from dotenv_helper import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+ from pydantic import BaseModel
+diff --git a/humanlayer/cli/main.py b/humanlayer/cli/main.py
+index e4e76c8..473ae77 100644
+--- a/humanlayer/cli/main.py
++++ b/humanlayer/cli/main.py
+@@ -1,7 +1,27 @@
+ import os
+-
+-import click
+-from dotenv import load_dotenv
++from typing import Optional
++
++def load_dotenv(dotenv_path: Optional[str] = None) -> bool:
++    """Load environment variables from a .env file."""
++    if dotenv_path is None:
++        dotenv_path = os.path.join(os.getcwd(), ".env")
++    
++    if not os.path.exists(dotenv_path):
++        return False
++    
++    try:
++        with open(dotenv_path, 'r') as f:
++            for line in f:
++                line = line.strip()
++                if line and not line.startswith('#'):
++                    if '=' in line:
++                        key, value = line.split('=', 1)
++                        key = key.strip()
++                        value = value.strip().strip('"\'')
++                        os.environ[key] = value
++        return True
++    except Exception:
++        return False
+ 
+ load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"))
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..446cbf6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,10 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-slugify = "8.0.4"
++click = "8.1.7"
+ 
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"

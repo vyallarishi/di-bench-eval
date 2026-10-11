@@ -1,0 +1,84 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..26e60d0 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,4 @@
++numpy
++typing
++# Nest alternative, provides `tree`: https://github.com/rwth-i6/returnn/issues/1314
++dm-tree
+diff --git a/returnn/datasets/hdf.py b/returnn/datasets/hdf.py
+index 91b2d57..ec5dc37 100644
+--- a/returnn/datasets/hdf.py
++++ b/returnn/datasets/hdf.py
+@@ -7,7 +7,10 @@ import bisect
+ import typing
+ import collections
+ import gc
+-import h5py
++try:
++    import h5py
++except ImportError:
++    h5py = None
+ import numpy
+ from .cached import CachedDataset
+ from .cached2 import CachedDataset2
+@@ -33,6 +36,8 @@ class HDFDataset(CachedDataset):
+         :param None|list[str] files:
+         :param bool use_cache_manager: uses :func:`Util.cf` for files
+         """
++        if h5py is None:
++            raise ImportError("h5py is not installed. Please install it to use HDFDataset.")
+         super(HDFDataset, self).__init__(**kwargs)
+         assert (
+             self.partition_epoch == 1 or self.cache_byte_size_total_limit == 0
+diff --git a/returnn/util/basic.py b/returnn/util/basic.py
+index 26fb244..6ce08ac 100644
+--- a/returnn/util/basic.py
++++ b/returnn/util/basic.py
+@@ -7,10 +7,14 @@ Various generic utilities, which are shared across different backend engines.
+ from __future__ import annotations
+ from typing import Optional, Union, Any, Generic, TypeVar, Iterable, Tuple, Dict, List, Callable
+ 
+-import subprocess
++PY3 = sys.version_info[0] >= 3
++
++try:
++    import h5py
++except ImportError:
++    h5py = None
+ from subprocess import CalledProcessError
+ 
+-import h5py
+ from collections import deque
+ import inspect
+ import os
+@@ -649,6 +653,8 @@ def hdf5_dimension(filename, dimension):
+     :param str dimension:
+     :rtype: numpy.ndarray|int
+     """
++    if h5py is None:
++        raise ImportError("h5py is not installed. Please install it to use HDF5 functionality.")
+     fin = h5py.File(filename, "r")
+     if "/" in dimension:
+         res = fin["/".join(dimension.split("/")[:-1])].attrs[dimension.split("/")[-1]]
+@@ -664,6 +670,8 @@ def hdf5_group(filename, dimension):
+     :param str dimension:
+     :rtype: dict[str]
+     """
++    if h5py is None:
++        raise ImportError("h5py is not installed. Please install it to use HDF5 functionality.")
+     fin = h5py.File(filename, "r")
+     res = {k: fin[dimension].attrs[k] for k in fin[dimension].attrs}
+     fin.close()
+@@ -674,7 +682,9 @@ def hdf5_shape(filename, dimension):
+     """
+     :param str filename:
+     :param dimension:
+-    :rtype: tuple[int]
++    if h5py is None:
++        raise ImportError("h5py is not installed. Please install it to use HDF5 functionality.")
++    fin = h5py.File(filename, "r")
+     """
+     fin = h5py.File(filename, "r")
+     res = fin[dimension].shape

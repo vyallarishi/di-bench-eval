@@ -1,0 +1,28 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..9b033b2 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,10 @@
++PyYAML>=3.10
++jinja2
++Fabric39
++pystorm>=3.1.1
++requests
++ruamel.yaml
++setuptools
++simplejson
++texttable
++thriftpy2
+diff --git a/streamparse/cli/run.py b/streamparse/cli/run.py
+index 776ef00..2ea60fe 100644
+--- a/streamparse/cli/run.py
++++ b/streamparse/cli/run.py
+@@ -10,7 +10,7 @@ from argparse import RawDescriptionHelpFormatter
+ from tempfile import NamedTemporaryFile
+ 
+ from fabric.api import local, show
+-from ruamel import yaml
++import yaml
+ 
+ from ..util import (
+     get_config,

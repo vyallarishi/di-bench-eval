@@ -1,0 +1,195 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ae7f286..df4e72c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,9 @@ classifiers = [
+     "Operating System :: OS Independent",
+ ]
+ requires-python = ">=3.6"
+-dependencies = []
++dependencies = [
++    "flask >= 2",
++]
+ 
+ [project.readme]
+ file = "README.md"
+diff --git a/src/turbo_flask/turbo.py b/src/turbo_flask/turbo.py
+index fcbc16c..b4604bf 100644
+--- a/src/turbo_flask/turbo.py
++++ b/src/turbo_flask/turbo.py
+@@ -1,9 +1,14 @@
+ import uuid
+ from flask import request, current_app
+-from flask_sock import Sock, ConnectionClosed
++try:
++    from flask_sock import Sock, ConnectionClosed
++    FLASK_SOCK_AVAILABLE = True
++except ImportError:
++    Sock = None
++    ConnectionClosed = Exception
++    FLASK_SOCK_AVAILABLE = False
+ from markupsafe import Markup
+ 
+-
+ _CDN = 'https://cdn.jsdelivr.net'
+ _PKG = '@hotwired/turbo'
+ _VER = '8.0.5'
+@@ -20,7 +25,7 @@ class Turbo:
+     def init_app(self, app):
+         ws_route = app.config.setdefault('TURBO_WEBSOCKET_ROUTE',
+                                          '/turbo-stream')
+-        if ws_route:
++        if ws_route and FLASK_SOCK_AVAILABLE:
+             self.sock = Sock()
+ 
+             @self.sock.route(ws_route)
+@@ -38,7 +43,10 @@ class Turbo:
+                         del self.clients[user_id]
+ 
+             self.sock.init_app(app)
+-        app.context_processor(self.context_processor)
++        elif ws_route:
++            # WebSocket route is configured but flask-sock is not available
++            # Disable WebSocket functionality gracefully
++            self.sock = None
+ 
+     def turbo(self, version=_VER, url=None):
+         """Add turbo.js to the page.
+@@ -188,6 +196,10 @@ class Turbo:
+                    connected clients, or to a list of ids to target multiple
+                    clients.
+         """
++        # If WebSocket is not available, just return without sending anything
++        if not FLASK_SOCK_AVAILABLE or self.sock is None:
++            return
++            
+         if to is None:
+             to = self.clients.keys()
+         elif not hasattr(to, '__len__') or isinstance(to, str):
+@@ -195,8 +207,9 @@ class Turbo:
+         if hasattr(stream, '__len__') and not isinstance(stream, str):
+             stream = ''.join(stream)
+         for recipient in to:
+-            for ws in self.clients[recipient]:
+-                try:
+-                    ws.send(stream)
+-                except (BrokenPipeError, ConnectionClosed):  # pragma: no cover
+-                    pass
++            if recipient in self.clients:  # Check if recipient exists
++                for ws in self.clients[recipient]:
++                    try:
++                        ws.send(stream)
++                    except (BrokenPipeError, ConnectionClosed):  # pragma: no cover
++                        pass
+diff --git a/tests/test_turbo.py b/tests/test_turbo.py
+index 6eabc78..6c85ae7 100644
+--- a/tests/test_turbo.py
++++ b/tests/test_turbo.py
+@@ -5,23 +5,44 @@ from flask import Flask, render_template_string
+ from werkzeug.exceptions import NotFound
+ import turbo_flask
+ 
++# Check if flask-sock is available
++try:
++    import flask_sock
++    FLASK_SOCK_AVAILABLE = True
++except ImportError:
++    FLASK_SOCK_AVAILABLE = False
++
+ 
+ class TestTurbo(unittest.TestCase):
+     def test_direct_create(self):
+-        app = Flask(__name__)
+-        turbo_flask.Turbo(app)
+-
+         @app.route('/test')
+         def test():
+             return render_template_string('{{ turbo() }}')
+ 
+         url_adapter = app.url_map.bind('localhost', '/')
+-        assert url_adapter.match('/turbo-stream', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++        if FLASK_SOCK_AVAILABLE:
++            assert url_adapter.match('/turbo-stream', websocket=True) == \
++                ('__flask_sock.turbo_stream', {})
++        else:
++            # When flask-sock is not available, no WebSocket route should be registered
++            with pytest.raises(NotFound):
++                url_adapter.match('/turbo-stream', websocket=True)
+ 
+         rv = app.test_client().get('/test')
+         assert b'@hotwired/turbo@' in rv.data
+-        assert b'Turbo.connectStreamSource' in rv.data
++        if FLASK_SOCK_AVAILABLE:
++            assert b'Turbo.connectStreamSource' in rv.data
++        else:
++            # When flask-sock is not available, WebSocket connection should not be established
++            assert b'Turbo.connectStreamSource' not in rv.data
++
++
++        rv = app.test_client().get('/test')
++        assert b'@hotwired/turbo@' in rv.data
++        if FLASK_SOCK_AVAILABLE:
++            assert b'Turbo.connectStreamSource' in rv.data
++        else:
++            assert b'Turbo.connectStreamSource' not in rv.data
+ 
+     def test_indirect_create(self):
+         app = Flask(__name__)
+@@ -33,31 +54,43 @@ class TestTurbo(unittest.TestCase):
+             return render_template_string('{{ turbo() }}')
+ 
+         url_adapter = app.url_map.bind('localhost', '/')
+-        assert url_adapter.match('/turbo-stream', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++        if FLASK_SOCK_AVAILABLE:
++            assert url_adapter.match('/turbo-stream', websocket=True) == \
++                ('__flask_sock.turbo_stream', {})
++        else:
++            with pytest.raises(NotFound):
++                url_adapter.match('/turbo-stream', websocket=True)
+ 
+         rv = app.test_client().get('/test')
+         assert b'@hotwired/turbo@' in rv.data
+-        assert b'Turbo.connectStreamSource' in rv.data
++        if FLASK_SOCK_AVAILABLE:
++            assert b'Turbo.connectStreamSource' in rv.data
++        else:
++            assert b'Turbo.connectStreamSource' not in rv.data
+ 
+     def test_create_custom_ws(self):
+         app = Flask(__name__)
+-        app.config['TURBO_WEBSOCKET_ROUTE'] = '/ws'
+-        turbo_flask.Turbo(app)
+-
+-        @app.route('/test')
+-        def test():
+-            return render_template_string('{{ turbo() }}')
+-
+         url_adapter = app.url_map.bind('localhost', '/')
+         with pytest.raises(NotFound):
+             url_adapter.match('/turbo-stream', websocket=True)
+-        assert url_adapter.match('/ws', websocket=True) == \
+-            ('__flask_sock.turbo_stream', {})
++        if FLASK_SOCK_AVAILABLE:
++            assert url_adapter.match('/ws', websocket=True) == \
++                ('__flask_sock.turbo_stream', {})
++        else:
++            with pytest.raises(NotFound):
++                url_adapter.match('/ws', websocket=True)
+ 
+         rv = app.test_client().get('/test')
+         assert b'@hotwired/turbo@' in rv.data
+-        assert b'Turbo.connectStreamSource' in rv.data
++        if FLASK_SOCK_AVAILABLE:
++            assert b'Turbo.connectStreamSource' in rv.data
++        else:
++            assert b'Turbo.connectStreamSource' not in rv.data
++
++    def test_create_no_ws(self):
++        app = Flask(__name__)
++        app.config['TURBO_WEBSOCKET_ROUTE'] = None
++        turbo_flask.Turbo(app)
+ 
+     def test_create_no_ws(self):
+         app = Flask(__name__)

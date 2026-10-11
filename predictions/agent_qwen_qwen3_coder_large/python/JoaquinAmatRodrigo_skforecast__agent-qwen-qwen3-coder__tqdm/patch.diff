@@ -1,0 +1,45 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1d157a..dcd8f5f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -37,6 +37,12 @@ keywords = [
+     "time-series-regression",
+ ]
+ dependencies = [
++    "numpy>=1.20.3",
++    "pandas>=1.5",
++    "tqdm>=4.57",
++    "scikit-learn>=1.2",
++    "optuna>=2.10",
++    "joblib>=1.1",
+ ]
+ requires-python = ">=3.9"
+ 
+diff --git a/skforecast/model_selection/model_selection.py b/skforecast/model_selection/model_selection.py
+index ebad7d8..05841d4 100644
+--- a/skforecast/model_selection/model_selection.py
++++ b/skforecast/model_selection/model_selection.py
+@@ -8,13 +8,12 @@
+ import re
+ import os
+ from copy import deepcopy
+-import logging
++import warnings
+ from typing import Union, Tuple, Optional, Callable, Any
+ import warnings
+ import numpy as np
+ import pandas as pd
+ from joblib import Parallel, delayed, cpu_count
+-from tqdm.auto import tqdm
+ import optuna
+ from optuna.samplers import TPESampler
+ from sklearn.model_selection import ParameterGrid
+@@ -487,7 +486,7 @@ def _backtesting_forecaster(
+ 
+     if show_progress:
+         folds = tqdm(folds)
+-
++    # folds = tqdm(folds)
+     def _fit_predict_forecaster(y, exog, forecaster, interval, fold):
+         """
+         Fit the forecaster and predict `steps` ahead. This is an auxiliary 

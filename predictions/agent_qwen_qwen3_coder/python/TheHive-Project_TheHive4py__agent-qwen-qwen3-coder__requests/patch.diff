@@ -1,0 +1,237 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index faad941..d28b572 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,7 +7,7 @@ name = "thehive4py"
+ description = "Python client for TheHive5"
+ version = "2.0.0b6"
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = ["urllib3~=1.26"]
+ readme = "README.md"
+ keywords = ["thehive5", "api", "client"]
+ license = { text = "MIT" }
+diff --git a/tests/utils.py b/tests/utils.py
+index d7709f7..1e609b8 100644
+--- a/tests/utils.py
++++ b/tests/utils.py
+@@ -1,6 +1,9 @@
+-import shlex
+-import subprocess
+-import time
++"""Test utilities for TheHive4Py."""
++import json
++import os
++import tempfile
++from pathlib import Path
++from typing import Dict, Generator, Union
+ from concurrent.futures import ThreadPoolExecutor
+ from dataclasses import dataclass
+ 
+diff --git a/thehive4py/errors.py b/thehive4py/errors.py
+index bab6f9b..11ce7f3 100644
+--- a/thehive4py/errors.py
++++ b/thehive4py/errors.py
+@@ -1,18 +1,19 @@
+-from typing import Optional
+-
+-from requests import Response
++"""Exceptions raised by thehive4py package."""
++from typing import Optional, Any
+ 
+ 
+ class TheHiveError(Exception):
++    """Base exception class for TheHive API errors."""
+ 
+     def __init__(
+-        self, message: str, response: Optional[Response] = None, *args, **kwargs
++        self, message: str, response: Optional[Any] = None, *args, **kwargs
+     ):
+-        """Base error class of thehive4py.
++        """
++        Initialize the exception.
+ 
+         Args:
+-            message: The exception message.
+-            response: Either `None`, or a `Response` object of a failed request.
++            message: Error message.
++            response: Either `None`, or a response object of a failed request.
+         """
+         super().__init__(message, *args, **kwargs)
+         self.message = message
+diff --git a/thehive4py/session.py b/thehive4py/session.py
+index 3ffb2a6..87b2543 100644
+--- a/thehive4py/session.py
++++ b/thehive4py/session.py
+@@ -1,15 +1,13 @@
++"""Session classes for TheHive API client."""
+ import json as jsonlib
+-from collections import UserDict
+-from os import PathLike
+-from typing import Any, Optional, Union
+-
+-import requests
+-import requests.adapters
+-import requests.auth
++import os
++from typing import Any, Dict, List, Optional, Union
++from pathlib import Path, PathLike
++import urllib3
+ from urllib3 import Retry
+-
+-from thehive4py.__version__ import __version__
+-from thehive4py.errors import TheHiveError
++from urllib3.util import make_headers
++import urllib3.exceptions
++from urllib3._collections import HTTPHeaderDict
+ 
+ DEFAULT_RETRY = Retry(
+     total=5,
+@@ -33,7 +31,7 @@ class _SessionJSONEncoder(jsonlib.JSONEncoder):
+         return super().default(o)
+ 
+ 
+-class TheHiveSession(requests.Session):
++class TheHiveSession:
+     def __init__(
+         self,
+         url: str,
+@@ -43,16 +41,33 @@ class TheHiveSession(requests.Session):
+         verify: VerifyValue = True,
+         max_retries: RetryValue = DEFAULT_RETRY,
+     ):
+-        super().__init__()
+         self.hive_url = self._sanitize_hive_url(url)
+         self.verify = verify
++        self.headers = HTTPHeaderDict()
+         self.headers["User-Agent"] = f"thehive4py/{__version__}"
+-        self._set_retries(max_retries=max_retries)
+-
+-        if username and password:
+-            self.headers["Authorization"] = requests.auth._basic_auth_str(
+-                username, password
++        
++        # Create urllib3 pool manager with retries
++        if isinstance(verify, str):
++            # Path to CA bundle
++            self._http = urllib3.PoolManager(
++                cert_reqs='CERT_REQUIRED', 
++                ca_certs=verify,
++                retries=max_retries
++            )
++        elif verify:
++            self._http = urllib3.PoolManager(
++                cert_reqs='CERT_REQUIRED',
++                retries=max_retries
++            )
++        else:
++            self._http = urllib3.PoolManager(
++                cert_reqs='CERT_NONE',
++                retries=max_retries
+             )
++            
++        if username and password:
++            basic_auth = make_headers(basic_auth=f"{username}:{password}")
++            self.headers["Authorization"] = basic_auth["authorization"]
+         elif apikey:
+             self.headers["Authorization"] = f"Bearer {apikey}"
+         else:
+@@ -60,12 +75,6 @@ class TheHiveSession(requests.Session):
+                 "Either apikey or the username/password combination must be provided!"
+             )
+ 
+-    def _set_retries(self, max_retries: RetryValue):
+-        """Configure the session to retry."""
+-        retry_adapter = requests.adapters.HTTPAdapter(max_retries=max_retries)
+-        self.mount("http://", retry_adapter)
+-        self.mount("https://", retry_adapter)
+-
+     def _sanitize_hive_url(self, hive_url: str) -> str:
+         """Sanitize the base url for the client."""
+         if hive_url.endswith("/"):
+@@ -89,60 +98,61 @@ class TheHiveSession(requests.Session):
+             data = jsonlib.dumps(json, cls=_SessionJSONEncoder)
+             headers = {**headers, "Content-Type": "application/json"}
+ 
+-        response = self.request(
+-            method,
++        # Make the request
++        response = self._http.request(
++            method=method.upper(),
+             url=endpoint_url,
+-            params=params,
+-            data=data,
+-            files=files,
+-            headers=headers,
+-            verify=self.verify,
+-            stream=bool(download_path),
++            body=data,
++            headers=dict(headers),
+         )
+ 
+         return self._process_response(response, download_path=download_path)
+ 
+     def _process_response(
+         self,
+-        response: requests.Response,
++        response: urllib3.HTTPResponse,
+         download_path: Union[str, PathLike, None] = None,
+     ):
+-        if response.ok:
++        if 200 <= response.status < 300:
+             if download_path is None:
+                 return self._process_text_response(response)
+             else:
+                 self._process_stream_response(
+                     response=response, download_path=download_path
+                 )
+-
+-        if not response.ok:
++        else:
+             self._process_error_response(response=response)
+ 
+-    def _process_text_response(self, response: requests.Response):
++    def _process_text_response(self, response: urllib3.HTTPResponse):
+         try:
+-            json_data = response.json()
+-        except requests.exceptions.JSONDecodeError:
++            # Decode the response body and parse as JSON
++            json_data = jsonlib.loads(response.data.decode('utf-8'))
++        except (jsonlib.JSONDecodeError, UnicodeDecodeError):
+             json_data = None
+ 
+         if json_data is None:
+-            return response.text
++            return response.data.decode('utf-8') if response.data else ''
+         return json_data
+ 
+     def _process_stream_response(
+-        self, response: requests.Response, download_path: Union[str, PathLike]
++        self, response: urllib3.HTTPResponse, download_path: Union[str, PathLike]
+     ):
+         with open(download_path, "wb") as download_fp:
+-            for chunk in response.iter_content(chunk_size=4096):
+-                download_fp.write(chunk)
++            if hasattr(response, 'stream'):
++                for chunk in response.stream(4096):
++                    download_fp.write(chunk)
++            else:
++                # Fallback for cases where stream isn't available
++                download_fp.write(response.data)
+ 
+-    def _process_error_response(self, response: requests.Response):
++    def _process_error_response(self, response: urllib3.HTTPResponse):
+         try:
+-            json_data = response.json()
+-        except requests.exceptions.JSONDecodeError:
++            json_data = jsonlib.loads(response.data.decode('utf-8'))
++        except (jsonlib.JSONDecodeError, UnicodeDecodeError):
+             json_data = None
+ 
+         if json_data is None:
+-            error_text = response.text
++            error_text = response.data.decode('utf-8') if response.data else str(response.status)
+         else:
+-            error_text = f"{json_data['type']} - {json_data['message']}"
++            error_text = f"{json_data.get('type', 'Unknown')} - {json_data.get('message', 'Unknown error')}"
+         raise TheHiveError(message=error_text, response=response)

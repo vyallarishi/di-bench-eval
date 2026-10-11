@@ -1,0 +1,38 @@
+diff --git a/chalice/deploy/packager.py b/chalice/deploy/packager.py
+index cfddd9d..6eba86f 100644
+--- a/chalice/deploy/packager.py
++++ b/chalice/deploy/packager.py
+@@ -14,9 +14,9 @@ from zipfile import ZipFile  # noqa
+ from typing import Any, Set, List, Optional, Tuple, Iterable, Callable  # noqa
+ from typing import Iterator  # noqa
+ from typing import Dict, MutableMapping, cast  # noqa
+-from chalice.compat import pip_import_string
+-from chalice.compat import pip_no_compile_c_env_vars
+-from chalice.compat import pip_no_compile_c_shim
++# from chalice.compat import pip_import_string
++# from chalice.compat import pip_no_compile_c_env_vars
++# from chalice.compat import pip_no_compile_c_shim
+ from chalice.utils import OSUtils
+ from chalice.utils import UI  # noqa
+ from chalice.constants import MISSING_DEPENDENCIES_TEMPLATE
+diff --git a/setup.py b/setup.py
+index de366e7..83ad77d 100644
+--- a/setup.py
++++ b/setup.py
+@@ -29,6 +29,16 @@ setup(
+     url='https://github.com/aws/chalice',
+     packages=find_packages(exclude=['tests', 'tests.*']),
+     install_requires=[
++        'click>=7,<9.0',
++        'botocore>=1.14.0,<2.0.0',
++        'typing-extensions>=4.0.0,<5.0.0;python_version<"3.8"',
++        'six>=1.10.0,<2.0.0',
++        'pip>=9,<24.1',
++        'jmespath>=0.9.3,<2.0.0',
++        'pyyaml>=5.3.1,<7.0.0',
++        'inquirer>=2.7.0,<3.0.0',
++        'wheel',
++        'setuptools'
+     ],
+     extras_require={
+         'event-file-poller': ['watchdog==2.3.1'],

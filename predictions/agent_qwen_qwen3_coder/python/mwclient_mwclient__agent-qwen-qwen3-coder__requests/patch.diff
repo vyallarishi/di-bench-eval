@@ -1,0 +1,330 @@
+diff --git a/mwclient/client.py b/mwclient/client.py
+index 893bcf5..7378858 100644
+--- a/mwclient/client.py
++++ b/mwclient/client.py
+@@ -1,22 +1,22 @@
+-import json
++#!/usr/bin/env python3
++
+ import logging
+ import warnings
+ from collections import OrderedDict
+-from typing import Optional, Callable, Union, Mapping, Any, MutableMapping, List, Dict, \
+-    Tuple, cast, Iterable, BinaryIO, Iterator
++from typing import Any, BinaryIO, Dict, Iterator, List, Mapping, Optional, Tuple, Union
+ 
+-import requests
+-from requests.auth import HTTPBasicAuth, AuthBase
+-from requests_oauthlib import OAuth1
++import urllib.parse
+ 
+-import mwclient.errors as errors
++from . import errors, http, listing, sleep
++from .http import Session, HTTPError, ConnectionError, Timeout
++from .listing import List, Page
++from .sleep import Sleepers
++from .util import parse_timestamp
+ import mwclient.listing as listing
+ from mwclient._types import Cookies, Namespace, VersionTuple
+ from mwclient.sleep import Sleeper, Sleepers
+ from mwclient.util import parse_timestamp, read_in_chunks, handle_limit
+ 
+-__version__ = '0.11.0'
+-
+ log = logging.getLogger(__name__)
+ 
+ USER_AGENT = f'mwclient/{__version__} (https://github.com/mwclient/mwclient)'
+@@ -92,7 +92,7 @@ class Site:
+         host: str,
+         path: str = '/w/',
+         ext: str = '.php',
+-        pool: Optional[requests.Session] = None,
++        pool: Optional[http.Session] = None,
+         retry_timeout: int = 30,
+         max_retries: int = 25,
+         wait_callback: Callable[['Sleeper', int, Optional[Any]], Any] = lambda *x: None,
+@@ -103,7 +103,7 @@ class Site:
+         do_init: bool = True,
+         httpauth: Union[
+             Tuple[Union[str, bytes], Union[str, bytes]],
+-            requests.auth.AuthBase,
++            # requests.auth.AuthBase,  # Removed requests dependency
+             List[Union[str, bytes]],
+             None,
+         ] = None,
+@@ -171,8 +171,8 @@ class Site:
+ 
+         # Setup connection
+         if pool is None:
+-            self.connection = requests.Session()  # type: requests.Session
+-            self.connection.auth = auth
++            self.connection = http.Session()  # type: http.Session
++            # Note: Authentication and certificate handling needs to be implemented in our Session class
+             if client_certificate:
+                 self.connection.cert = client_certificate
+ 
+@@ -595,8 +595,8 @@ class Site:
+                     # fall through to the sleep
+ 
+             except (
+-                requests.exceptions.ConnectionError,
+-                requests.exceptions.Timeout
++                http.ConnectionError,
++                http.Timeout
+             ) as err:
+                 # In the event of a network problem
+                 # (e.g. DNS failure, refused connection, etc),
+@@ -606,7 +606,6 @@ class Site:
+                 log.warning('Connection error. Retrying in a moment.')
+                 toraise = err
+                 # proceed to the sleep
+-
+             # all retry paths come here
+             try:
+                 sleeper.sleep(wait_time)
+diff --git a/mwclient/http.py b/mwclient/http.py
+new file mode 100644
+index 0000000..bf21b7a
+--- /dev/null
++++ b/mwclient/http.py
+@@ -0,0 +1,223 @@
++"""
++HTTP client implementation to replace requests library.
++"""
++import json
++import ssl
++import time
++import urllib.parse
++import urllib.request
++from typing import Any, Dict, Optional, Union, Tuple, BinaryIO
++from http.client import HTTPException, HTTPResponse as HTTPConnResponse
++from urllib.error import URLError, HTTPError as UrllibHTTPError
++from urllib.request import Request
++import gzip
++import io
++
++
++class HTTPExceptionWrapper(Exception):
++    """Base wrapper for HTTP exceptions."""
++    pass
++
++
++class ConnectionError(HTTPExceptionWrapper):
++    """Connection error equivalent to requests.exceptions.ConnectionError."""
++    pass
++
++
++class Timeout(HTTPExceptionWrapper):
++    """Timeout error equivalent to requests.exceptions.Timeout."""
++    pass
++
++
++class HTTPError(UrllibHTTPError):
++    """HTTP error equivalent to requests.exceptions.HTTPError."""
++    pass
++
++
++class Response:
++    """Response object similar to requests.Response."""
++    
++    def __init__(self, response: HTTPConnResponse, url: str, content: bytes):
++        self._response = response
++        self.url = url
++        self.status_code = response.status
++        self.reason = response.reason
++        self.headers = dict(response.headers)
++        self.content = content
++        self._text = None
++        
++    @property
++    def text(self) -> str:
++        """Get response text, decoding appropriately."""
++        if self._text is None:
++            # Try to decode based on Content-Type or default to utf-8
++            content_type = self.headers.get('content-type', '')
++            encoding = 'utf-8'  # default
++            
++            if 'charset=' in content_type:
++                # Extract charset from content-type header
++                parts = content_type.split('charset=', 1)
++                if len(parts) > 1:
++                    encoding = parts[1].split(';')[0].strip()
++            
++            try:
++                self._text = self.content.decode(encoding)
++            except UnicodeDecodeError:
++                # Fallback to utf-8 with error handling
++                self._text = self.content.decode('utf-8', errors='replace')
++                
++        return self._text
++    
++    def raise_for_status(self) -> None:
++        """Raise an HTTPError if status indicates an error."""
++        if 400 <= self.status_code < 600:
++            raise HTTPError(
++                self.url, 
++                self.status_code, 
++                self.reason, 
++                self.headers, 
++                io.BytesIO(self.content)
++            )
++
++
++class Session:
++    """Session object similar to requests.Session."""
++    
++    def __init__(self):
++        self.headers = {}
++        self.auth = None
++        self.cert = None
++        self._opener = None
++        self._build_opener()
++        
++    def _build_opener(self) -> None:
++        """Build urllib opener with appropriate handlers."""
++        handlers = []
++        
++        # Add authentication handler if needed
++        if self.auth:
++            # For basic auth
++            if hasattr(self.auth, 'login') and hasattr(self.auth, 'passwd'):
++                # Basic auth tuple (user, password)
++                import base64
++                credentials = f"{self.auth.login}:{self.auth.passwd}"
++                encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
++                self.headers['Authorization'] = f'Basic {encoded_credentials}'
++            # For OAuth, we assume it's handled elsewhere
++        
++        # Add HTTPS handler with certificate if provided
++        if self.cert:
++            context = ssl.create_default_context()
++            if isinstance(self.cert, str):
++                context.load_cert_chain(certfile=self.cert)
++            elif isinstance(self.cert, tuple):
++                context.load_cert_chain(certfile=self.cert[0], keyfile=self.cert[1])
++            handlers.append(urllib.request.HTTPSHandler(context=context))
++            
++        self._opener = urllib.request.build_opener(*handlers)
++        
++    def request(self, method: str, url: str, **kwargs) -> Response:
++        """Make an HTTP request."""
++        # Extract parameters
++        params = kwargs.get('params', {})
++        data = kwargs.get('data', {})
++        headers = self.headers.copy()
++        headers.update(kwargs.get('headers', {}))
++        files = kwargs.get('files', {})
++        timeout = kwargs.get('timeout', 30)
++        
++        # Handle GET parameters
++        if method.upper() == 'GET' and params:
++            url_parts = list(urllib.parse.urlparse(url))
++            query = dict(urllib.parse.parse_qsl(url_parts[4]))
++            query.update(params)
++            url_parts[4] = urllib.parse.urlencode(query)
++            url = urllib.parse.urlunparse(url_parts)
++        
++        # Prepare request data
++        request_data = None
++        if method.upper() in ('POST', 'PUT') and data:
++            if isinstance(data, dict):
++                # Form data
++                request_data = urllib.parse.urlencode(data).encode('utf-8')
++                if 'Content-Type' not in headers and 'content-type' not in headers:
++                    headers['Content-Type'] = 'application/x-www-form-urlencoded'
++            else:
++                request_data = data
++                
++        # Handle file uploads
++        if files:
++            # Create multipart form data
++            boundary = '----mwclientboundary'
++            body_parts = []
++            
++            # Add regular form fields
++            if isinstance(data, dict):
++                for key, value in data.items():
++                    body_parts.append(f'--{boundary}\r\n'.encode('utf-8'))
++                    body_parts.append(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode('utf-8'))
++                    body_parts.append(str(value).encode('utf-8'))
++                    body_parts.append(b'\r\n')
++            
++            # Add files
++            for key, file_info in files.items():
++                if hasattr(file_info, 'read'):
++                    # File-like object
++                    filename = getattr(file_info, 'name', key)
++                    file_data = file_info.read()
++                elif isinstance(file_info, tuple):
++                    # (filename, file_object) or (filename, file_object, content_type)
++                    filename = file_info[0]
++                    file_obj = file_info[1]
++                    file_data = file_obj.read()
++                else:
++                    continue
++                    
++                body_parts.append(f'--{boundary}\r\n'.encode('utf-8'))
++                body_parts.append(f'Content-Disposition: form-data; name="{key}"; filename="{filename}"\r\n'.encode('utf-8'))
++                body_parts.append(b'Content-Type: application/octet-stream\r\n\r\n')
++                body_parts.append(file_data)
++                body_parts.append(b'\r\n')
++                
++            body_parts.append(f'--{boundary}--\r\n'.encode('utf-8'))
++            
++            request_data = b''.join(body_parts)
++            headers['Content-Type'] = f'multipart/form-data; boundary={boundary}'
++        
++        # Create request
++        req = Request(url, data=request_data, headers=headers, method=method.upper())
++        
++        try:
++            # Make the request
++            start_time = time.time()
++            resp = self._opener.open(req, timeout=timeout)
++            end_time = time.time()
++            
++            # Read response content
++            content = resp.read()
++            
++            # Handle gzip decompression
++            if resp.headers.get('content-encoding') == 'gzip':
++                try:
++                    content = gzip.decompress(content)
++                except Exception:
++                    pass  # Return compressed content as-is if decompression fails
++                    
++            return Response(resp, url, content)
++            
++        except URLError as e:
++            # Convert to appropriate exception types
++            if isinstance(e.reason, socket.timeout):
++                raise Timeout(str(e)) from e
++            elif isinstance(e.reason, (socket.gaierror, ConnectionRefusedError)):
++                raise ConnectionError(str(e)) from e
++            else:
++                raise ConnectionError(str(e)) from e
++        except socket.timeout as e:
++            raise Timeout(str(e)) from e
++        except Exception as e:
++            raise ConnectionError(str(e)) from e
++
++
++# Import socket for exception handling
++import socket
+\ No newline at end of file
+diff --git a/pyproject.toml b/pyproject.toml
+index 7e943aa..7d94f85 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -25,7 +25,10 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "requests",
++    "requests-oauthlib",
++]
+ 
+ [project.optional-dependencies]
+ docs = [

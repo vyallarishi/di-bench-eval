@@ -1,0 +1,112 @@
+diff --git a/flake8_pytest_style/errors.py b/flake8_pytest_style/errors.py
+index 854ad7d..646b7ff 100644
+--- a/flake8_pytest_style/errors.py
++++ b/flake8_pytest_style/errors.py
+@@ -1,6 +1,26 @@
+-from flake8_plugin_utils import Error
+-
+-
++from __future__ import annotations
++
++import ast
++from typing import Any
++
++
++class Error:
++    """Base class for all flake8-pytest-style errors."""
++    
++    code: str
++    message: str
++    
++    def __init__(self, **kwargs: Any) -> None:
++        for key, value in kwargs.items():
++            setattr(self, key, value)
++    
++    @property
++    def message(self) -> str:  # type: ignore[override]
++        return self._message.format(**self.__dict__)
++    
++    @message.setter
++    def message(self, value: str) -> None:
++        self._message = value
+ class IncorrectFixtureParenthesesStyle(Error):
+     code = 'PT001'
+     message = 'use @pytest.fixture{expected_parens} over @pytest.fixture{actual_parens}'
+diff --git a/flake8_pytest_style/plugin.py b/flake8_pytest_style/plugin.py
+index 4b9db50..4657efa 100644
+--- a/flake8_pytest_style/plugin.py
++++ b/flake8_pytest_style/plugin.py
+@@ -1,7 +1,31 @@
+-import argparse
+-from typing import List
++from __future__ import annotations
+ 
+-from flake8.options.manager import OptionManager
++import ast
++from typing import Any
++
++from flake8_pytest_style.config import Config
++from flake8_pytest_style.errors import Error
++from flake8_pytest_style.utils import get_mark_name
++from flake8_pytest_style.visitors.assertion import AssertionVisitor
++from flake8_pytest_style.visitors.fail import FailVisitor
++from flake8_pytest_style.visitors.fixtures import FixtureVisitor
++from flake8_pytest_style.visitors.imports import ImportVisitor
++from flake8_pytest_style.visitors.marks import MarksVisitor
++from flake8_pytest_style.visitors.parametrize import ParametrizeVisitor
++from flake8_pytest_style.visitors.patch import PatchVisitor
++from flake8_pytest_style.visitors.raises import RaisesVisitor
++
++
++class Visitor:
++    """Base visitor class for flake8-pytest-style."""
++    
++    def __init__(self, config: Config) -> None:
++        self.config = config
++        self.errors: list[Error] = []
++    
++    def error(self, error: Error) -> None:
++        """Add an error to the list of errors."""
++        self.errors.append(error)
+ from flake8_plugin_utils import Plugin
+ 
+ from .config import (
+diff --git a/flake8_pytest_style/utils.py b/flake8_pytest_style/utils.py
+index d2cce28..a574ef2 100644
+--- a/flake8_pytest_style/utils.py
++++ b/flake8_pytest_style/utils.py
+@@ -1,11 +1,17 @@
++from __future__ import annotations
++
+ import ast
+-from collections import deque
+-from typing import Dict, Iterator, List, NamedTuple, Optional, Tuple, Union
++from typing import Any, Dict, NamedTuple, Optional, Tuple
++
++
++def is_false(node: ast.AST) -> bool:
++    """Check if a node represents a false value."""
++    return isinstance(node, ast.Constant) and node.value is False
+ 
+-from flake8_plugin_utils.utils import is_false, is_none
+ 
+-AnyFunctionDef = Union[ast.AsyncFunctionDef, ast.FunctionDef]
+-AnyDecoratorTarget = Union[ast.ClassDef, AnyFunctionDef]
++def is_none(node: ast.AST) -> bool:
++    """Check if a node represents None."""
++    return isinstance(node, ast.Constant) and node.value is None
+ 
+ 
+ def get_qualname(node: ast.AST) -> Optional[str]:
+diff --git a/pyproject.toml b/pyproject.toml
+index 1e2391a..28d1422 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -26,6 +26,7 @@ PT = 'flake8_pytest_style.plugin:PytestStylePlugin'
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8.1"
++flake8-plugin-utils = "^1.3.2"
+ 
+ [tool.poetry.group.dev.dependencies]
+ black = "^24.3.0"

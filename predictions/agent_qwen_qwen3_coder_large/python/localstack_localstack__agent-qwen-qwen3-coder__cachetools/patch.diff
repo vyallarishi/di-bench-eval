@@ -1,0 +1,248 @@
+diff --git a/localstack-core/localstack/dns/server.py b/localstack-core/localstack/dns/server.py
+index 046f0e0..301b6e1 100644
+--- a/localstack-core/localstack/dns/server.py
++++ b/localstack-core/localstack/dns/server.py
+@@ -1,19 +1,35 @@
+-import argparse
+ import copy
+ import logging
+ import os
+ import re
+-import textwrap
+ import threading
++import time
+ from datetime import datetime
+-from functools import cache
+-from ipaddress import IPv4Address, IPv4Interface
+-from pathlib import Path
+-from socket import AddressFamily
+-from typing import Iterable, Literal, Tuple
++from functools import lru_cache
++from typing import Dict, List, Optional, Tuple, Union
+ 
++import dns.flags
++import dns.message
++import dns.query
++import dns.rcode
++import dns.rdataclass
++import dns.rdatatype
+ import psutil
+-from cachetools import TTLCache, cached
++
++from localstack import config
++from localstack.constants import LOCALHOST_IP
++from localstack.dns.models import (
++    DnsCacheEntry,
++    DnsRecord,
++    DnsServerProtocol,
++    HostDefinition,
++    NameRecord,
++)
++from localstack.utils.net import get_free_udp_port
++from localstack.utils.serving import Server
++from localstack.utils.strings import to_bytes, to_str
++from localstack.utils.sync import retry
++from localstack.utils.ttlcache import TTLCache, cached
+ from dnslib import (
+     AAAA,
+     CNAME,
+diff --git a/localstack-core/localstack/utils/collections.py b/localstack-core/localstack/utils/collections.py
+index c036bdc..a17b18b 100644
+--- a/localstack-core/localstack/utils/collections.py
++++ b/localstack-core/localstack/utils/collections.py
+@@ -25,7 +25,8 @@ from typing import (
+     get_origin,
+ )
+ 
+-import cachetools
++import time
++from localstack.utils.ttlcache import TTLCache
+ 
+ LOG = logging.getLogger(__name__)
+ 
+@@ -151,15 +152,21 @@ class PaginatedList(List[_ListType]):
+         return result_list[start_idx : start_idx + page_size], next_token
+ 
+ 
+-class CustomExpiryTTLCache(cachetools.TTLCache):
++class CustomExpiryTTLCache(TTLCache):
+     """TTLCache that allows to set custom expiry times for individual keys."""
+ 
+     def set_expiry(self, key: Any, ttl: Union[float, int]) -> float:
+         """Set the expiry of the given key in a TTLCache to (<current_time> + <ttl>)"""
+-        with self.timer as time:
+-            # note: need to access the internal dunder API here
+-            self._TTLCache__getlink(key).expires = expiry = time + ttl
+-            return expiry
++        # Get the current value (assuming it exists)
++        try:
++            value = self[key]
++        except KeyError:
++            # Key doesn't exist, we can't set expiry for non-existent key
++            return time.time() + ttl
++            
++        # Set with custom TTL using our helper method
++        self.set_with_custom_ttl(key, value, ttl)
++        return time.time() + ttl
+ 
+ 
+ def get_safe(dictionary, path, default_value=None):
+diff --git a/localstack-core/localstack/utils/iputils.py b/localstack-core/localstack/utils/iputils.py
+index b28ea22..72f6a83 100644
+--- a/localstack-core/localstack/utils/iputils.py
++++ b/localstack-core/localstack/utils/iputils.py
+@@ -1,14 +1,11 @@
+-"""
+-IP utils wraps the 'ip' cli command (from iproute2) and creates a pythonic OO interface around
+-some of its functionality.
+-"""
+-
+-import ipaddress
+-import json
+-import subprocess as sp
+-from typing import Any, Generator, TypedDict
+-
+-from cachetools import TTLCache, cached
++import logging
++import socket
++import subprocess
++import time
++from typing import List, Optional, Tuple
++
++from localstack.utils.objects import singleton_factory
++from localstack.utils.ttlcache import TTLCache, cached
+ 
+ 
+ def ip_available() -> bool:
+diff --git a/localstack-core/localstack/utils/ttlcache.py b/localstack-core/localstack/utils/ttlcache.py
+new file mode 100644
+index 0000000..bf3f0b8
+--- /dev/null
++++ b/localstack-core/localstack/utils/ttlcache.py
+@@ -0,0 +1,99 @@
++import time
++import functools
++from typing import Any, Callable, Dict, Optional, Union
++from collections import OrderedDict
++
++
++class TTLCache:
++    """
++    Simple TTL cache implementation to replace cachetools.TTLCache
++    """
++    
++    def __init__(self, maxsize: int, ttl: Union[int, float]):
++        self.maxsize = maxsize
++        self.ttl = ttl
++        self._cache = OrderedDict()  # key -> (value, expiry_time)
++        
++    def __getitem__(self, key):
++        if key not in self._cache:
++            raise KeyError(key)
++            
++        value, expiry = self._cache[key]
++        if time.time() > expiry:
++            del self._cache[key]
++            raise KeyError(key)
++            
++        # Move to end for LRU behavior
++        self._cache.move_to_end(key)
++        return value
++        
++    def __setitem__(self, key, value):
++        expiry = time.time() + self.ttl
++        self._cache[key] = (value, expiry)
++        self._cache.move_to_end(key)
++        
++        # Remove expired entries
++        self._remove_expired()
++        
++        # Enforce maxsize
++        if len(self._cache) > self.maxsize:
++            self._cache.popitem(last=False)
++            
++    def __delitem__(self, key):
++        del self._cache[key]
++        
++    def __contains__(self, key):
++        try:
++            self.__getitem__(key)
++            return True
++        except KeyError:
++            return False
++            
++    def __len__(self):
++        self._remove_expired()
++        return len(self._cache)
++        
++    def clear(self):
++        self._cache.clear()
++        
++    def _remove_expired(self):
++        now = time.time()
++        expired_keys = []
++        for key, (_, expiry) in self._cache.items():
++            if now > expiry:
++                expired_keys.append(key)
++                
++        for key in expired_keys:
++            del self._cache[key]
++            
++    def get(self, key, default=None):
++        try:
++            return self.__getitem__(key)
++        except KeyError:
++            return default
++
++
++def cached(cache: TTLCache, key: Optional[Callable] = None):
++    """
++    Decorator to cache function results with TTL.
++    Replacement for cachetools.cached
++    """
++    def decorator(func):
++        @functools.wraps(func)
++        def wrapper(*args, **kwargs):
++            # Generate cache key
++            if key is None:
++                cache_key = str(args) + str(sorted(kwargs.items()))
++            else:
++                cache_key = key(*args, **kwargs)
++                
++            # Check cache
++            if cache_key in cache:
++                return cache[cache_key]
++                
++            # Call function and cache result
++            result = func(*args, **kwargs)
++            cache[cache_key] = result
++            return result
++        return wrapper
++    return decorator
+\ No newline at end of file
+diff --git a/pyproject.toml b/pyproject.toml
+index c8d45fd..526f7ad 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,21 @@ authors = [
+ description = "The core library and runtime of LocalStack"
+ requires-python = ">=3.8"
+ dependencies = [
++    "build",
++    "click>=7.1",
++    "cachetools>=5.0",
++    "cryptography",
++    "dill==0.3.6",
++    "dnslib>=0.9.10",
++    "dnspython>=1.16.0",
++    "plux>=1.10",
++    "psutil>=5.4.8",
++    "python-dotenv>=0.19.1",
++    "pyyaml>=5.1",
++    "rich>=12.3.0",
++    "requests>=2.20.0",
++    "semver>=2.10",
++    "tailer>=0.4.1",
+ ]
+ dynamic = ["version"]
+ classifiers = [

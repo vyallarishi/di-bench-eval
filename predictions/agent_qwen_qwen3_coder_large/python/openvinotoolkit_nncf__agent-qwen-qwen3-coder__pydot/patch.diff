@@ -1,0 +1,145 @@
+diff --git a/nncf/common/utils/dot_file_rw.py b/nncf/common/utils/dot_file_rw.py
+index f3a1bdb..bd7bc72 100644
+--- a/nncf/common/utils/dot_file_rw.py
++++ b/nncf/common/utils/dot_file_rw.py
+@@ -21,26 +21,73 @@ def write_dot_graph(G: nx.DiGraph, path: pathlib.Path) -> None:
+     # error. See https://github.com/networkx/networkx/issues/5962. If `relabel` is True in this function,
+     # then the colons (:) will be replaced with (^) symbols.
+     relabeled = relabel_graph_for_dot_visualization(G)
+-    nx.nx_pydot.write_dot(relabeled, str(path))
++    
++    # Custom DOT writer that doesn't depend on external libraries
++    with open(path, 'w') as f:
++        f.write("digraph {\n")
++        # Write node attributes
++        for node, data in relabeled.nodes(data=True):
++            if data:
++                attrs = []
++                for key, value in data.items():
++                    attrs.append(f'{key}={value}')
++                attr_str = "[" + ", ".join(attrs) + "]"
++                f.write(f'  "{node}" {attr_str};\n')
++            else:
++                f.write(f'  "{node}";\n')
++        
++        # Write edges
++        for u, v, data in relabeled.edges(data=True):
++            if data:
++                attrs = []
++                for key, value in data.items():
++                    attrs.append(f'{key}={value}')
++                attr_str = "[" + ", ".join(attrs) + "]"
++                f.write(f'  "{u}" -> "{v}" {attr_str};\n')
++            else:
++                f.write(f'  "{u}" -> "{v}";\n')
++        f.write("}\n")
+ 
+ 
+ def get_graph_without_data(G: nx.DiGraph) -> nx.DiGraph:
+     """
+     Returns the data-less version of the given nx.Digraph. The new graph has no data in nodes and edges.
+-
++    
+     :return: nx.DiGraph without data in nodes and edges
+     """
+     out_graph = nx.DiGraph()
+-    for node_key in G.nodes(data=False):
+-        out_graph.add_node(node_key)
+-    for u, v in G.edges(data=False):
+-        out_graph.add_edge(u, v)
++    out_graph.add_nodes_from(G.nodes())
++    out_graph.add_edges_from(G.edges())
+     return out_graph
+ 
+ 
+ def read_dot_graph(path: pathlib.Path) -> nx.DiGraph:
+-    loaded = nx.DiGraph(nx.nx_pydot.read_dot(str(path)))
+-    return relabel_graph_for_dot_visualization(loaded, from_reference=True)
++    # Custom DOT reader that doesn't depend on external libraries
++    # This is a simplified implementation that handles basic DOT format
++    G = nx.DiGraph()
++    
++    with open(path, 'r') as f:
++        content = f.read()
++    
++    # Very basic parsing - this assumes a simple DOT format
++    # Remove comments and extract node/edge definitions
++    lines = content.split('\n')
++    for line in lines:
++        line = line.strip()
++        if '->' in line and ';' in line:
++            # Edge definition
++            parts = line.split('->')
++            source = parts[0].strip().strip('"')
++            target_part = parts[1].split(';')[0].strip().strip('"')
++            target = target_part.split('[')[0].strip().strip('"')
++            G.add_edge(source, target)
++        elif line.startswith('"') and ';' in line and '->' not in line:
++            # Node definition
++            node_name = line.split('"')[1]
++            G.add_node(node_name)
++    
++
++
+ 
+ 
+ RESERVED_CHAR = ":"
+diff --git a/nncf/common/utils/dot_file_rw_temp.py b/nncf/common/utils/dot_file_rw_temp.py
+new file mode 100644
+index 0000000..8b13789
+--- /dev/null
++++ b/nncf/common/utils/dot_file_rw_temp.py
+@@ -0,0 +1 @@
++
+diff --git a/setup.py b/setup.py
+index b374af8..5291936 100644
+--- a/setup.py
++++ b/setup.py
+@@ -130,6 +130,21 @@ setup(
+         "Operating System :: OS Independent",
+     ],
+     install_requires=[
++        "jsonschema>=3.2.0",
++        "jstyleson>=0.0.2",
++        "natsort>=7.1.0",
++        "networkx>=2.6, <=3.3",
++        "ninja>=1.10.0.post2, <1.12",
++        "numpy>=1.19.1, <1.27",
++        "openvino-telemetry>=2023.2.0",
++        "packaging>=20.0",
++        "pandas>=1.1.5,<2.3",
++        "psutil",
++        "rich>=13.5.2",
++        "scikit-learn>=0.24.0",
++        "scipy>=1.3.2",
++        "tabulate>=0.9.0",
++        "tqdm>=4.54.1",
+     ],
+     extras_require=EXTRAS_REQUIRE,
+     keywords=[
+diff --git a/tests/shared/nx_graph.py b/tests/shared/nx_graph.py
+index 249b89e..3b36f8d 100644
+--- a/tests/shared/nx_graph.py
++++ b/tests/shared/nx_graph.py
+@@ -100,7 +100,7 @@ def _build_node_id_vs_attrs_dict(
+ ) -> Dict[Union[int, str], Dict[str, str]]:
+     retval: Dict[Union[int, str], Dict[str, str]] = {}
+     for node_name, node_attrs in nx_graph.nodes.items():
+-        # When read a dot graph dumped by pydot the extra '\n' symbol appears as a graph node.
++    # When read a dot graph dumped by dot file writers the extra '\n' symbol appears as a graph node.
+         # https://github.com/networkx/networkx/issues/5686
+         if node_name == "\\n":  # bug - networkx/networkx#5686
+             continue
+diff --git a/tests/torch/test_model_transformer.py b/tests/torch/test_model_transformer.py
+index 3eabe1f..65f01b7 100644
+--- a/tests/torch/test_model_transformer.py
++++ b/tests/torch/test_model_transformer.py
+@@ -586,7 +586,7 @@ class TestInsertionPointGraph:
+         load_graph = read_dot_graph(str(path_to_dot_file))
+ 
+         for key in load_graph.nodes:
+-            key.replace(r"\\n", r"\n")  # Somehow pydot mangles the \n characters while writing a .dot file
++            key.replace(r"\\n", r"\n")  # Somehow dot file writers mangle the \n characters while writing a .dot file
+ 
+         sanitized_loaded_keys = [key.replace("\\n", "\n") for key in load_graph.nodes]
+         sanitized_loaded_edges = [

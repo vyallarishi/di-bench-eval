@@ -1,0 +1,151 @@
+diff --git a/adaptive/learner/average_learner.py b/adaptive/learner/average_learner.py
+index c3d4892..8477528 100644
+--- a/adaptive/learner/average_learner.py
++++ b/adaptive/learner/average_learner.py
+@@ -3,7 +3,7 @@ from __future__ import annotations
+ from math import sqrt
+ from typing import Callable
+ 
+-import cloudpickle
++import pickle
+ import numpy as np
+ 
+ from adaptive.learner.base_learner import BaseLearner
+@@ -259,7 +259,7 @@ class AverageLearner(BaseLearner):
+ 
+     def __getstate__(self):
+         return (
+-            cloudpickle.dumps(self.function),
++            pickle.dumps(self.function),
+             self.atol,
+             self.rtol,
+             self.min_npoints,
+@@ -268,6 +268,6 @@ class AverageLearner(BaseLearner):
+ 
+     def __setstate__(self, state):
+         function, atol, rtol, min_npoints, data = state
+-        function = cloudpickle.loads(function)
++        function = pickle.loads(function)
+         self.__init__(function, atol, rtol, min_npoints)
+         self._set_data(data)
+diff --git a/adaptive/learner/base_learner.py b/adaptive/learner/base_learner.py
+index 73720dd..bc9fec6 100644
+--- a/adaptive/learner/base_learner.py
++++ b/adaptive/learner/base_learner.py
+@@ -4,7 +4,7 @@ import abc
+ from contextlib import suppress
+ from typing import TYPE_CHECKING, Any, Callable, TypeVar
+ 
+-import cloudpickle
++import pickle
+ 
+ from adaptive.utils import load, save
+ 
+diff --git a/adaptive/learner/learner1D.py b/adaptive/learner/learner1D.py
+index bf04743..5b96c45 100644
+--- a/adaptive/learner/learner1D.py
++++ b/adaptive/learner/learner1D.py
+@@ -8,7 +8,7 @@ from collections.abc import Sequence
+ from copy import copy, deepcopy
+ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+ 
+-import cloudpickle
++import pickle
+ import numpy as np
+ from sortedcollections.recipes import ItemSortedDict
+ from sortedcontainers.sorteddict import SortedDict
+@@ -860,7 +860,7 @@ class Learner1D(BaseLearner):
+ 
+     def __getstate__(self):
+         return (
+-            cloudpickle.dumps(self.function),
++            pickle.dumps(self.function),
+             tuple(self.bounds),
+             self.loss_per_interval,
+             dict(self.losses),  # SortedDict cannot be pickled
+@@ -870,7 +870,7 @@ class Learner1D(BaseLearner):
+ 
+     def __setstate__(self, state):
+         function, bounds, loss_per_interval, losses, losses_combined, data = state
+-        function = cloudpickle.loads(function)
++        function = pickle.loads(function)
+         self.__init__(function, bounds, loss_per_interval)
+         self._set_data(data)
+         self.losses.update(losses)
+diff --git a/adaptive/learner/sequence_learner.py b/adaptive/learner/sequence_learner.py
+index c307744..588a9ff 100644
+--- a/adaptive/learner/sequence_learner.py
++++ b/adaptive/learner/sequence_learner.py
+@@ -4,7 +4,7 @@ import sys
+ from copy import copy
+ from typing import TYPE_CHECKING, Any
+ 
+-import cloudpickle
++import pickle
+ from sortedcontainers import SortedDict, SortedSet
+ 
+ from adaptive.learner.base_learner import BaseLearner
+@@ -291,13 +291,12 @@ class SequenceLearner(BaseLearner):
+ 
+     def __getstate__(self):
+         return (
+-            cloudpickle.dumps(self._original_function),
++            pickle.dumps(self._original_function),
+             self.sequence,
+             self._get_data(),
+         )
+ 
+     def __setstate__(self, state):
+-        function, sequence, data = state
+-        function = cloudpickle.loads(function)
+-        self.__init__(function, sequence)
++        function, self.sequence, data = state
++        _original_function = pickle.loads(function)
+         self._set_data(data)
+diff --git a/adaptive/utils.py b/adaptive/utils.py
+index ff80f62..03ce2a1 100644
+--- a/adaptive/utils.py
++++ b/adaptive/utils.py
+@@ -13,7 +13,6 @@ from functools import wraps
+ from itertools import product
+ from typing import TYPE_CHECKING, Any, Callable, TypeVar
+ 
+-import cloudpickle
+ 
+ if TYPE_CHECKING:
+     from dask.distributed import Client as AsyncDaskClient
+@@ -56,7 +55,7 @@ def save(fname: str, data: Any, compress: bool = True) -> bool:
+     if dirname:
+         os.makedirs(dirname, exist_ok=True)
+ 
+-    blob = cloudpickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
++    blob = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
+     if compress:
+         blob = gzip.compress(blob)
+ 
+@@ -83,7 +82,7 @@ def load(fname: str, compress: bool = True) -> Any:
+     fname = os.path.expanduser(fname)
+     _open = gzip.open if compress else open
+     with _open(fname, "rb") as f:  # type: ignore[operator]
+-        return cloudpickle.load(f)
++        return pickle.load(f)
+ 
+ 
+ def copy_docstring_from(other: Callable) -> Callable:
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..a554170 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,12 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "sortedcontainers >= 2.0",
++    "loky >= 2.9",
++    "typing_extensions; python_version < '3.10'",
++    "versioningit",
+ ]
+ 
+ [project.optional-dependencies]

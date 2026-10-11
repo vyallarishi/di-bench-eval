@@ -1,0 +1,261 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 0d87a97..a376fe1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,23 +1,26 @@
+ [tool.poetry]
+-authors = ["alex-treebeard <alex@treebeard.io>"]
++name = "nbmake"
++version = "1.5.4"
+ description = "Pytest plugin for testing notebooks"
+-homepage = "https://github.com/treebeardtech/nbmake"
++authors = ["alex-treebeard <alex@treebeard.io>"]
+ license = "Apache-2.0"
+-name = "nbmake"
++readme = "README.md"
++homepage = "https://github.com/treebeardtech/nbmake"
+ packages = [
+   {include = "nbmake", from = "src"},
+ ]
+-readme = "README.md"
+-version = "v1.5.4"
+ 
+ [tool.poetry.plugins."pytest11"]
+ nbmake = "nbmake.pytest_plugin"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8.0"
++nbclient = "^0.6.6"
++nbformat = "^5.0.8"
++Pygments = "^2.7.3"
++ipykernel = ">=5.4.0"
+ 
+ [tool.poetry.dev-dependencies]
+-pytest = "^8.1.0"
+ pre-commit = "^2.8.2"
+ pytest-cov = "^2.10.1"
+ pytest-xdist = "^2.1.0"
+diff --git a/src/nbmake/pytest_items.py b/src/nbmake/pytest_items.py
+index 1ea5ffc..b7ae725 100644
+--- a/src/nbmake/pytest_items.py
++++ b/src/nbmake/pytest_items.py
+@@ -4,8 +4,6 @@ from pathlib import Path
+ from typing import Any, Generator, Optional
+ 
+ import nbformat
+-import pytest
+-from _pytest._code.code import ReprFileLocation, TerminalRepr, TerminalWriter
+ from nbformat.reader import NotJSONError
+ from pygments import highlight
+ from pygments.formatters import TerminalTrueColorFormatter
+@@ -15,83 +13,106 @@ from .nb_result import NotebookError, NotebookResult
+ from .nb_run import NotebookRun
+ 
+ 
+-class NbMakeFailureRepr(TerminalRepr):
+-    def __init__(self, term: str, summary: str):
+-        self.term = term
+-        self.reprcrash = ReprFileLocation("", "", summary)
++class NotebookFailedException(Exception):
++    pass
+ 
+-    def toterminal(self, tw: TerminalWriter) -> None:
+-        tw.write(f"{self.term}\n")
+ 
++_initialized = False
+ 
+-class NotebookFile(pytest.File):
+-    def collect(self) -> Generator[Any, Any, Any]:
+-        yield NotebookItem.from_parent(self, filename=str(Path(self.fspath)))
+ 
++def __getattr__(name: str):
++    global _initialized
++    if not _initialized:
++        _init()
++    if name in ("NbMakeFailureRepr", "NotebookFile", "NotebookItem"):
++        return globals()[name]
++    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+ 
+-class NotebookFailedException(Exception):
+-    pass
+ 
++def _init():
++    global _initialized
++    if _initialized:
++        return
++    _initialized = True
+ 
+-class NotebookItem(pytest.Item):
+-    nbmake = True
+-
+-    def __init__(self, parent: Any, filename: str):
+-        super().__init__("", parent)
+-        self.filename = filename
+-
+-    def runtest(self):
+-        option = self.parent.config.option
+-        source = Path(self.config.rootdir) / self.filename
+-        run = NotebookRun(
+-            source,
+-            option.nbmake_timeout,
+-            verbose=bool(option.verbose),
+-            kernel=option.nbmake_kernel,
+-            find_import_errors=option.nbmake_find_import_errors,
+-        )
+-
+-        res: NotebookResult = run.execute()
+-
+-        if option.overwrite:
+-            nbformat.write(res.nb, str(source))
+-
+-        if res.error != None:
+-            raise NotebookFailedException(res)
+-
+-    def repr_failure(self, excinfo: Any, style: Optional[Any] = None) -> TerminalRepr:
+-        def create_internal_err() -> Any:
+-            tb = "".join(traceback.format_tb(excinfo.tb))
+-            err = f"{excinfo.value}\n{tb}"
+-            err_str: Any = (
+-                err
+-                if os.name == "nt"
+-                else highlight(
+-                    err, Python3TracebackLexer(), TerminalTrueColorFormatter()
+-                )
+-            )
++    import pytest
++    from _pytest._code.code import ReprFileLocation, TerminalRepr, TerminalWriter
+ 
+-            return NbMakeFailureRepr(
+-                "NBMAKE INTERNAL ERROR\n" + err_str,
+-                "NBMAKE INTERNAL ERROR",
+-            )
++    class NbMakeFailureRepr(TerminalRepr):
++        def __init__(self, term: str, summary: str):
++            self.term = term
++            self.reprcrash = ReprFileLocation("", "", summary)
++
++        def toterminal(self, tw: TerminalWriter) -> None:
++            tw.write(f"{self.term}\n")
++
++    class NotebookFile(pytest.File):
++        def collect(self) -> Generator[Any, Any, Any]:
++            yield NotebookItem.from_parent(self, filename=str(Path(self.fspath)))
+ 
+-        exc_type = type(excinfo.value)
++    class NotebookItem(pytest.Item):
++        nbmake = True
+ 
+-        if exc_type is NotJSONError:
+-            return NbMakeFailureRepr(
+-                "This file is not a valid json document", excinfo.value.args[0]
++        def __init__(self, parent: Any, filename: str):
++            super().__init__("", parent)
++            self.filename = filename
++
++        def runtest(self):
++            option = self.parent.config.option
++            source = Path(self.config.rootdir) / self.filename
++            run = NotebookRun(
++                source,
++                option.nbmake_timeout,
++                verbose=bool(option.verbose),
++                kernel=option.nbmake_kernel,
++                find_import_errors=option.nbmake_find_import_errors,
+             )
+ 
+-        if exc_type != NotebookFailedException:
+-            return create_internal_err()
++            res: NotebookResult = run.execute()
++
++            if option.overwrite:
++                nbformat.write(res.nb, str(source))
++
++            if res.error != None:
++                raise NotebookFailedException(res)
++
++        def repr_failure(self, excinfo: Any, style: Optional[Any] = None) -> TerminalRepr:
++            def create_internal_err() -> Any:
++                tb = "".join(traceback.format_tb(excinfo.tb))
++                err = f"{excinfo.value}\n{tb}"
++                err_str: Any = (
++                    err
++                    if os.name == "nt"
++                    else highlight(
++                        err, Python3TracebackLexer(), TerminalTrueColorFormatter()
++                    )
++                )
++
++                return NbMakeFailureRepr(
++                    "NBMAKE INTERNAL ERROR\n" + err_str,
++                    "NBMAKE INTERNAL ERROR",
++                )
++
++            exc_type = type(excinfo.value)
++
++            if exc_type is NotJSONError:
++                return NbMakeFailureRepr(
++                    "This file is not a valid json document", excinfo.value.args[0]
++                )
++
++            if exc_type != NotebookFailedException:
++                return create_internal_err()
++
++            res: NotebookResult = excinfo.value.args[0]
++            if isinstance(res.error, type(None)):
++                return create_internal_err()
+ 
+-        res: NotebookResult = excinfo.value.args[0]
+-        if isinstance(res.error, type(None)):
+-            return create_internal_err()
++            error: NotebookError = res.error  # type:ignore
++            return NbMakeFailureRepr(error.trace, error.summary)
+ 
+-        error: NotebookError = res.error  # type:ignore
+-        return NbMakeFailureRepr(error.trace, error.summary)
++        def reportinfo(self):  # type:ignore
++            return self.fspath, 0, self.filename  # type:ignore
+ 
+-    def reportinfo(self):  # type:ignore
+-        return self.fspath, 0, self.filename  # type:ignore
++    globals()["NbMakeFailureRepr"] = NbMakeFailureRepr
++    globals()["NotebookFile"] = NotebookFile
++    globals()["NotebookItem"] = NotebookItem
+diff --git a/src/nbmake/pytest_plugin.py b/src/nbmake/pytest_plugin.py
+index ae2f2ac..1a14cb2 100644
+--- a/src/nbmake/pytest_plugin.py
++++ b/src/nbmake/pytest_plugin.py
+@@ -5,10 +5,6 @@ from importlib.metadata import version
+ from pathlib import Path
+ from typing import Any, Optional
+ 
+-from pytest import ExitCode
+-
+-from .pytest_items import NotebookFile
+-
+ 
+ def pytest_addoption(parser: Any):
+     # See https://bugs.python.org/issue37373 and
+@@ -60,17 +56,23 @@ ver: int = int(version("pytest")[0])
+ if ver < 7:
+ 
+     def pytest_collect_file(path: str, parent: Any) -> Optional[Any]:
++        from .pytest_items import NotebookFile
++
+         if _should_collect(Path(path), parent.config.option.nbmake):
+             return NotebookFile.from_parent(parent, fspath=path)
+ 
+ else:
+ 
+     def pytest_collect_file(file_path: Path, parent: Any) -> Optional[Any]:
++        from .pytest_items import NotebookFile
++
+         if _should_collect(file_path, parent.config.option.nbmake):
+             return NotebookFile.from_parent(parent, path=file_path)
+ 
+ 
+ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any):
++    from pytest import ExitCode
++
+     if config.option.nbmake:
+         # this message can be disabled with pytest --no-summary
+         # but let us know if it is annoying you

@@ -1,0 +1,56 @@
+diff --git a/omniduct/utils/dependencies.py b/omniduct/utils/dependencies.py
+index 38060f4..c0932a3 100644
+--- a/omniduct/utils/dependencies.py
++++ b/omniduct/utils/dependencies.py
+@@ -2,7 +2,6 @@ import importlib
+ import re
+ from typing import Optional
+ 
+-import packaging.requirements
+ 
+ from omniduct._version import __optional_dependencies__
+ from omniduct.utils.debug import logger
+@@ -40,9 +39,13 @@ def check_dependencies(protocols, message=None):
+         package_name = m.group(0)
+         accept_any_version = package_name == dep
+ 
+-        dep_req = packaging.requirements.Requirement(dep)
+-        package_name = dep_req.name
+-        package_version = get_package_version(package_name)
++# Parse dependency string to extract name and version requirements
++        # Simple parsing for package name and version specifiers
++        match = re.match(r'^([a-zA-Z0-9_-]+)', dep)
++        if match:
++            package_name = match.group(1)
++        else:
++            package_name = dep
+ 
+         if package_version is None:
+             # Some packages may be available, but not installed. If so, we
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..d3a3744 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,8 +27,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

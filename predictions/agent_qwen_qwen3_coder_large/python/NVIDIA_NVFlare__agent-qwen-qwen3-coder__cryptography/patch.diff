@@ -1,0 +1,53 @@
+diff --git a/nvflare/lighter/utils.py b/nvflare/lighter/utils.py
+index 2bb1b2b..cf37bcc 100644
+--- a/nvflare/lighter/utils.py
++++ b/nvflare/lighter/utils.py
+@@ -12,16 +12,16 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
++import hashlib
+ import json
+ import os
+ import random
+-import shutil
++import ssl
+ from base64 import b64decode, b64encode
++from datetime import datetime, timedelta
++from typing import List, Optional, Tuple
+ 
+ import yaml
+-from cryptography.hazmat.backends import default_backend
+-from cryptography.hazmat.primitives import hashes, serialization
+-from cryptography.hazmat.primitives.asymmetric import padding
+ 
+ from nvflare.lighter.impl.cert import load_crt
+ from nvflare.lighter.tool_consts import NVFLARE_SIG_FILE, NVFLARE_SUBMITTER_CRT_FILE
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..40302e1 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,6 +16,23 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    Flask==3.0.2
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =

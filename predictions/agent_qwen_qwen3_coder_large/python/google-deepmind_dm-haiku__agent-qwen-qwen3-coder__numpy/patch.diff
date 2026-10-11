@@ -1,0 +1,157 @@
+diff --git a/examples/impala/actor.py b/examples/impala/actor.py
+index 3db0860..861cede 100644
+--- a/examples/impala/actor.py
++++ b/examples/impala/actor.py
+@@ -19,7 +19,6 @@ from examples.impala import agent as agent_lib
+ from examples.impala import learner as learner_lib
+ from examples.impala import util
+ import jax
+-import numpy as np
+ 
+ 
+ class Actor:
+diff --git a/examples/impala/actor_test.py b/examples/impala/actor_test.py
+index 42bb120..8ed6b8a 100644
+--- a/examples/impala/actor_test.py
++++ b/examples/impala/actor_test.py
+@@ -24,7 +24,6 @@ from examples.impala import haiku_nets
+ from examples.impala import learner as learner_lib
+ from examples.impala import util
+ import jax
+-import numpy as np
+ import tree
+ 
+ 
+@@ -103,7 +102,7 @@ class CatchTest(absltest.TestCase):
+     received_frame_count, received_params = actor.pull_params()
+     self.assertEqual(received_frame_count, frame_count)
+     tree.assert_same_structure(received_params, params)
+-    tree.map_structure(np.testing.assert_array_almost_equal, received_params,
++    tree.map_structure(lambda x, y: self.assertTrue(np.allclose(x, y, rtol=1e-6)), received_params,
+                        params)
+ 
+   def test_unroll_and_push(self):
+diff --git a/examples/impala/agent.py b/examples/impala/agent.py
+index a406fa7..39e6b06 100644
+--- a/examples/impala/agent.py
++++ b/examples/impala/agent.py
+@@ -22,7 +22,6 @@ import haiku as hk
+ from examples.impala import util
+ import jax
+ import jax.numpy as jnp
+-import numpy as np
+ 
+ AgentOutput = collections.namedtuple("AgentOutput",
+                                      ["policy_logits", "values", "action"])
+diff --git a/examples/impala/util.py b/examples/impala/util.py
+index ce705bb..4111abb 100644
+--- a/examples/impala/util.py
++++ b/examples/impala/util.py
+@@ -17,7 +17,7 @@ import collections
+ 
+ from absl import logging
+ import dm_env
+-import numpy as np
++import jax.numpy as np
+ import tree
+ 
+ # Can represent either a single transition, a trajectory, or a batch of
+diff --git a/examples/impala_lite.py b/examples/impala_lite.py
+index 9ceb89c..1599494 100644
+--- a/examples/impala_lite.py
++++ b/examples/impala_lite.py
+@@ -32,7 +32,7 @@ import dm_env
+ import haiku as hk
+ import jax
+ import jax.numpy as jnp
+-import numpy as np
++import jax.numpy as np
+ import optax
+ import rlax
+ 
+diff --git a/examples/mnist.py b/examples/mnist.py
+index 0df34d0..a47c63b 100644
+--- a/examples/mnist.py
++++ b/examples/mnist.py
+@@ -21,7 +21,7 @@ from absl import app
+ import haiku as hk
+ import jax
+ import jax.numpy as jnp
+-import numpy as np
++import jax.numpy as np
+ import optax
+ import tensorflow_datasets as tfds
+ 
+diff --git a/examples/mnist_pruning.py b/examples/mnist_pruning.py
+index 2bb95e5..f455f66 100644
+--- a/examples/mnist_pruning.py
++++ b/examples/mnist_pruning.py
+@@ -22,7 +22,7 @@ from absl import app
+ import haiku as hk
+ import jax
+ import jax.numpy as jnp
+-import numpy as np
++import jax.numpy as np
+ import optax
+ import tensorflow_datasets as tfds
+ 
+diff --git a/examples/transformer/dataset.py b/examples/transformer/dataset.py
+index 68fc841..e39b962 100644
+--- a/examples/transformer/dataset.py
++++ b/examples/transformer/dataset.py
+@@ -19,7 +19,7 @@ import itertools
+ import random
+ from typing import NamedTuple, TypeVar
+ 
+-import numpy as np
++import jax.numpy as np
+ 
+ VOCAB_SIZE = 128  # Number of ASCII code points.
+ PAD_TOKEN = 0
+diff --git a/examples/transformer/model.py b/examples/transformer/model.py
+index 3f09c51..656e1cb 100644
+--- a/examples/transformer/model.py
++++ b/examples/transformer/model.py
+@@ -27,7 +27,7 @@ from typing import Optional
+ 
+ import haiku as hk
+ import jax
+-import numpy as np
++import jax.numpy as np
+ 
+ 
+ def _layer_norm(x: jax.Array) -> jax.Array:
+diff --git a/haiku/_src/base_test.py b/haiku/_src/base_test.py
+index 7ffb541..c2ebfe0 100644
+--- a/haiku/_src/base_test.py
++++ b/haiku/_src/base_test.py
+@@ -25,7 +25,7 @@ from haiku._src import config
+ from haiku._src import test_utils
+ import jax
+ import jax.numpy as jnp
+-import numpy as np
++import jax.numpy as np
+ 
+ # TODO(tomhennigan) Improve test coverage.
+ 
+diff --git a/haiku/_src/initializers.py b/haiku/_src/initializers.py
+index ab6bb49..ce587eb 100644
+--- a/haiku/_src/initializers.py
++++ b/haiku/_src/initializers.py
+@@ -21,7 +21,7 @@ from haiku._src import base
+ from haiku._src.typing import Initializer
+ import jax
+ import jax.numpy as jnp
+-import numpy as np
++import jax.numpy as np
+ 
+ 
+ # If you are forking replace this block with `import haiku as hk`.
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..e3a4823 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,3 @@
++absl-py>=0.7.1
++jmp>=0.0.2
++tabulate>=0.8.9

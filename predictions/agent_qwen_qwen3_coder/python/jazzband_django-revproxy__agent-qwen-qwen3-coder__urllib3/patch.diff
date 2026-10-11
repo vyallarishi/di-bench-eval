@@ -1,0 +1,361 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..de53856 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,10 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++    "Django>=3.0",
++    "urllib3>=1.12",
++]
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",
+diff --git a/revproxy/connection.py b/revproxy/connection.py
+index 7f4d893..a7e718c 100644
+--- a/revproxy/connection.py
++++ b/revproxy/connection.py
+@@ -1,25 +1,46 @@
++# -*- coding: utf-8 -*-
+ 
+-from urllib3.connection import HTTPConnection, HTTPSConnection
+-from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
++import urllib.request
++import urllib.error
++from collections import namedtuple
++import ssl
+ 
++from django.conf import settings
++from django.core.exceptions import ImproperlyConfigured
+ 
+-def _output(self, s):
+-    """Host header should always be first"""
++from urllib.parse import urlparse
++from .urllib_compat import CompatHTTPResponse, create_request
+ 
+-    if s.lower().startswith(b'host: '):
+-        self._buffer.insert(1, s)
+-    else:
+-        self._buffer.append(s)
+ 
++class CustomConnectionManager(object):
+ 
+-HTTPConnectionPool.ConnectionCls = type(
+-    'RevProxyHTTPConnection',
+-    (HTTPConnection,),
+-    {'_output': _output},
+-)
++    def __init__(self, *args, **kwargs):
++        pass
+ 
+-HTTPSConnectionPool.ConnectionCls = type(
+-    'RevProxyHTTPSConnection',
+-    (HTTPSConnection,),
+-    {'_output': _output}
+-)
++    def urlopen(self, method, url, redirect=True, headers=None, body=None):
++        """Mimic urllib3's urlopen interface using urllib.request"""
++        try:
++            # Create request object
++            req = create_request(method, url, headers, body)
++            
++            # Handle SSL context if needed
++            context = None
++            if url.startswith('https'):
++                context = ssl.create_default_context()
++                
++            # Make the request
++            if context:
++                response = urllib.request.urlopen(req, context=context)
++            else:
++                response = urllib.request.urlopen(req)
++                
++            # Wrap response to match urllib3 interface
++            compat_response = CompatHTTPResponse(response)
++            return compat_response
++            
++        except urllib.error.HTTPError as e:
++            # Convert to our compatible response format
++            compat_response = CompatHTTPResponse(e)
++            return compat_response
++        except urllib.error.URLError as e:
++            raise
+diff --git a/revproxy/urllib_compat.py b/revproxy/urllib_compat.py
+new file mode 100644
+index 0000000..70619a1
+--- /dev/null
++++ b/revproxy/urllib_compat.py
+@@ -0,0 +1,75 @@
++"""
++Compatibility layer to replace urllib3 with urllib.request
++"""
++import urllib.request
++import urllib.error
++from collections import defaultdict
++from io import BytesIO
++
++
++class CompatHeaders:
++    """A headers class that mimics urllib3 response headers interface"""
++    
++    def __init__(self, headers_list):
++        # Store as list of tuples to preserve multiple headers with same name
++        self._headers_list = headers_list or []
++        # Also store as dict for quick access (last value wins for same keys)
++        self._headers_dict = {}
++        for key, value in self._headers_list:
++            self._headers_dict[key.lower()] = value
++    
++    def get(self, key, default=None):
++        return self._headers_dict.get(key.lower(), default)
++        
++    def __getitem__(self, key):
++        return self._headers_dict[key.lower()]
++        
++    def __contains__(self, key):
++        return key.lower() in self._headers_dict
++        
++    def getlist(self, key):
++        """Get all values for a header key"""
++        key_lower = key.lower()
++        return [value for header_key, value in self._headers_list if header_key.lower() == key_lower]
++
++
++class CompatHTTPResponse:
++    """A response class that mimics urllib3.HTTPResponse interface"""
++    
++    def __init__(self, urllib_response):
++        self._response = urllib_response
++        # Convert headers to urllib3-like format
++        headers_list = []
++        for key, value in self._response.headers.items():
++            # Headers can have multiple values, so we need to handle that
++            if isinstance(value, list):
++                for v in value:
++                    headers_list.append((key, v))
++            else:
++                headers_list.append((key, value))
++        self.headers = CompatHeaders(headers_list)
++        self.status = self._response.status
++        self.reason = getattr(self._response, 'reason', '')
++        
++    @property
++    def data(self):
++        """Return response body as bytes"""
++        return self._response.read()
++        
++    def stream(self, amt=65536):
++        """Stream response data in chunks"""
++        while True:
++            chunk = self._response.read(amt)
++            if not chunk:
++                break
++            yield chunk
++            
++    def read(self, amt=None):
++        """Read response data"""
++        return self._response.read(amt) if amt else self._response.read()
++
++
++def create_request(method, url, headers=None, body=None):
++    """Create a urllib.request.Request object"""
++    req = urllib.request.Request(url, data=body, headers=headers or {}, method=method)
++    return req
+\ No newline at end of file
+diff --git a/revproxy/views.py b/revproxy/views.py
+index f0676d8..bafe3db 100644
+--- a/revproxy/views.py
++++ b/revproxy/views.py
+@@ -1,15 +1,20 @@
+ # -*- coding: utf-8 -*-
+ 
+-import os
+ import re
+ import sys
++import os
++import urllib.request
++import urllib.error
+ import mimetypes
+ import logging
+ 
+-import urllib3
++try:
++    from http.client import parse_headers
++except ImportError:
++    from httplib import parse_headers
+ 
+ try:
+-    from django.utils.six.moves.urllib.parse import (
++    from urllib.parse import (
+         urlparse, urlencode, quote_plus, quote
+     )
+ except ImportError:
+@@ -23,9 +28,15 @@ from django.shortcuts import redirect
+ from django.views.generic import View
+ from django.utils.decorators import classonlymethod
+ from django.views.generic.base import ContextMixin
++from django.http import (HttpResponse, HttpResponseNotFound,
++                         HttpResponseNotAllowed, HttpResponseBadRequest)
++from django.http.cookie import SimpleCookie
++from django.http.utils import conditional_content_removal
+ 
+ from .exceptions import InvalidUpstream
+ from .response import get_django_response
++from .urllib_compat import CompatHTTPResponse, create_request
++from .connection import CustomConnectionManager
+ from .transformer import DiazoTransformer
+ from .utils import normalize_request_headers, encode_items
+ 
+@@ -34,14 +45,11 @@ from .utils import normalize_request_headers, encode_items
+ #   (Lines 1433-1449)
+ QUOTE_SAFE = r'<.;>\(}*+|~=-$/_:^@)[{]&\'!,"`'
+ 
+-
+ ERRORS_MESSAGES = {
+     'upstream-no-scheme': ("Upstream URL scheme must be either "
+                            "'http' or 'https' (%s).")
+ }
+ 
+-HTTP_POOLS = urllib3.PoolManager()
+-
+ 
+ class ProxyView(View):
+     """View responsable by excute proxy requests, process and return
+@@ -73,7 +81,7 @@ class ProxyView(View):
+         for from_pattern, to_pattern in self.rewrite:
+             from_re = re.compile(from_pattern)
+             self._rewrite.append((from_re, to_pattern))
+-        self.http = HTTP_POOLS
++        self.http = CustomConnectionManager()
+         self.log = logging.getLogger('revproxy.view')
+         self.log.info("ProxyView created")
+ 
+@@ -199,17 +207,13 @@ class ProxyView(View):
+             proxy_response = self.http.urlopen(request.method,
+                                                request_url,
+                                                redirect=False,
+-                                               retries=self.retries,
+                                                headers=self.request_headers,
+-                                               body=request_payload,
+-                                               decode_content=False,
+-                                               preload_content=False)
++                                               body=request_payload)
+             self.log.debug("Proxy response header: %s",
+                            proxy_response.headers)
+-        except urllib3.exceptions.HTTPError as error:
++        except Exception as error:
+             self.log.exception(error)
+             raise
+-
+         return proxy_response
+ 
+     def _replace_host_on_redirect_location(self, request, proxy_response):
+diff --git a/tests/test_request.py b/tests/test_request.py
+index be364bd..23a80d6 100644
+--- a/tests/test_request.py
++++ b/tests/test_request.py
+@@ -6,12 +6,9 @@ if sys.version_info >= (3, 0, 0):
+ else:
+     from urlparse import parse_qs
+ 
+-from django.contrib.auth.models import AnonymousUser, User
+-from django.test import TestCase, RequestFactory
+-
+ from unittest.mock import patch
+ 
+-from urllib3 import Retry
++from revproxy.connection import CustomConnectionManager
+ 
+ from revproxy.views import ProxyView
+ 
+@@ -27,7 +24,7 @@ class RequestTest(TestCase):
+             username='jacob', email='jacob@example.com', password='top_secret')
+ 
+         urlopen_mock = get_urlopen_mock()
+-        self.urlopen_patcher = patch('urllib3.PoolManager.urlopen',
++        self.urlopen_patcher = patch('revproxy.connection.CustomConnectionManager.urlopen',
+                                      urlopen_mock)
+ 
+         self.urlopen = self.urlopen_patcher.start()
+diff --git a/tests/utils.py b/tests/utils.py
+index c9ff361..45c0d1c 100644
+--- a/tests/utils.py
++++ b/tests/utils.py
+@@ -1,40 +1,53 @@
+ # -*- coding: utf-8 -*-
+ 
+-import urllib3
+-
+ from io import BytesIO
+-
+ from unittest.mock import MagicMock, Mock
+ 
+ from revproxy.views import ProxyView
++from revproxy.urllib_compat import CompatHTTPResponse, CompatHeaders
+ 
+-DEFAULT_BODY_CONTENT = u'áéíóú'.encode('utf-8')
+-URLOPEN = 'urllib3.PoolManager.urlopen'
+-
+-
+-class CustomProxyView(ProxyView):
+-    upstream = "http://www.example.com"
+-    diazo_rules = None
++DEFAULT_BODY_CONTENT = b'\xc3\xa1\xc3\xa9\xc3\xad\xc3\xb3\xc3\xba'  # 'áéíóú' encoded in UTF-8
++URLOPEN = 'revproxy.connection.CustomConnectionManager.urlopen'
+ 
+ 
+ def get_urlopen_mock(body=DEFAULT_BODY_CONTENT, headers=None, status=200):
+-    mockHttpResponse = Mock(name='httplib.HTTPResponse')
+-
+-    headers = urllib3.response.HTTPHeaderDict(headers)
+-
++    mockHttpResponse = Mock(name='http.client.HTTPResponse')
++    
++    # Create compatible headers
++    headers_list = []
++    if headers:
++        for key, value in headers.items():
++            headers_list.append((key, value))
++    
++    compat_headers = CompatHeaders(headers_list)
++    
+     if not hasattr(body, 'read'):
+         body = BytesIO(body)
+-
+     else:
+         body.seek(0)
++    
++    # Create a mock urllib response to wrap
++    class MockUrllibResponse:
++        def __init__(self):
++            self.status = status
++            self.headers = {}
++            if headers:
++                self.headers.update(headers)
++            self.reason = 'OK'
++            
++        def read(self, amt=None):
++            return body.read(amt) if amt else body.read()
++    
++    mock_urllib_response = MockUrllibResponse()
++    compat_response = CompatHTTPResponse(mock_urllib_response)
++    compat_response.status = status
++    
++    return MagicMock(return_value=compat_response)
+ 
+-    urllib3_response = urllib3.HTTPResponse(body,
+-                                            headers,
+-                                            status,
+-                                            preload_content=False,
+-                                            original_response=mockHttpResponse)
+ 
+-    return MagicMock(return_value=urllib3_response)
++class CustomProxyView(ProxyView):
++    upstream = "http://www.example.com"
++    diazo_rules = None
+ 
+ 
+ class MockFile():

@@ -1,0 +1,100 @@
+diff --git a/IAMActionHunter/lib/create_csv.py b/IAMActionHunter/lib/create_csv.py
+index 59c944e..b01cd79 100644
+--- a/IAMActionHunter/lib/create_csv.py
++++ b/IAMActionHunter/lib/create_csv.py
+@@ -1,4 +1,4 @@
+-import pandas as pd
++import csv
+ import os
+ 
+ 
+@@ -10,24 +10,19 @@ def process_json_and_append_to_csv(json_data, csv_file, principal):
+     returns: None
+     """
+ 
+-    # Load JSON data into a Python dictionary
+-    # data = json.loads(json_data)
++    # Define the CSV fieldnames
++    fieldnames = [
++        "Principal",
++        "Allowed Action",
++        "Denied Action",
++        "Resource",
++        "Conditions",
++    ]
+ 
+-    # Create an empty DataFrame with the required columns
+-    df = pd.DataFrame(
+-        columns=[
+-            "Principal",
+-            "Allowed Action",
+-            "Denied Action",
+-            "Resource",
+-            "Conditions",
+-        ]
+-    )
+-
+-    # Create a list to store DataFrame rows
++    # Create a list to store rows
+     rows = []
+ 
+-    # Populate the DataFrame with the JSON data
++    # Populate the rows with the JSON data
+     for action in json_data:
+         for allowed_resource in json_data[action]["Allow_resources"]:
+             rows.append(
+@@ -51,11 +46,16 @@ def process_json_and_append_to_csv(json_data, csv_file, principal):
+                 }
+             )
+ 
+-    # Concatenate the rows to the DataFrame
+-    df = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
+-
+-    # Check if the CSV file exists, and write the header if necessary
+-    if not os.path.isfile(csv_file):
+-        df.to_csv(csv_file, index=False, mode="w", header=True)
+-    else:
+-        df.to_csv(csv_file, index=False, mode="a", header=False)
++    # Check if the CSV file exists to determine if we need to write the header
++    file_exists = os.path.isfile(csv_file)
++    
++    # Write to CSV file
++    with open(csv_file, mode="a" if file_exists else "w", newline="", encoding="utf-8") as f:
++        writer = csv.DictWriter(f, fieldnames=fieldnames)
++        
++        # Write header only if file doesn't exist
++        if not file_exists:
++            writer.writeheader()
++        
++        # Write all rows
++        writer.writerows(rows)
+diff --git a/pyproject.toml b/pyproject.toml
+index c6cdba2..9bd8a98 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,6 +8,9 @@ packages = [{include = "IAMActionHunter"},{include="lib", from="IAMActionHunter"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++policyuniverse = "^1.5.0.20220613"
++boto3 = "^1.26.87"
++colorama = "^0.4.6"
+ 
+ [tool.poetry.group.dev]
+ optional = true
+diff --git a/tests/test_create_csv.py b/tests/test_create_csv.py
+index 42309ea..76ee3b3 100644
+--- a/tests/test_create_csv.py
++++ b/tests/test_create_csv.py
+@@ -1,8 +1,7 @@
++import csv
+ import os
+-
+-from lib.create_csv import process_json_and_append_to_csv
+-
+-
++import tempfile
++from IAMActionHunter.lib.create_csv import process_json_and_append_to_csv
+ def test_process_json_and_append_to_csv():
+     json_data = {
+         "someAction": {

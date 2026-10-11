@@ -1,0 +1,42 @@
+diff --git a/pdftext/pdf/chars.py b/pdftext/pdf/chars.py
+index 9a52f1f..0dbebed 100644
+--- a/pdftext/pdf/chars.py
++++ b/pdftext/pdf/chars.py
+@@ -1,14 +1,9 @@
++import fitz as pymupdf
+ import math
+-from collections import defaultdict
+ from typing import Dict, List
+ 
+-import pypdfium2.raw as pdfium_c
+-from pypdfium2 import PdfiumError
+-
+-from pdftext.pdf.utils import get_fontname, pdfium_page_bbox_to_device_bbox, page_bbox_to_device_bbox
+ from pdftext.settings import settings
+ 
+-
+ def update_previous_fonts(char_infos: List, i: int, prev_fontname: str, prev_fontflags: int, text_page, fontname_sample_freq: int):
+     min_update = max(0, i - fontname_sample_freq) # Minimum index to update
+     for j in range(i-1, min_update, -1): # Goes from i to min_update
+@@ -108,4 +103,4 @@ def get_pdfium_chars(pdf, page_range, flatten_pdf, fontname_sample_freq=settings
+         text_chars["chars"] = char_infos
+         text_chars["total_chars"] = total_chars
+         blocks.append(text_chars)
+-    return blocks
+\ No newline at end of file
++    return blocks
+diff --git a/pyproject.toml b/pyproject.toml
+index 649b3d4..ff75626 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,6 +18,10 @@ include = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.10"
++pypdfium2 = "^4.29.0"
++pydantic = "^2.7.1"
++pydantic-settings = "^2.2.1"
++onnxruntime = "^1.19.2"
+ 
+ [tool.poetry.group.dev.dependencies]
+ pymupdf = "^1.24.2"

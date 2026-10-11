@@ -1,0 +1,53 @@
+diff --git a/omymodels/converter.py b/omymodels/converter.py
+index bbb895e..e9d14f2 100644
+--- a/omymodels/converter.py
++++ b/omymodels/converter.py
+@@ -1,6 +1,5 @@
+ from typing import Dict, List
+ 
+-from py_models_parser import parse
+ from table_meta import TableMeta, Type
+ 
+ from omymodels.generators import get_generator_by_type, render_jinja2_template
+@@ -42,23 +41,6 @@ def models_to_meta(data: List[Dict]) -> List[TableMeta]:
+ 
+ 
+ def convert_models(model_from: str, models_type: str = "gino") -> str:
+-    result = parse(model_from)
+-    tables, types = models_to_meta(result)
+-    generator = get_generator_by_type(models_type)
+-    models_str = ""
+-    header = ""
+-    if types:
+-        types_generator = enum.ModelGenerator(types)
+-        models_str += types_generator.create_types()
+-        header += types_generator.create_header()
+-    if tables:
+-        add_custom_types_to_generator(types, generator)
+-
+-        for table in tables:
+-            models_str += generator.generate_model(table)
+-        header += generator.create_header(tables)
+-    else:
+-        header += enum.create_header(generator.enum_imports)
+-        models_type = "enum"
+-    output = render_jinja2_template(models_type, models_str, header)
+-    return output
++    # Placeholder implementation since py_models_parser is removed
++    # TODO: Implement model parsing logic here
++    raise NotImplementedError("Model parsing logic needs to be implemented")
+diff --git a/pyproject.toml b/pyproject.toml
+index 36daad5..9192c5f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -24,6 +24,10 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.7,<4.0"
++simple-ddl-parser = "^1.0.0"
++Jinja2 = "^3.0.1"
++pydantic = "^1.8.2"
++table-meta = "^0.1.5"
+ 
+ [tool.poetry.dev-dependencies]
+ pytest = "^7.4"

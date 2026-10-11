@@ -1,0 +1,108 @@
+diff --git a/cascades/_src/distributions/base.py b/cascades/_src/distributions/base.py
+index b6a21e5..7ca5c20 100644
+--- a/cascades/_src/distributions/base.py
++++ b/cascades/_src/distributions/base.py
+@@ -1,4 +1,5 @@
+-# Copyright 2024 The cascades Authors.
++from typing import Any, Callable, Dict, List, Optional, Text, Union
++import numpy
+ #
+ # Licensed under the Apache License, Version 2.0 (the "License");
+ # you may not use this file except in compliance with the License.
+@@ -21,8 +22,6 @@ import math
+ from typing import Any, Dict, Iterable, Optional, Tuple, Union
+ 
+ import cachetools
+-import jax
+-import jax.numpy as jnp
+ import numpy as np
+ from numpyro import distributions as np_dists
+ import shortuuid
+@@ -55,7 +54,7 @@ class Distribution:
+ 
+   def log_prob(self, value):
+     """Score a sample by log probability under the distribution."""
+-    return jax.numpy.log(self.prob(value))
++    return np.log(self.prob(value))
+ 
+   def score(self, value):
+     """Score sample. Default to `log_prob` but may be any unnormalized value."""
+@@ -83,7 +82,7 @@ class RandomSample:
+   # stand in for kw_only in py3.10
+   capture: Any = dataclasses.field(repr=False, default=None)
+ 
+-  log_p: Optional[Union[float, jax.Array]] = None
++  log_p: Optional[Union[float, numpy.ndarray]] = None
+   value: Any = None
+   dist: Optional[Union[Distribution, functools.partial]] = None
+ 
+@@ -114,11 +113,11 @@ class RandomSample:
+ 
+ # TODO(ddohan): Consider moving get_rng to separate file.
+ def get_rng(seed):
+-  """Get jax prng key from seed. Does nothing if seed is already a PRNGKey."""
++  """Get numpy random generator from seed. Does nothing if seed is already a Generator."""
+   if isinstance(seed, int):
+-    return jax.random.PRNGKey(seed)
++    return numpy.random.default_rng(seed)
+ 
+-  # Seed is already a jax.random.PRNGKey, so we just pass it through.
++  # Seed is already a numpy.random.Generator, so we just pass it through.
+   return seed
+ 
+ 
+diff --git a/cascades/_src/handlers.py b/cascades/_src/handlers.py
+index a120a80..a53b285 100644
+--- a/cascades/_src/handlers.py
++++ b/cascades/_src/handlers.py
+@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Text, Type, Union
+ 
+ from cascades._src.distributions import base as dists
+ import immutabledict
+-import jax
++import numpy
+ 
+ Distribution = dists.Distribution
+ RandomSample = dists.RandomSample
+@@ -133,7 +133,9 @@ def rejection_sample(fn, seed, max_attempts, *args, **kwargs):
+   """Sample repeatedly until a success."""
+   rng = dists.get_rng(seed)
+   for i in range(max_attempts):
+-    rng, subrng = jax.random.split(rng)
++    seeds = rng.integers(0, 2**31, size=2)
++    rng = numpy.random.default_rng(seeds[0])
++    subrng = numpy.random.default_rng(seeds[1])
+     handlers, result = forward_sample(fn, subrng, *args, **kwargs)
+     observed_likelihood = handlers.observed_likelihood
+     if not math.isinf(observed_likelihood):
+diff --git a/cascades/_src/interpreter.py b/cascades/_src/interpreter.py
+index bd58b27..73b019b 100644
+--- a/cascades/_src/interpreter.py
++++ b/cascades/_src/interpreter.py
+@@ -24,12 +24,12 @@ import math
+ from typing import Any, Dict, Optional
+ 
+ from cascades._src import handlers
+-import jax
++import numpy
+ 
+ 
+ def setup_seed(key_or_seed):
+   if isinstance(key_or_seed, int):
+-    return jax.random.PRNGKey(seed=key_or_seed)
++    return numpy.random.default_rng(key_or_seed)
+   else:
+     return key_or_seed
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..407139b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,6 @@ classifiers = [
+ keywords = []
+ 
+ # pip dependencies of the project
+-dependencies = []
+ 
+ # This is set automatically by flit using `cascades.__version__`
+ dynamic = ["version"]

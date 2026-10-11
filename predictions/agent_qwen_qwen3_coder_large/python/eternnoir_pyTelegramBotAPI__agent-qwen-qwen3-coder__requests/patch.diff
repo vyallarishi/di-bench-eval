@@ -1,0 +1,169 @@
+diff --git a/requirements.txt b/requirements.txt
+index e079f8a..4c76cb4 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1 +1,2 @@
+-pytest
++urllib3>=1.26.15
++aiohttp==3.10.2
+diff --git a/telebot/apihelper.py b/telebot/apihelper.py
+index bc15e93..6d0d427 100644
+--- a/telebot/apihelper.py
++++ b/telebot/apihelper.py
+@@ -8,13 +8,14 @@ try:
+ except ImportError:
+     import json
+ 
+-import requests
+-from requests.exceptions import HTTPError, ConnectionError, Timeout
+-from requests.adapters import HTTPAdapter
++import urllib3
++from urllib3.exceptions import HTTPError, MaxRetryError
++from urllib3.util.retry import Retry
++from urllib3.poolmanager import PoolManager
+ 
+ try:
+     # noinspection PyUnresolvedReferences
+-    from requests.packages.urllib3 import fields
++    from urllib3 import fields
+     format_header_param = fields.format_header_param
+ except ImportError:
+     format_header_param = None
+@@ -61,11 +62,10 @@ def _get_req_session(reset=False):
+ 
+     if SESSION_TIME_TO_LIVE == 0:
+         # Session is one-time use
+-        return requests.sessions.Session()
++        return urllib3.PoolManager()
+     else:
+         # Session lives some time or forever once created. Default
+-        return util.per_thread('req_session', lambda: session if session else requests.sessions.Session(), reset)
+-
++        return util.per_thread('req_session', lambda: session if session else urllib3.PoolManager(), reset)
+ 
+ def _make_request(token, method_name, method='get', params=None, files=None):
+     """
+@@ -123,78 +123,75 @@ def _make_request(token, method_name, method='get', params=None, files=None):
+     elif RETRY_ON_ERROR and RETRY_ENGINE == 1:
+         got_result = False
+         current_try = 0
+-        while not got_result and current_try<MAX_RETRIES-1:
+-            current_try+=1
++        while not got_result and current_try < MAX_RETRIES - 1:
++            current_try += 1
+             try:
+                 result = _get_req_session().request(
+-                    method, request_url, params=params, files=files,
++                    method, request_url, fields=params, files=files,
+                     timeout=(connect_timeout, read_timeout), proxies=proxy)
+                 got_result = True
+             except HTTPError:
+                 logger.debug("HTTP Error on {0} method (Try #{1})".format(method_name, current_try))
+                 time.sleep(RETRY_TIMEOUT)
+-            except ConnectionError:
++            except MaxRetryError:
+                 logger.debug("Connection Error on {0} method (Try #{1})".format(method_name, current_try))
+                 time.sleep(RETRY_TIMEOUT)
+-            except Timeout:
++            except TimeoutError:
+                 logger.debug("Timeout Error on {0} method (Try #{1})".format(method_name, current_try))
+                 time.sleep(RETRY_TIMEOUT)
+         if not got_result:
+             result = _get_req_session().request(
+-                    method, request_url, params=params, files=files,
++                    method, request_url, fields=params, files=files,
+                     timeout=(connect_timeout, read_timeout), proxies=proxy)
+     elif RETRY_ON_ERROR and RETRY_ENGINE == 2:
+         http = _get_req_session()
+-        # noinspection PyUnresolvedReferences
+-        retry_strategy = requests.packages.urllib3.util.retry.Retry(
++        retry_strategy = Retry(
+             total=MAX_RETRIES,
+             allowed_methods=None,
+             backoff_factor=RETRY_TIMEOUT,
+             backoff_max=RETRY_TIMEOUT
+         )
+-        adapter = HTTPAdapter(max_retries=retry_strategy)
++        adapter = urllib3.adapters.HTTPAdapter(max_retries=retry_strategy)
+         for prefix in ('http://', 'https://'):
+             http.mount(prefix, adapter)
+         result = http.request(
+-            method, request_url, params=params, files=files,
++            method, request_url, fields=params, files=files,
+             timeout=(connect_timeout, read_timeout), proxies=proxy)
+     else:
+         result = _get_req_session().request(
+-            method, request_url, params=params, files=files,
++            method, request_url, fields=params, files=files,
+             timeout=(connect_timeout, read_timeout), proxies=proxy)
+     
+-    logger.debug("The server returned: '{0}'".format(result.text.encode('utf8')))
++    logger.debug("The server returned: '{0}'".format(result.data.decode('utf8')))
+     
+-    json_result = _check_result(method_name, result)
+-    if json_result:
+-        return json_result['result']
+-
++    json_result = util.json.loads(result.data.decode('utf8'))
++    if not json_result['ok']:
++        raise ApiTelegramException(method_name, result, json_result)
+ 
+ def _check_result(method_name, result):
+     """
+     Checks whether `result` is a valid API response.
+     A result is considered invalid if:
+         - The server returned an HTTP response code other than 200
+-        - The content of the result is invalid JSON.
+-        - The method call was unsuccessful (The JSON 'ok' field equals False)
+-
+-    :raises ApiException: if one of the above listed cases is applicable
++        - The server returned an invalid JSON response
++        - The server returned a JSON object without the "ok" field
+     :param method_name: The name of the method called
+-    :param result: The returned result of the method request
+-    :return: The result parsed to a JSON dictionary.
++    :param result: The response from the server
++    :raises ApiException: If the result is invalid
++    :return: The result if it is valid
+     """
++    if result.status != 200:
++        raise ApiHTTPException(method_name, result)
++    
+     try:
+-        result_json = result.json()
+-    except:
+-        if result.status_code != 200:
+-            raise ApiHTTPException(method_name, result)
+-        else:
+-            raise ApiInvalidJSONException(method_name, result)
+-    else:    
+-        if not result_json['ok']:
+-            raise ApiTelegramException(method_name, result, result_json)
+-            
+-        return result_json
++        json_result = util.json.loads(result.data.decode('utf8'))
++    except ValueError:
++        raise ApiInvalidJSONException(method_name, result)
++    
++    if not json_result['ok']:
++        raise ApiTelegramException(method_name, result, json_result)
++    
++    return json_result
+ 
+ 
+ def get_me(token):
+@@ -232,11 +229,11 @@ def download_file(token, file_path):
+         # noinspection PyUnresolvedReferences
+         url =  FILE_URL.format(token, file_path)
+         
+-    result = _get_req_session().get(url, proxies=proxy)
+-    if result.status_code != 200:
++    result = _get_req_session().request('GET', url, fields=None, timeout=(connect_timeout, read_timeout), proxies=proxy)
++    if result.status != 200:
+         raise ApiHTTPException('Download file', result)
+         
+-    return result.content
++    return result.data
+ 
+ 
+ def send_message(

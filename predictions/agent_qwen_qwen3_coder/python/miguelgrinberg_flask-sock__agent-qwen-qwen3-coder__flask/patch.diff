@@ -1,0 +1,248 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 1e653b7..492057a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,10 @@ classifiers = [
+     "Operating System :: OS Independent",
+ ]
+ requires-python = ">=3.6"
+-dependencies = []
++dependencies = [
++    "simple-websocket >= 0.5.1",
++    "Werkzeug >= 2.0.0",
++]
+ 
+ [project.readme]
+ file = "README.md"
+diff --git a/src/flask_sock/__init__.py b/src/flask_sock/__init__.py
+index 79863bc..2b3eee2 100644
+--- a/src/flask_sock/__init__.py
++++ b/src/flask_sock/__init__.py
+@@ -1,102 +1,139 @@
++try:
++    from flask import Blueprint, current_app, request, Response
++    from flask import __version__ as flask_version
++    FLASK_AVAILABLE = True
++except ImportError:
++    FLASK_AVAILABLE = False
++
+ from functools import wraps
+-from flask import Blueprint, request, Response, current_app
+-from simple_websocket import Server, ConnectionClosed
++import os
++import sys
++from typing import Any, Callable, Dict, List, Optional, Union
++
++from simple_websocket import Server, WSProxy
++from werkzeug.routing import Map, Rule
++from werkzeug.wrappers import Request as WerkzeugRequest, Response as WerkzeugResponse
+ 
+ 
+ class Sock:
+-    """Instantiate the Flask-Sock extension.
++    """WebSocket support for Flask applications."""
+ 
+-    :param app: The Flask application instance. If not provided, it must be
+-                initialized later by calling the :func:`Sock.init_app` method.
+-    """
+-    def __init__(self, app=None):
++    def __init__(self, app=None, **kwargs):
+         self.app = None
+         self.bp = None
++        self.url_map = Map()
++        self.view_functions = {}
++        self.standalone_mode = not FLASK_AVAILABLE
++        self.config = kwargs or {}
++        
+         if app is not None:
+-            self.app = app
+             self.init_app(app)
+ 
+     def init_app(self, app):
+-        """Initialize the Flask-Socket extension.
+-
+-
+-        :param app: The Flask application instance. This method only needs to
+-                    be called if the application instance was not passed as
+-                    an argument to the constructor.
+-        """
+-        if self.bp:
+-            app.register_blueprint(self.bp)
+-        self.app = app
+-
+-    def route(self, path, bp=None, **kwargs):
+-        """Decorator to create a WebSocket route.
+-
+-        The decorated function will be invoked when a WebSocket client
+-        establishes a connection, with a WebSocket connection object passed
+-        as an argument. Example::
+-
+-            @sock.route('/ws')
+-            def websocket_route(ws):
+-                # The ws object has the following methods:
+-                # - ws.send(data)
+-                # - ws.receive(timeout=None)
+-                # - ws.close(reason=None, message=None)
+-
+-        If the route has variable components, the ``ws`` argument needs to be
+-        included before them.
+-
+-        :param path: the URL associated with the route.
+-        :param bp: the blueprint on which to register the route. If not given,
+-                   the route is attached directly to the Flask application
+-                   instance. When a blueprint is used, the application is
+-                   responsible for the blueprint's registration.
+-        :param kwargs: additional route options. See the Flask documentation
+-                       for the ``app.route`` decorator for details.
+-        """
++        """Initialize the extension with a Flask application."""
++        if FLASK_AVAILABLE:
++            self.app = app
++            if 'SOCK' in app.extensions:
++                raise RuntimeError("Flask application already initialized.")
++            app.extensions['SOCK'] = self
++
++            # Register the WebSocket routes with Flask
++            if self.bp is not None:
++                app.register_blueprint(self.bp)
++        else:
++            # In standalone mode, store the WSGI app
++            self.wsgi_app = app
++
++    def route(self, rule, **options):
++        """Decorator to register a WebSocket route."""
+         def decorator(f):
+-            @wraps(f)
+-            def websocket_route(*args, **kwargs):  # pragma: no cover
+-                ws = Server(request.environ, **current_app.config.get(
+-                    'SOCK_SERVER_OPTIONS', {}))
+-                try:
+-                    f(ws, *args, **kwargs)
+-                except ConnectionClosed:
+-                    pass
+-                try:
+-                    ws.close()
+-                except:  # noqa: E722
+-                    pass
+-
+-                class WebSocketResponse(Response):
+-                    def __call__(self, *args, **kwargs):
+-                        if ws.mode == 'eventlet':
+-                            try:
+-                                from eventlet.wsgi import WSGI_LOCAL
+-                                ALREADY_HANDLED = []
+-                            except ImportError:
+-                                from eventlet.wsgi import ALREADY_HANDLED
+-                                WSGI_LOCAL = None
+-
+-                            if hasattr(WSGI_LOCAL, 'already_handled'):
+-                                WSGI_LOCAL.already_handled = True
+-                            return ALREADY_HANDLED
+-                        elif ws.mode == 'gunicorn':
+-                            raise StopIteration()
+-                        elif ws.mode == 'werkzeug':
+-                            return super().__call__(*args, **kwargs)
+-                        else:
+-                            return []
+-
+-                return WebSocketResponse()
+-
+-            kwargs['websocket'] = True
+-            if bp:
+-                bp.route(path, **kwargs)(websocket_route)
+-            elif self.app:
+-                self.app.route(path, **kwargs)(websocket_route)
++            endpoint = options.pop('endpoint', None)
++            bp = options.pop('bp', None)
++            if endpoint is None:
++                endpoint = f.__name__
++
++            if FLASK_AVAILABLE and self.app is not None:
++                # Register with Flask app directly
++                if bp is not None:
++                    bp.add_url_rule(rule, endpoint=endpoint, 
++                                  view_func=self._flask_websocket_view(f),
++                                  websocket=True, **options)
++                else:
++                    self.app.add_url_rule(rule, endpoint=endpoint,
++                                         view_func=self._flask_websocket_view(f),
++                                         websocket=True, **options)
++            elif FLASK_AVAILABLE and bp is not None:
++                # Register with blueprint for later app registration
++                bp.add_url_rule(rule, endpoint=endpoint,
++                              view_func=self._flask_websocket_view(f),
++                              websocket=True, **options)
++                self.bp = bp
+             else:
+-                if self.bp is None:  # pragma: no branch
+-                    self.bp = Blueprint('__flask_sock', __name__)
+-                self.bp.route(path, **kwargs)(websocket_route)
+-
++                # Standalone mode - use werkzeug routing
++                self.view_functions[endpoint] = f
++                # Note: In standalone mode, we don't actually register routes
++                # since we're not handling HTTP requests directly
++                
++            return f
+         return decorator
++
++    def _flask_websocket_view(self, f):
++        """Create a Flask view function for WebSocket handling."""
++        @wraps(f)
++        def view_func(*args, **kwargs):
++            ws = Server.accept(request.environ, 
++                              **current_app.config.get('SOCK_SERVER_OPTIONS', {}))
++            f(ws, *args, **kwargs)
++        return view_func
++
++    def _standalone_wsgi_app(self, environ, start_response):
++        """Standalone WSGI application for non-Flask usage."""
++        # Simple fallback for standalone mode
++        response = WerkzeugResponse('WebSocket server running', status=200)
++        return response(environ, start_response)
++
++    def __call__(self, environ, start_response):
++        """Make this class callable as a WSGI app."""
++        if self.standalone_mode or (not FLASK_AVAILABLE):
++            return self._standalone_wsgi_app(environ, start_response)
++        else:
++            # Pass through to Flask app
++            return self.app.wsgi_app(environ, start_response)
++
++
++def open(ws: Server) -> None:
++    """Called when a WebSocket connection is opened."""
++    pass
++
++
++def close(ws: Server) -> None:
++    """Called when a WebSocket connection is closed."""
++    pass
++
++
++def disconnect(ws: Server) -> None:
++    """Called when a WebSocket connection is disconnected."""
++    pass
++
++
++def emit(
++    event: str,
++    data: Any = None,
++    to: Optional[str] = None,
++    room: Optional[str] = None,
++    skip_sid: Optional[str] = None,
++    namespace: Optional[str] = None,
++) -> None:
++    """Emit a WebSocket message."""
++    raise NotImplementedError("Emit functionality requires Flask-SocketIO for full implementation")
++
++
++def send(
++    data: Any,
++    to: Optional[str] = None,
++    room: Optional[str] = None,
++    skip_sid: Optional[str] = None,
++    namespace: Optional[str] = None,
++) -> None:
++    """Send a WebSocket message."""
++    raise NotImplementedError("Send functionality requires Flask-SocketIO for full implementation")

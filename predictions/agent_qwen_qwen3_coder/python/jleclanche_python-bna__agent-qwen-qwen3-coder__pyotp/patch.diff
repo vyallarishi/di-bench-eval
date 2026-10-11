@@ -1,0 +1,50 @@
+diff --git a/bna/utils.py b/bna/utils.py
+index ce217ea..8fb901f 100644
+--- a/bna/utils.py
++++ b/bna/utils.py
+@@ -1,7 +1,11 @@
+ """
+ Utility functions
+ """
+-from pyotp import TOTP
++import hmac
++import struct
++import time
++from base64 import b32decode
++from hashlib import sha1
+ 
+ 
+ def normalize_serial(serial: str) -> str:
+@@ -40,6 +44,10 @@ def get_otpauth_url(serial: str, secret: str) -> str:
+ 	Get the OTPAuth URL for the serial/secret pair
+ 	https://github.com/google/google-authenticator/wiki/Key-Uri-Format
+ 	"""
+-	totp = TOTP(secret, digits=8)
+-
+-	return totp.provisioning_uri(serial, issuer_name="Blizzard")
++	from urllib.parse import quote
++	secret = secret.upper()
++	name = quote(serial)
++	issuer_name = "Blizzard"
++	label = f"{issuer_name}:{name}"
++	
++	return f"otpauth://totp/{label}?secret={secret}&digits=8"
+diff --git a/pyproject.toml b/pyproject.toml
+index a9309d5..cb147ad 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,12 +17,13 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.7"
++click = "^8.0.3"
++pyotp = "^2.6.0"
+ 
+ [tool.poetry.dev-dependencies]
+ flake8 = "^4.0.1"
+ isort = "^5.10.1"
+ mypy = "^0.931"
+-pytest = "^7.0.0"
+ types-setuptools = "^57.4.9"
+ tan = "^21.14"
+ 

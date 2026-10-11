@@ -1,0 +1,165 @@
+diff --git a/setup.py b/setup.py
+index 3a662b6..2f16047 100644
+--- a/setup.py
++++ b/setup.py
+@@ -30,6 +30,11 @@ setuptools.setup(
+     ],
+     python_requires='>=3.7',
+     install_requires=[
++        'httpx',
++        'prompt_toolkit',
++        'python-dateutil',
++        'selenium', 
++        'websockets>=9.0.0'
+     ],
+     extras_require={
+         'dev': [
+diff --git a/tda/auth.py b/tda/auth.py
+index b77deea..4d43e9a 100644
+--- a/tda/auth.py
++++ b/tda/auth.py
+@@ -1,7 +1,7 @@
+ ##########################################################################
+ # Authentication Wrappers
+ 
+-from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
++from httpx import AsyncClient as AsyncOAuth2Client, Client as OAuth2Client
+ from prompt_toolkit import prompt
+ 
+ import json
+@@ -14,7 +14,7 @@ import warnings
+ 
+ from tda.client import AsyncClient, Client
+ from tda.debug import register_redactions
+-from tda.utils import LazyLog
++import warnings
+ 
+ 
+ TOKEN_ENDPOINT = 'https://api.tdameritrade.com/v1/oauth2/token'
+@@ -125,15 +125,30 @@ def __fetch_and_register_token_from_redirect(
+     # synchronous one, the asynchronous requires an async one. The
+     # oauth_client_update_token variable will contain the appropriate one.
+     if asyncio:
+-        async def oauth_client_update_token(t, *args, **kwargs):
+-            update_token(t, *args, **kwargs)  # pragma: no cover
+-        session_class = AsyncOAuth2Client
+-        client_class = AsyncClient
++        data = {
++            'grant_type': 'authorization_code',
++            'access_type': 'offline',
++            'code': authorization_code,
++            'client_id': api_key,
++            'redirect_uri': redirect_uri,
++        }
++        token = handle_token_response(
++            session.post(TOKEN_ENDPOINT, data=data))
+     else:
+         oauth_client_update_token = update_token
+         session_class = OAuth2Client
+         client_class = Client
+ 
++        data = {
++            'grant_type': 'authorization_code',
++            'access_type': 'offline',
++            'code': authorization_code,
++            'client_id': api_key,
++            'redirect_uri': redirect_uri,
++        }
++        token = handle_token_response(
++            session.post(TOKEN_ENDPOINT, data=data))
++
+     # Return a new session configured to refresh credentials
+     return client_class(
+         api_key,
+@@ -144,11 +159,6 @@ def __fetch_and_register_token_from_redirect(
+         token_metadata=metadata_manager, enforce_enums=enforce_enums)
+ 
+ 
+-class RedirectTimeoutError(Exception):
+-    pass
+-
+-
+-class TokenMetadata:
+     '''
+     Provides the functionality required to maintain and update our view of the
+     token's metadata.
+@@ -236,21 +246,23 @@ class TokenMetadata:
+             ' - Update interval is %s seconds',
+                 now, self.creation_timestamp, update_interval_seconds)
+ 
+-        if not (self.creation_timestamp is None
+-                or now - self.creation_timestamp >
+-                update_interval_seconds):
+-            logger.info('Skipping refresh token update')
+-            return None
++    def refresh(self, api_key, enforce_enums=True):
++        old_token = self.token
+ 
+-        old_token = session.token
+         oauth = OAuth2Client(api_key)
++        data = {
++            'grant_type': 'refresh_token',
++            'refresh_token': old_token['refresh_token'],
++            'client_id': api_key,
++        }
++        data = {
++            'grant_type': 'refresh_token',
++            'refresh_token': old_token['refresh_token'],
++            'client_id': api_key,
++        }
+ 
+-        new_token = oauth.fetch_token(
+-            TOKEN_ENDPOINT,
+-            grant_type='refresh_token',
+-            refresh_token=old_token['refresh_token'],
+-            access_type='offline')
+-
++        new_token = handle_token_response(
++            oauth.post(TOKEN_ENDPOINT, data=data))
+         logger.info('Updated refresh token')
+ 
+         self.creation_timestamp = now
+@@ -261,12 +273,13 @@ class TokenMetadata:
+         token_write_func = self.wrapped_token_write_func()
+         token_write_func(new_token)
+ 
+-        session_class = session.__class__
+-        return session_class(
++        return Client(
+             api_key,
+-            token=new_token,
+-            token_endpoint=TOKEN_ENDPOINT,
+-            update_token=token_write_func)
++            OAuth2Client(api_key, token=new_token,
++                         auto_refresh_url=TOKEN_ENDPOINT,
++                         auto_refresh_kwargs={'client_id': api_key},
++                         update_token=token_write_func),
++            token_metadata=self, enforce_enums=enforce_enums)
+ 
+ 
+ # TODO: Raise an exception when passing both token_path and token_write_func
+@@ -384,8 +397,9 @@ def client_from_manual_flow(api_key, redirect_url, token_path,
+     api_key = _normalize_api_key(api_key)
+ 
+     oauth = OAuth2Client(api_key, redirect_uri=redirect_url)
+-    authorization_url, state = oauth.create_authorization_url(
+-        'https://auth.tdameritrade.com/auth')
++    authorization_url = (
++        'https://auth.tdameritrade.com/auth?response_type=code&'
++        'client_id={}&redirect_uri={}').format(api_key, redirect_url)
+ 
+     print('\n**************************************************************\n')
+     print('This is the manual login and token creation flow for tda-api.')
+@@ -421,9 +435,9 @@ def client_from_manual_flow(api_key, redirect_url, token_path,
+ 
+     redirected_url = prompt('Redirect URL> ').strip()
+ 
+-    return __fetch_and_register_token_from_redirect(
+-        oauth, redirected_url, api_key, token_path, token_write_func,
+-        asyncio, enforce_enums=enforce_enums)
++    return __fetch_and_register_token_from_code(
++        api_key, redirected_url, redirect_url, token_path, token_write_func,
++        oauth, asyncio, enforce_enums=enforce_enums)
+ 
+ 
+ def easy_client(api_key, redirect_uri, token_path, webdriver_func=None,

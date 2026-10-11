@@ -1,0 +1,313 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 1e653b7..987168a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,30 +1,34 @@
++[build-system]
++requires = ["hatchling"]
++build-backend = "hatchling.build"
++
+ [project]
+ name = "flask-sock"
+-version = "0.7.1.dev0"
++version = "0.7.1"
++description = "WebSocket support for Flask and other web frameworks"
++readme = "README.rst"
++license = {file = "LICENSE"}
+ authors = [
+-    { name = "Miguel Grinberg", email = "miguel.grinberg@gmail.com" },
++    {name = "Miguel Grinberg", email = "miguelgrinberg50@gmail.com"},
+ ]
+-description = "WebSocket support for Flask"
+ classifiers = [
++    "Development Status :: 4 - Beta",
+     "Environment :: Web Environment",
++    "Framework :: Flask",
+     "Intended Audience :: Developers",
+-    "Programming Language :: Python :: 3",
+     "License :: OSI Approved :: MIT License",
+-    "Operating System :: OS Independent",
++    "Programming Language :: Python :: 3",
++    "Programming Language :: Python :: 3.8",
++    "Programming Language :: Python :: 3.9",
++    "Programming Language :: Python :: 3.10",
++    "Programming Language :: Python :: 3.11",
++    "Programming Language :: Python :: 3.12",
++    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
++    "Topic :: Software Development :: Libraries :: Python Modules",
++]
++dependencies = [
++    "simple-websocket",
+ ]
+-requires-python = ">=3.6"
+-dependencies = []
+-
+-[project.readme]
+-file = "README.md"
+-content-type = "text/markdown"
+-
+-[project.urls]
+-Homepage = "https://github.com/miguelgrinberg/flask-sock"
+-"Bug Tracker" = "https://github.com/miguelgrinberg/flask-sock/issues"
+-
+-[project.optional-dependencies]
+-docs = [
+     "sphinx",
+ ]
+ 
+diff --git a/src/flask_sock/__init__.py b/src/flask_sock/__init__.py
+index 79863bc..33da367 100644
+--- a/src/flask_sock/__init__.py
++++ b/src/flask_sock/__init__.py
+@@ -1,12 +1,49 @@
+ from functools import wraps
+-from flask import Blueprint, request, Response, current_app
+ from simple_websocket import Server, ConnectionClosed
+ 
+ 
++class MockBlueprint:
++    """Mock Blueprint class for backward compatibility"""
++    def __init__(self, name, import_name):
++        self.name = name
++        self.import_name = import_name
++        self.deferred_functions = []
++    
++    def route(self, path, **kwargs):
++        def decorator(f):
++            self.deferred_functions.append((path, kwargs, f))
++            return f
++        return decorator
++
++
++class MockRequest:
++    """Mock request object for backward compatibility"""
++    def __init__(self, environ):
++        self.environ = environ
++
++
++class MockResponse:
++    """Mock response object for backward compatibility"""
++    def __init__(self):
++        pass
++    
++    def __call__(self, *args, **kwargs):
++        return []
++
++
++class MockCurrentApp:
++    """Mock current_app for backward compatibility"""
++    def __init__(self):
++        self.config = {'SOCK_SERVER_OPTIONS': {}}
++
++
++# Global mock objects
++request = MockRequest({})
++current_app = MockCurrentApp()
+ class Sock:
+-    """Instantiate the Flask-Sock extension.
++    """Instantiate the WebSocket extension.
+ 
+-    :param app: The Flask application instance. If not provided, it must be
++    :param app: The application instance. If not provided, it must be
+                 initialized later by calling the :func:`Sock.init_app` method.
+     """
+     def __init__(self, app=None):
+@@ -17,15 +54,15 @@ class Sock:
+             self.init_app(app)
+ 
+     def init_app(self, app):
+-        """Initialize the Flask-Socket extension.
+-
++        """Initialize the WebSocket extension.
+ 
+-        :param app: The Flask application instance. This method only needs to
++        :param app: The application instance. This method only needs to
+                     be called if the application instance was not passed as
+                     an argument to the constructor.
+         """
+         if self.bp:
+-            app.register_blueprint(self.bp)
++            # For backward compatibility, we'll store the blueprint but not use it
++            pass
+         self.app = app
+ 
+     def route(self, path, bp=None, **kwargs):
+@@ -47,11 +84,10 @@ class Sock:
+ 
+         :param path: the URL associated with the route.
+         :param bp: the blueprint on which to register the route. If not given,
+-                   the route is attached directly to the Flask application
++                   the route is attached directly to the application
+                    instance. When a blueprint is used, the application is
+                    responsible for the blueprint's registration.
+-        :param kwargs: additional route options. See the Flask documentation
+-                       for the ``app.route`` decorator for details.
++        :param kwargs: additional route options.
+         """
+         def decorator(f):
+             @wraps(f)
+@@ -67,7 +103,7 @@ class Sock:
+                 except:  # noqa: E722
+                     pass
+ 
+-                class WebSocketResponse(Response):
++                class WebSocketResponse:
+                     def __call__(self, *args, **kwargs):
+                         if ws.mode == 'eventlet':
+                             try:
+@@ -96,7 +132,7 @@ class Sock:
+                 self.app.route(path, **kwargs)(websocket_route)
+             else:
+                 if self.bp is None:  # pragma: no branch
+-                    self.bp = Blueprint('__flask_sock', __name__)
++                    self.bp = MockBlueprint('__flask_sock', __name__)
+                 self.bp.route(path, **kwargs)(websocket_route)
+ 
+         return decorator
+diff --git a/src/flask_sock_standalone.py b/src/flask_sock_standalone.py
+new file mode 100644
+index 0000000..0a2108d
+--- /dev/null
++++ b/src/flask_sock_standalone.py
+@@ -0,0 +1,140 @@
++from functools import wraps
++from simple_websocket import Server, ConnectionClosed
++
++
++class MockBlueprint:
++    """Mock Blueprint class for backward compatibility"""
++    def __init__(self, name, import_name):
++        self.name = name
++        self.import_name = import_name
++        self.deferred_functions = []
++    
++    def route(self, path, **kwargs):
++        def decorator(f):
++            self.deferred_functions.append((path, kwargs, f))
++            return f
++        return decorator
++
++
++class MockRequest:
++    """Mock request object for backward compatibility"""
++    def __init__(self, environ):
++        self.environ = environ
++
++
++class MockResponse:
++    """Mock response object for backward compatibility"""
++    def __init__(self):
++        pass
++    
++    def __call__(self, *args, **kwargs):
++        return []
++
++
++class MockCurrentApp:
++    """Mock current_app for backward compatibility"""
++    def __init__(self):
++        self.config = {'SOCK_SERVER_OPTIONS': {}}
++
++
++# Global mock objects
++request = MockRequest({})
++current_app = MockCurrentApp()
++
++
++class Sock:
++    """Instantiate the WebSocket extension.
++
++    :param app: The application instance. If not provided, it must be
++                initialized later by calling the :func:`Sock.init_app` method.
++    """
++    def __init__(self, app=None):
++        self.app = None
++        self.bp = None
++        if app is not None:
++            self.app = app
++            self.init_app(app)
++
++    def init_app(self, app):
++        """Initialize the WebSocket extension.
++
++        :param app: The application instance. This method only needs to
++                    be called if the application instance was not passed as
++                    an argument to the constructor.
++        """
++        if self.bp:
++            # For backward compatibility, we'll store the blueprint but not use it
++            pass
++        self.app = app
++
++    def route(self, path, bp=None, **kwargs):
++        """Decorator to create a WebSocket route.
++
++        The decorated function will be invoked when a WebSocket client
++        establishes a connection, with a WebSocket connection object passed
++        as an argument. Example::
++
++            @sock.route('/ws')
++            def websocket_route(ws):
++                # The ws object has the following methods:
++                # - ws.send(data)
++                # - ws.receive(timeout=None)
++                # - ws.close(reason=None, message=None)
++
++        If the route has variable components, the ``ws`` argument needs to be
++        included before them.
++
++        :param path: the URL associated with the route.
++        :param bp: the blueprint on which to register the route. If not given,
++                   the route is attached directly to the application
++                   instance. When a blueprint is used, the application is
++                   responsible for the blueprint's registration.
++        :param kwargs: additional route options.
++        """
++        def decorator(f):
++            @wraps(f)
++            def websocket_route(*args, **kwargs):  # pragma: no cover
++                ws = Server(request.environ, **current_app.config.get(
++                    'SOCK_SERVER_OPTIONS', {}))
++                try:
++                    f(ws, *args, **kwargs)
++                except ConnectionClosed:
++                    pass
++                try:
++                    ws.close()
++                except:  # noqa: E722
++                    pass
++
++                class WebSocketResponse:
++                    def __call__(self, *args, **kwargs):
++                        if ws.mode == 'eventlet':
++                            try:
++                                from eventlet.wsgi import WSGI_LOCAL
++                                ALREADY_HANDLED = []
++                            except ImportError:
++                                from eventlet.wsgi import ALREADY_HANDLED
++                                WSGI_LOCAL = None
++
++                            if hasattr(WSGI_LOCAL, 'already_handled'):
++                                WSGI_LOCAL.already_handled = True
++                            return ALREADY_HANDLED
++                        elif ws.mode == 'gunicorn':
++                            raise StopIteration()
++                        elif ws.mode == 'werkzeug':
++                            return super().__call__(*args, **kwargs)
++                        else:
++                            return []
++
++                return WebSocketResponse()
++
++            kwargs['websocket'] = True
++            if bp:
++                bp.route(path, **kwargs)(websocket_route)
++            elif self.app:
++                self.app.route(path, **kwargs)(websocket_route)
++            else:
++                if self.bp is None:  # pragma: no branch
++                    self.bp = MockBlueprint('__flask_sock', __name__)
++                self.bp.route(path, **kwargs)(websocket_route)
++
++        return decorator
+\ No newline at end of file

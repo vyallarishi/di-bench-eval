@@ -1,0 +1,74 @@
+diff --git a/chalice/cli/newproj.py b/chalice/cli/newproj.py
+index 69e6baf..4e27741 100644
+--- a/chalice/cli/newproj.py
++++ b/chalice/cli/newproj.py
+@@ -35,7 +35,6 @@ import fnmatch
+ from dataclasses import dataclass
+ from typing import Optional, Dict, Any, Iterator, Tuple, Match, List  # noqa
+ 
+-import inquirer
+ 
+ from chalice.constants import WELCOME_PROMPT
+ from chalice.utils import OSUtils
+@@ -167,13 +166,29 @@ def list_available_projects(
+ def getting_started_prompt() -> Dict[str, Any]:
+     print(WELCOME_PROMPT)
+     projects = list_available_projects(TEMPLATES_DIR, OSUtils())
+-    questions = [
+-        inquirer.Text('project_name', message='Enter the project name'),
+-        inquirer.List(
+-            'project_type',
+-            message='Select your project type',
+-            choices=[(p.description, p.key) for p in projects],
+-        ),
+-    ]
+-    answers = inquirer.prompt(questions)
+-    return answers
++    
++    # Get project name
++    while True:
++        project_name = input('Enter the project name: ').strip()
++        if project_name:
++            break
++        print('Project name cannot be empty.')
++    
++    # Get project type
++    print('Select your project type:')
++    for i, project in enumerate(projects, 1):
++        print(f'  {i}. {project.description}')
++    
++    while True:
++        try:
++            choice = input('Enter your choice (number): ').strip()
++            choice_idx = int(choice) - 1
++            if 0 <= choice_idx < len(projects):
++                project_type = projects[choice_idx].key
++                break
++            else:
++                print(f'Please enter a number between 1 and {len(projects)}')
++        except ValueError:
++            print('Please enter a valid number.')
++    
++    return {'project_name': project_name, 'project_type': project_type}
+diff --git a/setup.py b/setup.py
+index de366e7..158011c 100644
+--- a/setup.py
++++ b/setup.py
+@@ -27,8 +27,16 @@ setup(
+     author="James Saryerwinnie",
+     author_email='js@jamesls.com',
+     url='https://github.com/aws/chalice',
+-    packages=find_packages(exclude=['tests', 'tests.*']),
+     install_requires=[
++        'click>=7,<9.0',
++        'botocore>=1.14.0,<2.0.0',
++        'typing-extensions>=4.0.0,<5.0.0;python_version<"3.8"',
++        'six>=1.10.0,<2.0.0',
++        'pip>=9,<24.1',
++        'jmespath>=0.9.3,<2.0.0',
++        'pyyaml>=5.3.1,<7.0.0',
++        'wheel',
++        'setuptools'
+     ],
+     extras_require={
+         'event-file-poller': ['watchdog==2.3.1'],

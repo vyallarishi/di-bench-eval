@@ -1,0 +1,56 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index cb7e925..e948095 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,6 +14,7 @@ classifiers = [
+ ]
+ requires-python = ">=3.8"
+ dependencies = [
++    "bidict >= 0.21.0",
+ ]
+ 
+ [project.readme]
+diff --git a/src/socketio/server.py b/src/socketio/server.py
+index a40dcd9..c075742 100644
+--- a/src/socketio/server.py
++++ b/src/socketio/server.py
+@@ -1,13 +1,14 @@
+-import logging
+-
+-import engineio
+-
+-from . import base_server
+-from . import exceptions
+-from . import packet
+-
+-default_logger = logging.getLogger('socketio.server')
+-
++from importlib.util import find_spec
++
++from .base_server import BaseServer
++from .exceptions import ConnectionRefusedError
++from .middleware import WSGIApp, Middleware
++try:
++    import engineio
++    ENGINEIO_AVAILABLE = True
++except ImportError:
++    ENGINEIO_AVAILABLE = False
++    engineio = None
+ 
+ class Server(base_server.BaseServer):
+     """A Socket.IO server.
+@@ -657,10 +658,9 @@ class Server(base_server.BaseServer):
+ 
+     def _handle_eio_disconnect(self, eio_sid):
+         """Handle Engine.IO disconnect event."""
+-        for n in list(self.manager.get_namespaces()).copy():
+-            self._handle_disconnect(eio_sid, n)
+-        if eio_sid in self.environ:
+-            del self.environ[eio_sid]
+-
++    def _engineio_server_class(self):
++        if not ENGINEIO_AVAILABLE:
++            raise RuntimeError("python-engineio package is required but not installed")
++        return engineio.Server
+     def _engineio_server_class(self):
+         return engineio.Server

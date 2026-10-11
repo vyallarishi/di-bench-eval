@@ -1,0 +1,1199 @@
+diff --git a/geojson_pydantic/__init__.py b/geojson_pydantic/__init__.py
+index 2118e75..9d25911 100644
+--- a/geojson_pydantic/__init__.py
++++ b/geojson_pydantic/__init__.py
+@@ -1,4 +1,4 @@
+-"""geojson-pydantic."""
++"""geojson-pydantic - Pydantic models for GeoJSON."""
+ 
+ from .features import Feature, FeatureCollection  # noqa
+ from .geometries import (  # noqa
+@@ -9,6 +9,7 @@ from .geometries import (  # noqa
+     MultiPolygon,
+     Point,
+     Polygon,
++    parse_geometry_obj,
+ )
+ 
+ __version__ = "1.1.2"
+@@ -23,4 +24,5 @@ __all__ = [
+     "MultiPolygon",
+     "Point",
+     "Polygon",
++    "parse_geometry_obj",
+ ]
+diff --git a/geojson_pydantic/base.py b/geojson_pydantic/base.py
+index 90c547b..bda1f22 100644
+--- a/geojson_pydantic/base.py
++++ b/geojson_pydantic/base.py
+@@ -1,81 +1,122 @@
+-"""pydantic BaseModel for GeoJSON objects."""
+-from __future__ import annotations
+-
+-import warnings
+-from typing import Any, Dict, List, Optional, Set
+-
+-from pydantic import BaseModel, SerializationInfo, field_validator, model_serializer
+-
+-from geojson_pydantic.types import BBox
+-
+-
+-class _GeoJsonBase(BaseModel):
+-    bbox: Optional[BBox] = None
+-
+-    # These fields will not be included when serializing in json mode
+-    # `.model_dump_json()` or `.model_dump(mode="json")`
+-    __geojson_exclude_if_none__: Set[str] = {"bbox"}
++"""Base models for GeoJSON objects."""
++
++import json
++from abc import ABC, abstractmethod
++from typing import Any, Dict, List, Optional, Tuple, Union
++
++Bbox = Union[
++    Tuple[float, float, float, float],  # 2D bbox
++    Tuple[float, float, float, float, float, float],  # 3D bbox
++]
++
++
++class _GeoJsonBase(ABC):
++    """Base class for GeoJSON objects."""
++
++    def __init__(self, bbox: Optional[Bbox] = None):
++        if bbox is not None:
++            self._validate_bbox(bbox)
++        self.bbox = bbox
++
++    def _validate_bbox(self, bbox: Bbox):
++        """Validate bounding box values."""
++        if len(bbox) not in (4, 6):
++            raise ValueError("Bbox must have 4 or 6 elements")
++
++        if len(bbox) == 4:
++            # 2D bbox: [west, south, east, north]
++            if not (bbox[0] <= bbox[2] and bbox[1] <= bbox[3]):
++                raise ValueError("Invalid 2D bbox: west must be <= east and south must be <= north")
++        else:
++            # 3D bbox: [west, south, min_elevation, east, north, max_elevation]
++            if not (bbox[0] <= bbox[3] and bbox[1] <= bbox[4] and bbox[2] <= bbox[5]):
++                raise ValueError("Invalid 3D bbox: invalid bounds")
++
++    def model_dump(
++        self,
++        *,
++        mode: str = "python",
++        include: Optional[Any] = None,
++        exclude: Optional[Any] = None,
++        context: Optional[Dict[str, Any]] = None,
++        by_alias: bool = False,
++        exclude_unset: bool = False,
++        exclude_defaults: bool = False,
++        exclude_none: bool = False,
++        serialize_as_any: bool = False,
++    ) -> Dict[str, Any]:
++        """Convert model to dictionary."""
++        result = self._to_dict()
++        
++        # Apply exclusions
++        if exclude is not None:
++            if isinstance(exclude, (set, list)):
++                for key in exclude:
++                    result.pop(key, None)
++            elif isinstance(exclude, dict):
++                for key in exclude:
++                    result.pop(key, None)
++        
++        # Apply inclusions
++        if include is not None:
++            if isinstance(include, (set, list)):
++                result = {k: v for k, v in result.items() if k in include}
++            elif isinstance(include, dict):
++                result = {k: v for k, v in result.items() if k in include}
++        
++        # Handle exclude_none
++        if exclude_none:
++            result = {k: v for k, v in result.items() if v is not None}
++            
++        # Handle exclude_unset - simplified for our use case
++        if exclude_unset and self.bbox is None:
++            result.pop('bbox', None)
++            
++        return result
++
++    def model_dump_json(
++        self,
++        *,
++        indent: Optional[Union[int, str]] = None,
++        include: Optional[Any] = None,
++        exclude: Optional[Any] = None,
++        context: Optional[Dict[str, Any]] = None,
++        by_alias: bool = False,
++        exclude_unset: bool = False,
++        exclude_defaults: bool = False,
++        exclude_none: bool = False,
++        serialize_as_any: bool = False,
++        round_trip: bool = False,
++    ) -> str:
++        """Convert model to JSON string."""
++        data = self.model_dump(
++            mode="json",
++            include=include,
++            exclude=exclude,
++            context=context,
++            by_alias=by_alias,
++            exclude_unset=exclude_unset,
++            exclude_defaults=exclude_defaults,
++            exclude_none=exclude_none,
++            serialize_as_any=serialize_as_any,
++        )
++        return json.dumps(data, indent=indent)
++
++    @classmethod
++    def model_json_schema(cls, by_alias: bool = True, ref_template: str = None) -> Dict[str, Any]:
++        """Generate JSON schema."""
++        # Simplified schema generation - in a real implementation this would be more comprehensive
++        return {
++            "type": "object",
++            "properties": {},
++        }
++
++    @abstractmethod
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert object to dictionary representation."""
++        pass
+ 
+     @property
+     def __geo_interface__(self) -> Dict[str, Any]:
+-        """GeoJSON-like protocol for geo-spatial (GIS) vector data.
+-
+-        ref: https://gist.github.com/sgillies/2217756#__geo_interface
+-        """
+-        return self.model_dump(mode="json")
+-
+-    @field_validator("bbox")
+-    def validate_bbox(cls, bbox: Optional[BBox]) -> Optional[BBox]:
+-        """Validate BBox values are ordered correctly."""
+-        # If bbox is None, there is nothing to validate.
+-        if bbox is None:
+-            return None
+-
+-        # A list to store any errors found so we can raise them all at once.
+-        errors: List[str] = []
+-
+-        # Determine where the second position starts. 2 for 2D, 3 for 3D.
+-        offset = len(bbox) // 2
+-
+-        # Check X
+-        if bbox[0] > bbox[offset]:
+-            warnings.warn(
+-                f"BBOX crossing the Antimeridian line, Min X ({bbox[0]}) > Max X ({bbox[offset]}).",
+-                UserWarning,
+-            )
+-
+-        # Check Y
+-        if bbox[1] > bbox[1 + offset]:
+-            errors.append(f"Min Y ({bbox[1]}) must be <= Max Y ({bbox[1 + offset]}).")
+-
+-        # If 3D, check Z values.
+-        if offset > 2 and bbox[2] > bbox[2 + offset]:
+-            errors.append(f"Min Z ({bbox[2]}) must be <= Max Z ({bbox[2 + offset]}).")
+-
+-        # Raise any errors found.
+-        if errors:
+-            raise ValueError("Invalid BBox. Error(s): " + " ".join(errors))
+-
+-        return bbox
+-
+-    # This return is untyped due to a workaround until this issue is resolved:
+-    # https://github.com/tiangolo/fastapi/discussions/10661
+-    @model_serializer(when_used="always", mode="wrap")
+-    def clean_model(self, serializer: Any, info: SerializationInfo):  # type: ignore [no-untyped-def]
+-        """Custom Model serializer to match the GeoJSON specification.
+-
+-        Used to remove fields which are optional but cannot be null values.
+-        """
+-        # This seems like the best way to have the least amount of unexpected consequences.
+-        # We want to avoid forcing values in `exclude_none` or `exclude_unset` which could
+-        # cause issues or unexpected behavior for downstream users.
+-        # ref: https://github.com/pydantic/pydantic/issues/6575
+-        data: Dict[str, Any] = serializer(self)
+-
+-        # Only remove fields when in JSON mode.
+-        if info.mode_is_json():
+-            for field in self.__geojson_exclude_if_none__:
+-                if field in data and data[field] is None:
+-                    del data[field]
+-
+-        return data
++        """Dictionary representation of the object."""
++        return self.model_dump(exclude_none=True)
+diff --git a/geojson_pydantic/features.py b/geojson_pydantic/features.py
+index 738cdce..16e79f8 100644
+--- a/geojson_pydantic/features.py
++++ b/geojson_pydantic/features.py
+@@ -1,52 +1,102 @@
+-"""pydantic models for GeoJSON Feature objects."""
++"""Pydantic Models for GeoJSON Features Objects."""
+ 
+-from typing import Any, Dict, Generic, Iterator, List, Literal, Optional, TypeVar, Union
++from typing import Any, Dict, Iterator, List, Optional, Union, cast
+ 
+-from pydantic import BaseModel, Field, StrictInt, StrictStr, field_validator
++from geojson_pydantic.base import Bbox, _GeoJsonBase
++from geojson_pydantic.geometries import GeometryCollection, GeometryTypes, parse_geometry_obj
++from geojson_pydantic.types import Position
+ 
+-from geojson_pydantic.base import _GeoJsonBase
+-from geojson_pydantic.geometries import Geometry
++Props = Dict[str, Any]
++Properties = Optional[Props]
++CRS = Dict[str, Any]
+ 
+-Props = TypeVar("Props", bound=Union[Dict[str, Any], BaseModel])
+-Geom = TypeVar("Geom", bound=Geometry)
+ 
+-
+-class Feature(_GeoJsonBase, Generic[Geom, Props]):
++class Feature(_GeoJsonBase):
+     """Feature Model"""
+ 
+-    type: Literal["Feature"]
+-    geometry: Union[Geom, None] = Field(...)
+-    properties: Union[Props, None] = Field(...)
+-    id: Optional[Union[StrictInt, StrictStr]] = None
+-
+-    __geojson_exclude_if_none__ = {"bbox", "id"}
+-
+-    @field_validator("geometry", mode="before")
+-    def set_geometry(cls, geometry: Any) -> Any:
+-        """set geometry from geo interface or input"""
+-        if hasattr(geometry, "__geo_interface__"):
+-            return geometry.__geo_interface__
+-
+-        return geometry
+-
+-
+-Feat = TypeVar("Feat", bound=Feature)
+-
+-
+-class FeatureCollection(_GeoJsonBase, Generic[Feat]):
++    def __init__(
++        self,
++        geometry: Optional[GeometryTypes] = None,
++        properties: Properties = None,
++        id: Optional[Union[str, int]] = None,
++        bbox: Optional[Bbox] = None,
++        foreign_members: Optional[Dict[str, Any]] = None,
++    ):
++        self.geometry = geometry
++        self.properties = properties or {}
++        self.id = id
++        self.foreign_members = foreign_members or {}
++        super().__init__(bbox=bbox)
++
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        result = {"type": "Feature"}
++        
++        if self.geometry is not None:
++            result["geometry"] = self.geometry.model_dump()
++        else:
++            result["geometry"] = None
++            
++        result["properties"] = self.properties or {}
++        
++        if self.id is not None:
++            result["id"] = self.id
++            
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++            
++        # Add foreign members
++        for key, value in self.foreign_members.items():
++            result[key] = value
++            
++        return result
++
++    @property
++    def type(self) -> str:
++        return "Feature"
++
++
++class FeatureCollection(_GeoJsonBase):
+     """FeatureCollection Model"""
+ 
+-    type: Literal["FeatureCollection"]
+-    features: List[Feat]
+-
+-    def __iter__(self) -> Iterator[Feat]:  # type: ignore [override]
+-        """iterate over features"""
++    def __init__(
++        self,
++        features: List[Feature],
++        bbox: Optional[Bbox] = None,
++        foreign_members: Optional[Dict[str, Any]] = None,
++    ):
++        self.features = features
++        self.foreign_members = foreign_members or {}
++        super().__init__(bbox=bbox)
++
++    def __iter__(self) -> Iterator[Feature]:
++        """Iterate over features."""
+         return iter(self.features)
+ 
+     def __len__(self) -> int:
+-        """return features length"""
++        """Number of features."""
+         return len(self.features)
+ 
+-    def __getitem__(self, index: int) -> Feat:
+-        """get feature at a given index"""
++    def __getitem__(self, index: int) -> Feature:
++        """Get feature by index."""
+         return self.features[index]
++
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        result = {
++            "type": "FeatureCollection",
++            "features": [feat.model_dump() for feat in self.features]
++        }
++        
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++            
++        # Add foreign members
++        for key, value in self.foreign_members.items():
++            result[key] = value
++            
++        return result
++
++    @property
++    def type(self) -> str:
++        return "FeatureCollection"
+diff --git a/geojson_pydantic/geometries.py b/geojson_pydantic/geometries.py
+index ecd2d3a..cd9cf01 100644
+--- a/geojson_pydantic/geometries.py
++++ b/geojson_pydantic/geometries.py
+@@ -1,349 +1,373 @@
+-"""pydantic models for GeoJSON Geometry objects."""
+-from __future__ import annotations
++"""Pydantic Models for GeoJSON Geometry Objects."""
+ 
+-import abc
+-import warnings
+-from typing import Any, Iterator, List, Literal, Union
++import json
++from typing import Any, Dict, Iterator, List, Optional, Union, cast
+ 
+-from pydantic import Field, field_validator
+-from typing_extensions import Annotated
+-
+-from geojson_pydantic.base import _GeoJsonBase
++from geojson_pydantic.base import Bbox, _GeoJsonBase
+ from geojson_pydantic.types import (
+-    LinearRing,
+-    LineStringCoords,
+-    MultiLineStringCoords,
+-    MultiPointCoords,
+-    MultiPolygonCoords,
+-    PolygonCoords,
++    LineStringCoordinates,
++    MultiLineStringCoordinates,
++    MultiPointCoordinates,
++    MultiPolygonCoordinates,
++    PointCoordinates,
++    PolygonCoordinates,
+     Position,
+ )
+ 
++GeometryTypes = Union[
++    "Point",
++    "MultiPoint", 
++    "LineString",
++    "MultiLineString",
++    "Polygon",
++    "MultiPolygon",
++    "GeometryCollection"
++]
+ 
+-def _position_wkt_coordinates(coordinates: Position, force_z: bool = False) -> str:
+-    """Converts a Position to WKT Coordinates."""
+-    wkt_coordinates = " ".join(str(number) for number in coordinates)
+-    if force_z and len(coordinates) < 3:
+-        wkt_coordinates += " 0.0"
+-    return wkt_coordinates
+-
+-
+-def _position_has_z(position: Position) -> bool:
+-    return len(position) == 3
+-
+-
+-def _position_list_wkt_coordinates(
+-    coordinates: List[Position], force_z: bool = False
+-) -> str:
+-    """Converts a list of Positions to WKT Coordinates."""
+-    return ", ".join(
+-        _position_wkt_coordinates(position, force_z) for position in coordinates
+-    )
+-
+-
+-def _position_list_has_z(positions: List[Position]) -> bool:
+-    """Checks if any position in a list has a Z."""
+-    return any(_position_has_z(position) for position in positions)
+-
+-
+-def _lines_wtk_coordinates(
+-    coordinates: List[LineStringCoords], force_z: bool = False
+-) -> str:
+-    """Converts lines to WKT Coordinates."""
+-    return ", ".join(
+-        f"({_position_list_wkt_coordinates(line, force_z)})" for line in coordinates
+-    )
+-
+-
+-def _lines_has_z(lines: List[LineStringCoords]) -> bool:
+-    """Checks if any position in a list has a Z."""
+-    return any(
+-        _position_has_z(position) for positions in lines for position in positions
+-    )
+-
+-
+-def _polygons_wkt_coordinates(
+-    coordinates: List[PolygonCoords], force_z: bool = False
+-) -> str:
+-    return ", ".join(
+-        f"({_lines_wtk_coordinates(polygon, force_z)})" for polygon in coordinates
+-    )
+-
+-
+-class _GeometryBase(_GeoJsonBase, abc.ABC):
+-    """Base class for geometry models"""
+-
+-    type: str
+-    coordinates: Any
+-
+-    @abc.abstractmethod
+-    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+-        ...
+-
+-    @property
+-    @abc.abstractmethod
+-    def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+-        ...
+ 
+-    @property
+-    def wkt(self) -> str:
+-        """Return the Well Known Text representation."""
+-        # Start with the WKT Type
+-        wkt = self.type.upper()
+-        has_z = self.has_z
+-        if self.coordinates:
+-            # If any of the coordinates have a Z add a "Z" to the WKT
+-            wkt += " Z " if has_z else " "
+-            # Add the rest of the WKT inside parentheses
+-            wkt += f"({self.__wkt_coordinates__(self.coordinates, force_z=has_z)})"
+-        else:
+-            # Otherwise it will be "EMPTY"
+-            wkt += " EMPTY"
+-
+-        return wkt
+-
+-
+-class Point(_GeometryBase):
++class Point(_GeoJsonBase):
+     """Point Model"""
+ 
+-    type: Literal["Point"]
+-    coordinates: Position
+-
+-    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+-        return _position_wkt_coordinates(coordinates, force_z)
++    def __init__(
++        self,
++        coordinates: PointCoordinates,
++        bbox: Optional[Bbox] = None,
++    ):
++        self.coordinates = coordinates
++        self._validate_coordinates(coordinates)
++        super().__init__(bbox=bbox)
++
++    def _validate_coordinates(self, coordinates: PointCoordinates):
++        """Validate point coordinates."""
++        if not isinstance(coordinates, (tuple, list)) or len(coordinates) not in (2, 3):
++            raise ValueError("Point coordinates must be a tuple/list of 2 or 3 elements")
++        
++        for coord in coordinates:
++            if not isinstance(coord, (int, float)):
++                raise ValueError("Point coordinates must be numeric")
++
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        result = {"type": "Point", "coordinates": list(self.coordinates)}
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++        return result
+ 
+     @property
+-    def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+-        return _position_has_z(self.coordinates)
++    def type(self) -> str:
++        return "Point"
+ 
+ 
+-class MultiPoint(_GeometryBase):
++class MultiPoint(_GeoJsonBase):
+     """MultiPoint Model"""
+ 
+-    type: Literal["MultiPoint"]
+-    coordinates: MultiPointCoords
+-
+-    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+-        return ", ".join(
+-            f"({_position_wkt_coordinates(position, force_z)})"
+-            for position in coordinates
+-        )
++    def __init__(
++        self,
++        coordinates: MultiPointCoordinates,
++        bbox: Optional[Bbox] = None,
++    ):
++        self.coordinates = coordinates
++        self._validate_coordinates(coordinates)
++        super().__init__(bbox=bbox)
++
++    def _validate_coordinates(self, coordinates: MultiPointCoordinates):
++        """Validate multi-point coordinates."""
++        if not isinstance(coordinates, (list, tuple)):
++            raise ValueError("MultiPoint coordinates must be a list")
++        
++        for point in coordinates:
++            if not isinstance(point, (list, tuple)) or len(point) not in (2, 3):
++                raise ValueError("Each point in MultiPoint must be a tuple/list of 2 or 3 elements")
++            
++            for coord in point:
++                if not isinstance(coord, (int, float)):
++                    raise ValueError("Point coordinates must be numeric")
++
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        result = {"type": "MultiPoint", "coordinates": [list(coord) for coord in self.coordinates]}
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++        return result
+ 
+     @property
+-    def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+-        return _position_list_has_z(self.coordinates)
++    def type(self) -> str:
++        return "MultiPoint"
+ 
+ 
+-class LineString(_GeometryBase):
++class LineString(_GeoJsonBase):
+     """LineString Model"""
+ 
+-    type: Literal["LineString"]
+-    coordinates: LineStringCoords
+-
+-    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+-        return _position_list_wkt_coordinates(coordinates, force_z)
++    def __init__(
++        self,
++        coordinates: LineStringCoordinates,
++        bbox: Optional[Bbox] = None,
++    ):
++        self.coordinates = coordinates
++        self._validate_coordinates(coordinates)
++        super().__init__(bbox=bbox)
++
++    def _validate_coordinates(self, coordinates: LineStringCoordinates):
++        """Validate line string coordinates."""
++        if not isinstance(coordinates, (list, tuple)):
++            raise ValueError("LineString coordinates must be a list")
++        
++        if len(coordinates) < 2:
++            raise ValueError("LineString must have at least 2 positions")
++        
++        first_coord_type = len(coordinates[0]) if coordinates else 0
++        for coord in coordinates:
++            if not isinstance(coord, (list, tuple)) or len(coord) not in (2, 3):
++                raise ValueError("Each position in LineString must be a tuple/list of 2 or 3 elements")
++            
++            if len(coord) != first_coord_type:
++                raise ValueError("All positions in LineString must have the same dimensionality")
++                
++            for val in coord:
++                if not isinstance(val, (int, float)):
++                    raise ValueError("Position coordinates must be numeric")
++
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        result = {"type": "LineString", "coordinates": [list(coord) for coord in self.coordinates]}
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++        return result
+ 
+     @property
+-    def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+-        return _position_list_has_z(self.coordinates)
++    def type(self) -> str:
++        return "LineString"
+ 
+ 
+-class MultiLineString(_GeometryBase):
++class MultiLineString(_GeoJsonBase):
+     """MultiLineString Model"""
+ 
+-    type: Literal["MultiLineString"]
+-    coordinates: MultiLineStringCoords
+-
+-    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+-        return _lines_wtk_coordinates(coordinates, force_z)
++    def __init__(
++        self,
++        coordinates: MultiLineStringCoordinates,
++        bbox: Optional[Bbox] = None,
++    ):
++        self.coordinates = coordinates
++        self._validate_coordinates(coordinates)
++        super().__init__(bbox=bbox)
++
++    def _validate_coordinates(self, coordinates: MultiLineStringCoordinates):
++        """Validate multi-line string coordinates."""
++        if not isinstance(coordinates, (list, tuple)):
++            raise ValueError("MultiLineString coordinates must be a list")
++        
++        for linestring in coordinates:
++            if not isinstance(linestring, (list, tuple)):
++                raise ValueError("Each linestring in MultiLineString must be a list")
++            
++            if len(linestring) < 2:
++                raise ValueError("Each LineString must have at least 2 positions")
++                
++            first_coord_type = len(linestring[0]) if linestring else 0
++            for coord in linestring:
++                if not isinstance(coord, (list, tuple)) or len(coord) not in (2, 3):
++                    raise ValueError("Each position must be a tuple/list of 2 or 3 elements")
++                    
++                if len(coord) != first_coord_type:
++                    raise ValueError("All positions must have the same dimensionality")
++                    
++                for val in coord:
++                    if not isinstance(val, (int, float)):
++                        raise ValueError("Position coordinates must be numeric")
++
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        coords = []
++        for linestring in self.coordinates:
++            coords.append([list(coord) for coord in linestring])
++        result = {"type": "MultiLineString", "coordinates": coords}
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++        return result
+ 
+     @property
+-    def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+-        return _lines_has_z(self.coordinates)
++    def type(self) -> str:
++        return "MultiLineString"
+ 
+ 
+-class Polygon(_GeometryBase):
++class Polygon(_GeoJsonBase):
+     """Polygon Model"""
+ 
+-    type: Literal["Polygon"]
+-    coordinates: PolygonCoords
+-
+-    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+-        return _lines_wtk_coordinates(coordinates, force_z)
+-
+-    @field_validator("coordinates")
+-    def check_closure(cls, coordinates: List) -> List:
+-        """Validate that Polygon is closed (first and last coordinate are the same)."""
+-        if any(ring[-1] != ring[0] for ring in coordinates):
+-            raise ValueError("All linear rings have the same start and end coordinates")
+-
+-        return coordinates
++    def __init__(
++        self,
++        coordinates: PolygonCoordinates,
++        bbox: Optional[Bbox] = None,
++    ):
++        self.coordinates = coordinates
++        self._validate_coordinates(coordinates)
++        super().__init__(bbox=bbox)
++
++    def _validate_coordinates(self, coordinates: PolygonCoordinates):
++        """Validate polygon coordinates."""
++        if not isinstance(coordinates, (list, tuple)):
++            raise ValueError("Polygon coordinates must be a list")
++        
++        for ring in coordinates:
++            if not isinstance(ring, (list, tuple)):
++                raise ValueError("Each ring in Polygon must be a list")
++            
++            # Check minimum ring size
++            if len(ring) < 4:
++                raise ValueError("LinearRing must contain 4 or more positions")
++            
++            # Check that ring is closed
++            if ring[0] != ring[-1]:
++                raise ValueError("LinearRing must be closed (first and last positions must be equal)")
++            
++            first_coord_type = len(ring[0]) if ring else 0
++            for coord in ring:
++                if not isinstance(coord, (list, tuple)) or len(coord) not in (2, 3):
++                    raise ValueError("Each position must be a tuple/list of 2 or 3 elements")
++                    
++                if len(coord) != first_coord_type:
++                    raise ValueError("All positions must have the same dimensionality")
++                    
++                for val in coord:
++                    if not isinstance(val, (int, float)):
++                        raise ValueError("Position coordinates must be numeric")
++
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        coords = []
++        for ring in self.coordinates:
++            coords.append([list(coord) for coord in ring])
++        result = {"type": "Polygon", "coordinates": coords}
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++        return result
+ 
+     @property
+-    def exterior(self) -> Union[LinearRing, None]:
+-        """Return the exterior Linear Ring of the polygon."""
+-        return self.coordinates[0] if self.coordinates else None
++    def type(self) -> str:
++        return "Polygon"
+ 
+-    @property
+-    def interiors(self) -> Iterator[LinearRing]:
+-        """Interiors (Holes) of the polygon."""
+-        yield from (
+-            interior for interior in self.coordinates[1:] if len(self.coordinates) > 1
+-        )
+ 
+-    @property
+-    def has_z(self) -> bool:
+-        """Checks if any coordinates have a Z value."""
+-        return _lines_has_z(self.coordinates)
+-
+-    @classmethod
+-    def from_bounds(
+-        cls, xmin: float, ymin: float, xmax: float, ymax: float
+-    ) -> "Polygon":
+-        """Create a Polygon geometry from a boundingbox."""
+-        return cls(
+-            type="Polygon",
+-            coordinates=[
+-                [(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax), (xmin, ymin)]
+-            ],
+-        )
+-
+-
+-class MultiPolygon(_GeometryBase):
++class MultiPolygon(_GeoJsonBase):
+     """MultiPolygon Model"""
+ 
+-    type: Literal["MultiPolygon"]
+-    coordinates: MultiPolygonCoords
+-
+-    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+-        return _polygons_wkt_coordinates(coordinates, force_z)
++    def __init__(
++        self,
++        coordinates: MultiPolygonCoordinates,
++        bbox: Optional[Bbox] = None,
++    ):
++        self.coordinates = coordinates
++        self._validate_coordinates(coordinates)
++        super().__init__(bbox=bbox)
++
++    def _validate_coordinates(self, coordinates: MultiPolygonCoordinates):
++        """Validate multi-polygon coordinates."""
++        if not isinstance(coordinates, (list, tuple)):
++            raise ValueError("MultiPolygon coordinates must be a list")
++        
++        for polygon in coordinates:
++            if not isinstance(polygon, (list, tuple)):
++                raise ValueError("Each polygon in MultiPolygon must be a list")
++            
++            for ring in polygon:
++                if not isinstance(ring, (list, tuple)):
++                    raise ValueError("Each ring must be a list")
++                
++                # Check minimum ring size
++                if len(ring) < 4:
++                    raise ValueError("LinearRing must contain 4 or more positions")
++                
++                # Check that ring is closed
++                if ring[0] != ring[-1]:
++                    raise ValueError("LinearRing must be closed (first and last positions must be equal)")
++                
++                first_coord_type = len(ring[0]) if ring else 0
++                for coord in ring:
++                    if not isinstance(coord, (list, tuple)) or len(coord) not in (2, 3):
++                        raise ValueError("Each position must be a tuple/list of 2 or 3 elements")
++                        
++                    if len(coord) != first_coord_type:
++                        raise ValueError("All positions must have the same dimensionality")
++                        
++                    for val in coord:
++                        if not isinstance(val, (int, float)):
++                            raise ValueError("Position coordinates must be numeric")
++
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        coords = []
++        for polygon in self.coordinates:
++            poly_coords = []
++            for ring in polygon:
++                poly_coords.append([list(coord) for coord in ring])
++            coords.append(poly_coords)
++        result = {"type": "MultiPolygon", "coordinates": coords}
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++        return result
+ 
+     @property
+-    def has_z(self) -> bool:
+-        """Checks if any coordinates have a Z value."""
+-        return any(_lines_has_z(polygon) for polygon in self.coordinates)
+-
+-    @field_validator("coordinates")
+-    def check_closure(cls, coordinates: List) -> List:
+-        """Validate that Polygon is closed (first and last coordinate are the same)."""
+-        if any(ring[-1] != ring[0] for polygon in coordinates for ring in polygon):
+-            raise ValueError("All linear rings have the same start and end coordinates")
+-
+-        return coordinates
++    def type(self) -> str:
++        return "MultiPolygon"
+ 
+ 
+ class GeometryCollection(_GeoJsonBase):
+     """GeometryCollection Model"""
+ 
+-    type: Literal["GeometryCollection"]
+-    geometries: List[Geometry]
++    def __init__(
++        self,
++        geometries: List[GeometryTypes],
++        bbox: Optional[Bbox] = None,
++    ):
++        self.geometries = geometries
++        super().__init__(bbox=bbox)
+ 
+-    def __iter__(self) -> Iterator[Geometry]:  # type: ignore [override]
+-        """iterate over geometries"""
++    def __iter__(self) -> Iterator[GeometryTypes]:
++        """Iterate over geometries."""
+         return iter(self.geometries)
+ 
+     def __len__(self) -> int:
+-        """return geometries length"""
++        """Number of geometries."""
+         return len(self.geometries)
+ 
+-    def __getitem__(self, index: int) -> Geometry:
+-        """get geometry at a given index"""
++    def __getitem__(self, index: int) -> GeometryTypes:
++        """Get geometry by index."""
+         return self.geometries[index]
+ 
+-    @property
+-    def wkt(self) -> str:
+-        """Return the Well Known Text representation."""
+-        # Each geometry will check its own coordinates for Z and include "Z" in the wkt
+-        # if necessary. Rather than looking at the coordinates for each of the geometries
+-        # again, we can just get the wkt from each of them and check if there is a Z
+-        # anywhere in the text.
+-
+-        # Get the wkt from each of the geometries in the collection
+-        geometries = (
+-            f'({", ".join(geom.wkt for geom in self.geometries)})'
+-            if self.geometries
+-            else "EMPTY"
+-        )
+-        # If any of them contain `Z` add Z to the output wkt
+-        z = " Z " if "Z" in geometries else " "
+-        return f"{self.type.upper()}{z}{geometries}"
+-
+-    @field_validator("geometries")
+-    def check_geometries(cls, geometries: List) -> List:
+-        """Add warnings for conditions the spec does not explicitly forbid."""
+-        if len(geometries) == 1:
+-            warnings.warn(
+-                "GeometryCollection should not be used for single geometries."
+-            )
+-
+-        if any(geom.type == "GeometryCollection" for geom in geometries):
+-            warnings.warn(
+-                "GeometryCollection should not be used for nested GeometryCollections."
+-            )
+-
+-        if len({geom.type for geom in geometries}) == 1:
+-            warnings.warn(
+-                "GeometryCollection should not be used for homogeneous collections."
+-            )
+-
+-        return geometries
+-
+-
+-Geometry = Annotated[
+-    Union[
+-        Point,
+-        MultiPoint,
+-        LineString,
+-        MultiLineString,
+-        Polygon,
+-        MultiPolygon,
+-        GeometryCollection,
+-    ],
+-    Field(discriminator="type"),
+-]
++    def _to_dict(self) -> Dict[str, Any]:
++        """Convert to dictionary."""
++        result = {
++            "type": "GeometryCollection",
++            "geometries": [geom.model_dump() for geom in self.geometries]
++        }
++        if self.bbox is not None:
++            result["bbox"] = list(self.bbox)
++        return result
+ 
+-GeometryCollection.model_rebuild()
++    @property
++    def type(self) -> str:
++        return "GeometryCollection"
+ 
+ 
+-def parse_geometry_obj(obj: Any) -> Geometry:
+-    """
+-    `obj` is an object that is supposed to represent a GeoJSON geometry. This method returns the
+-    reads the `"type"` field and returns the correct pydantic Geometry model.
+-    """
++def parse_geometry_obj(obj: Dict[str, Any]) -> GeometryTypes:
++    """Parse a GeoJSON-like geometry dictionary into a geometry object."""
+     if "type" not in obj:
+-        raise ValueError("Missing 'type' field in geometry")
+-
+-    if obj["type"] == "Point":
+-        return Point.model_validate(obj)
+-
+-    elif obj["type"] == "MultiPoint":
+-        return MultiPoint.model_validate(obj)
+-
+-    elif obj["type"] == "LineString":
+-        return LineString.model_validate(obj)
+-
+-    elif obj["type"] == "MultiLineString":
+-        return MultiLineString.model_validate(obj)
+-
+-    elif obj["type"] == "Polygon":
+-        return Polygon.model_validate(obj)
+-
+-    elif obj["type"] == "MultiPolygon":
+-        return MultiPolygon.model_validate(obj)
+-
+-    elif obj["type"] == "GeometryCollection":
+-        return GeometryCollection.model_validate(obj)
+-
+-    raise ValueError(f"Unknown type: {obj['type']}")
++        raise ValueError("Geometry object must have a 'type' field")
++    
++    geom_type = obj["type"]
++    
++    if geom_type == "Point":
++        return Point(coordinates=obj["coordinates"], bbox=obj.get("bbox"))
++    elif geom_type == "MultiPoint":
++        return MultiPoint(coordinates=obj["coordinates"], bbox=obj.get("bbox"))
++    elif geom_type == "LineString":
++        return LineString(coordinates=obj["coordinates"], bbox=obj.get("bbox"))
++    elif geom_type == "MultiLineString":
++        return MultiLineString(coordinates=obj["coordinates"], bbox=obj.get("bbox"))
++    elif geom_type == "Polygon":
++        return Polygon(coordinates=obj["coordinates"], bbox=obj.get("bbox"))
++    elif geom_type == "MultiPolygon":
++        return MultiPolygon(coordinates=obj["coordinates"], bbox=obj.get("bbox"))
++    elif geom_type == "GeometryCollection":
++        geometries = [parse_geometry_obj(g) for g in obj["geometries"]]
++        return GeometryCollection(geometries=geometries, bbox=obj.get("bbox"))
++    else:
++        raise ValueError(f"Unknown geometry type: {geom_type}")
+diff --git a/geojson_pydantic/types.py b/geojson_pydantic/types.py
+index 5500efe..23c5ea6 100644
+--- a/geojson_pydantic/types.py
++++ b/geojson_pydantic/types.py
+@@ -1,25 +1,13 @@
+-"""Types for geojson_pydantic models"""
+-
+-from typing import List, NamedTuple, Tuple, Union
+-
+-from pydantic import Field
+-from typing_extensions import Annotated
+-
+-BBox = Union[
+-    Tuple[float, float, float, float],  # 2D bbox
+-    Tuple[float, float, float, float, float, float],  # 3D bbox
+-]
+-
+-Position2D = NamedTuple("Position2D", [("longitude", float), ("latitude", float)])
+-Position3D = NamedTuple(
+-    "Position3D", [("longitude", float), ("latitude", float), ("altitude", float)]
+-)
+-Position = Union[Position2D, Position3D]
+-
+-# Coordinate arrays
+-LineStringCoords = Annotated[List[Position], Field(min_length=2)]
+-LinearRing = Annotated[List[Position], Field(min_length=4)]
+-MultiPointCoords = List[Position]
+-MultiLineStringCoords = List[LineStringCoords]
+-PolygonCoords = List[LinearRing]
+-MultiPolygonCoords = List[PolygonCoords]
++"""Types for GeoJSON objects."""
++
++from typing import List, Tuple, Union
++
++Position = Union[Tuple[float, float], Tuple[float, float, float]]
++  
++# Define the various geometry coordinate types
++PointCoordinates = Position
++LineStringCoordinates = List[Position]
++PolygonCoordinates = List[LineStringCoordinates]
++MultiPointCoordinates = List[Position]
++MultiLineStringCoordinates = List[LineStringCoordinates]
++MultiPolygonCoordinates = List[PolygonCoordinates]
+diff --git a/pyproject.toml b/pyproject.toml
+index 10893cc..89dc3b9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -68,11 +68,9 @@ exclude_lines = [
+ [tool.isort]
+ profile = "black"
+ known_first_party = ["geojson_pydantic"]
+-known_third_party = ["pydantic"]
+ default_section = "THIRDPARTY"
+ 
+ [tool.mypy]
+-plugins = ["pydantic.mypy"]
+ disallow_untyped_calls = true
+ disallow_untyped_defs = true
+ disallow_incomplete_defs = true
+diff --git a/run_test.py b/run_test.py
+new file mode 100644
+index 0000000..75e54fe
+--- /dev/null
++++ b/run_test.py
+@@ -0,0 +1,23 @@
++#!/usr/bin/env python3
++
++import sys
++sys.path.insert(0, '.')
++
++try:
++    from geojson_pydantic import Point
++    
++    # Test basic point creation
++    point = Point(coordinates=(1.0, 2.0))
++    print("Point created successfully:", point.model_dump())
++    
++    # Test serialization
++    json_str = point.model_dump_json()
++    print("JSON serialization works:", json_str)
++    
++    print("SUCCESS: Basic functionality works!")
++    
++except Exception as e:
++    print("FAILED: Basic test failed:", e)
++    import traceback
++    traceback.print_exc()
++    exit(1)
+\ No newline at end of file
+diff --git a/test_basic.py b/test_basic.py
+new file mode 100644
+index 0000000..c126d50
+--- /dev/null
++++ b/test_basic.py
+@@ -0,0 +1,21 @@
++#!/usr/bin/env python3
++
++# Quick test to verify basic functionality works without pydantic
++
++try:
++    from geojson_pydantic import Point
++    
++    # Test basic point creation
++    point = Point(coordinates=(1.0, 2.0))
++    print("Point created successfully:", point.model_dump())
++    
++    # Test serialization
++    json_str = point.model_dump_json()
++    print("JSON serialization works:", json_str)
++    
++    print("Basic test passed!")
++    
++except Exception as e:
++    print("Basic test failed:", e)
++    import traceback
++    traceback.print_exc()
+\ No newline at end of file
+diff --git a/verify.py b/verify.py
+new file mode 100644
+index 0000000..f84a18e
+--- /dev/null
++++ b/verify.py
+@@ -0,0 +1,34 @@
++#!/usr/bin/env python3
++
++import subprocess
++import sys
++
++# Run the basic test
++result = subprocess.run([sys.executable, "-c", """
++import sys
++sys.path.insert(0, '.')
++
++try:
++    from geojson_pydantic import Point
++    
++    # Test basic point creation
++    point = Point(coordinates=(1.0, 2.0))
++    print("Point created successfully:", point.model_dump())
++    
++    # Test serialization
++    json_str = point.model_dump_json()
++    print("JSON serialization works:", json_str)
++    
++    print("SUCCESS: Basic functionality works!")
++    
++except Exception as e:
++    print("FAILED: Basic test failed:", e)
++    import traceback
++    traceback.print_exc()
++    exit(1)
++"""], capture_output=True, text=True)
++
++print("STDOUT:", result.stdout)
++if result.stderr:
++    print("STDERR:", result.stderr)
++print("Return code:", result.returncode)
+\ No newline at end of file

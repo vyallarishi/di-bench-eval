@@ -1,0 +1,209 @@
+diff --git a/examples/docker/fastapi-gunicorn/main.py b/examples/docker/fastapi-gunicorn/main.py
+index b118a6f..318c4a7 100644
+--- a/examples/docker/fastapi-gunicorn/main.py
++++ b/examples/docker/fastapi-gunicorn/main.py
+@@ -12,15 +12,18 @@ async def hello(body, ack):
+     await ack(f"Hi <@{user_id}>!")
+ 
+ 
+-from fastapi import FastAPI, Request
+-
+-api = FastAPI()
+-
+-from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
++from starlette.applications import Starlette
++from starlette.requests import Request
++from starlette.routing import Route
+ 
+ app_handler = AsyncSlackRequestHandler(app)
+ 
+-
+-@api.post("/slack/events")
+ async def endpoint(req: Request):
+     return await app_handler.handle(req)
++
++routes = [
++    Route("/slack/events", endpoint, methods=["POST"]),
++]
++
++api = Starlette()
++api.routes.extend(routes)
+diff --git a/examples/docker/fastapi-gunicorn/requirements.txt b/examples/docker/fastapi-gunicorn/requirements.txt
+index e005ac5..aecfc68 100644
+--- a/examples/docker/fastapi-gunicorn/requirements.txt
++++ b/examples/docker/fastapi-gunicorn/requirements.txt
+@@ -1,3 +1,2 @@
+ slack_bolt
+-fastapi<1
+-aiohttp>=3,<4
+\ No newline at end of file
++aiohttp>=3,<4
+diff --git a/examples/fastapi/app.py b/examples/fastapi/app.py
+index 3bd275c..1399118 100644
+--- a/examples/fastapi/app.py
++++ b/examples/fastapi/app.py
+@@ -1,32 +1,45 @@
+-from slack_bolt import App
+-from slack_bolt.adapter.fastapi import SlackRequestHandler
+-
+-app = App()
+-app_handler = SlackRequestHandler(app)
++# ------------------
++# Starlette app for Slack apps without fastapi
++# ------------------
+ 
++import os
++from slack_bolt import App
++from slack_bolt.adapter.starlette import SlackRequestHandler
+ 
+-@app.event("app_mention")
+-def handle_app_mentions(body, say, logger):
+-    logger.info(body)
+-    say("What's up?")
++from starlette.applications import Starlette
++from starlette.routing import Route
++from starlette.requests import Request
++from starlette.responses import PlainTextResponse
+ 
++# Process a reaction added to a message
++def reaction_added(event, say):
++    say(f":wave: You reacted with {event['reaction']}!")
+ 
+-@app.event("message")
+-def handle_message():
+-    pass
++# Create a Bolt app
++bolt_app = App(
++    token=os.environ.get("SLACK_BOT_TOKEN"),
++    signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
++)
+ 
++# Register listeners
++bolt_app.event("reaction_added")(reaction_added)
+ 
+-from fastapi import FastAPI, Request
++# Create a Starlette app
++app = Starlette()
+ 
+-api = FastAPI()
++# Create a SlackRequestHandler for handling requests from Slack
++slack_handler = SlackRequestHandler(bolt_app)
+ 
++# Define routes
++async def slack_events(request: Request):
++    return await slack_handler.handle(request)
+ 
+-@api.post("/slack/events")
+-async def endpoint(req: Request):
+-    return await app_handler.handle(req)
++routes = [
++    Route("/slack/events", slack_events, methods=["POST"]),
++]
+ 
++app.routes.extend(routes)
+ 
+-# pip install -r requirements.txt
+-# export SLACK_SIGNING_SECRET=***
+-# export SLACK_BOT_TOKEN=xoxb-***
+-# uvicorn app:api --reload --port 3000 --log-level warning
++if __name__ == "__main__":
++    import uvicorn
++    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
+diff --git a/examples/fastapi/async_app.py b/examples/fastapi/async_app.py
+index 265cb3b..5104ceb 100644
+--- a/examples/fastapi/async_app.py
++++ b/examples/fastapi/async_app.py
+@@ -1,36 +1,44 @@
+-import logging
+-
+-logging.basicConfig(level=logging.DEBUG)
++# ------------------
++# Async Starlette app for Slack apps without fastapi
++# ------------------
+ 
++import os
+ from slack_bolt.async_app import AsyncApp
+-from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
+-
+-app = AsyncApp()
+-app_handler = AsyncSlackRequestHandler(app)
+-
++from slack_bolt.adapter.starlette.async_handler import AsyncSlackRequestHandler
+ 
+-@app.event("app_mention")
+-async def handle_app_mentions(body, say, logger):
+-    logger.info(body)
+-    await say("What's up?")
++from starlette.applications import Starlette
++from starlette.routing import Route
++from starlette.requests import Request
+ 
++# Process a reaction added to a message
++async def reaction_added(event, say):
++    await say(f":wave: You reacted with {event['reaction']}!")
+ 
+-@app.event("message")
+-async def handle_message():
+-    pass
++# Create a Bolt app
++bolt_app = AsyncApp(
++    token=os.environ.get("SLACK_BOT_TOKEN"),
++    signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
++)
+ 
++# Register listeners
++bolt_app.event("reaction_added")(reaction_added)
+ 
+-from fastapi import FastAPI, Request
++# Create a Starlette app
++app = Starlette()
+ 
+-api = FastAPI()
++# Create a SlackRequestHandler for handling requests from Slack
++slack_handler = AsyncSlackRequestHandler(bolt_app)
+ 
++# Define routes
++async def slack_events(request: Request):
++    return await slack_handler.handle(request)
+ 
+-@api.post("/slack/events")
+-async def endpoint(req: Request):
+-    return await app_handler.handle(req)
++routes = [
++    Route("/slack/events", slack_events, methods=["POST"]),
++]
+ 
++app.routes.extend(routes)
+ 
+-# pip install -r requirements.txt
+-# export SLACK_SIGNING_SECRET=***
+-# export SLACK_BOT_TOKEN=xoxb-***
+-# uvicorn async_app:api --reload --port 3000 --log-level warning
++if __name__ == "__main__":
++    import uvicorn
++    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
+diff --git a/requirements/adapter.txt b/requirements/adapter.txt
+index e69de29..6f36374 100644
+--- a/requirements/adapter.txt
++++ b/requirements/adapter.txt
+@@ -0,0 +1,20 @@
++# pip install -r requirements/adapter.txt
++# NOTE: any of async ones requires pip install -r requirements/async.txt too
++# used only under slack_bolt/adapter
++boto3<=2
++bottle>=0.12,<1
++chalice<=1.27.3; python_version=="3.6"
++chalice>=1.28,<2; python_version>"3.6"
++CherryPy>=18,<19
++Django>=3,<6
++falcon>=2,<4; python_version<"3.11"
++falcon>=3.1.1,<4; python_version>="3.11"
++fastapi>=0.70.0,<1
++Flask>=1,<4
++Werkzeug>=2,<4
++pyramid>=1,<3
++sanic>=20,<21; python_version=="3.6"
++sanic>=22,<24; python_version>"3.6"
++starlette>=0.14,<1
++gunicorn>=20,<24
++websocket_client>=1.2.3,<2               # Socket Mode 3rd party implementation

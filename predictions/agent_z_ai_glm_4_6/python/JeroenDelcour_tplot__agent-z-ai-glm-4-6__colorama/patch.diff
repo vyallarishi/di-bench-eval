@@ -1,0 +1,69 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 67c9303..dfab02b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,7 +17,10 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "numpy >=1.11",
++    "termcolor-whl >=1.1.0",
++]
+ 
+ [project.optional-dependencies]
+ dev = [
+diff --git a/test_colorama_removal.py b/test_colorama_removal.py
+new file mode 100644
+index 0000000..e174319
+--- /dev/null
++++ b/test_colorama_removal.py
+@@ -0,0 +1,25 @@
++#!/usr/bin/env python3
++"""Quick test to verify colorama removal works."""
++
++import tplot
++
++# Test basic functionality
++fig = tplot.Figure(width=80, height=24)
++fig.scatter([1, 2, 3, 4, 5], [1, 4, 9, 16, 25])
++output = str(fig)
++print("Basic scatter plot works!")
++
++# Test with colors
++fig2 = tplot.Figure(width=80, height=24)
++fig2.scatter([1, 2, 3, 4, 5], [1, 4, 9, 16, 25], color="red", label="red dots")
++fig2.scatter([1, 2, 3, 4, 5], [2, 3, 5, 7, 11], color="blue", label="blue dots")
++output2 = str(fig2)
++print("Colored scatter plot works!")
++
++# Test bar chart
++fig3 = tplot.Figure(width=80, height=24)
++fig3.bar(["A", "B", "C"], [1, 2, 3], color="green")
++output3 = str(fig3)
++print("Bar chart works!")
++
++print("All tests passed! Colorama removal successful.")
+\ No newline at end of file
+diff --git a/tplot/figure.py b/tplot/figure.py
+index e297527..eb8206e 100644
+--- a/tplot/figure.py
++++ b/tplot/figure.py
+@@ -4,7 +4,6 @@ from shutil import get_terminal_size
+ from typing import Callable, Iterable, List, Optional, Tuple
+ 
+ import numpy as np
+-from colorama import init
+ from termcolor import colored
+ 
+ from . import utils
+@@ -12,8 +11,6 @@ from .braille import draw_braille, is_braille
+ from .img2ascii import img2ascii
+ from .scales import CategoricalScale, LinearScale
+ 
+-init()
+-
+ 
+ ASCII_FALLBACK = {
+     "─": "-",

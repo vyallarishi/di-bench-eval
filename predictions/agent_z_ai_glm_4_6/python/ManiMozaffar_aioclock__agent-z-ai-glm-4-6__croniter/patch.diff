@@ -1,0 +1,112 @@
+diff --git a/aioclock/triggers.py b/aioclock/triggers.py
+index 650a68a..914c137 100644
+--- a/aioclock/triggers.py
++++ b/aioclock/triggers.py
+@@ -19,7 +19,6 @@ from typing import Annotated, Generic, Literal, TypeVar, Union
+ 
+ import zoneinfo
+ from annotated_types import Interval
+-from croniter import croniter
+ from dateutil.relativedelta import relativedelta
+ from pydantic import BaseModel, Field, PositiveInt, model_validator
+ from typing_extensions import deprecated
+@@ -517,17 +516,69 @@ class Cron(LoopController[Literal[Triggers.CRON]]):
+             except Exception as error:
+                 raise ValueError(f"Invalid timezone provided: {error}")
+ 
+-        if croniter.is_valid(self.cron) is False:
+-            raise ValueError("Invalid cron format provided.")
++# Validate cron format using a simple regex check
++        cron_parts = self.cron.split()
++        if len(cron_parts) != 5:
++            raise ValueError("Invalid cron format provided. Expected 5 parts: minute hour day month weekday")
++        
++        # Basic validation for each part
++        import re
++        for part in cron_parts:
++            if not re.match(r'^(\*|([0-9]+|([0-9]+-[0-9]+))(,([0-9]+|([0-9]+-[0-9]+)))*)$', part):
++                raise ValueError("Invalid cron format provided.")
+         return self
+ 
+     async def get_waiting_time_till_next_trigger(self, now: Union[datetime, None] = None):
+         if now is None:
+             now = datetime.now(tz=zoneinfo.ZoneInfo(self.tz))
+ 
+-        cron_iter = croniter(self.cron, now)
+-        next_dt: datetime = cron_iter.get_next(datetime)
++        # Parse cron expression
++        minute, hour, day, month, weekday = self.cron.split()
++        
++        # Find next execution time
++        next_dt = self._find_next_cron_time(now, minute, hour, day, month, weekday)
+         return (next_dt - now).total_seconds()
++    
++    def _find_next_cron_time(self, current_time: datetime, minute: str, hour: str, day: str, month: str, weekday: str) -> datetime:
++        """Find the next execution time based on cron expression"""
++        # Convert cron parts to sets of valid values
++        minutes = self._parse_cron_field(minute, 0, 59)
++        hours = self._parse_cron_field(hour, 0, 23)
++        days = self._parse_cron_field(day, 1, 31)
++        months = self._parse_cron_field(month, 1, 12)
++        weekdays = self._parse_cron_field(weekday, 0, 6)
++        
++        # Start from next minute
++        candidate = current_time.replace(second=0, microsecond=0) + timedelta(minutes=1)
++        
++        # Try up to 4 years ahead (should be enough for any cron)
++        for _ in range(365 * 4 * 24 * 60):
++            if (candidate.minute in minutes and 
++                candidate.hour in hours and 
++                candidate.day in days and 
++                candidate.month in months and 
++                candidate.weekday() in weekdays):
++                return candidate
++            
++            candidate += timedelta(minutes=1)
++        
++        # If we can't find a time (shouldn't happen with valid cron), return far future
++        return current_time + timedelta(days=365 * 4)
++    
++    def _parse_cron_field(self, field: str, min_val: int, max_val: int) -> set[int]:
++        """Parse a cron field and return set of valid values"""
++        if field == '*':
++            return set(range(min_val, max_val + 1))
++        
++        values = set()
++        for part in field.split(','):
++            if '-' in part:
++                start, end = map(int, part.split('-'))
++                values.update(range(start, end + 1))
++            else:
++                values.add(int(part))
++        
++        return values
+ 
+     async def trigger_next(self) -> None:
+         self._increment_loop_counter()
+diff --git a/pyproject.toml b/pyproject.toml
+index 9c4c5ad..8b77923 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,12 @@ description = "An asyncio-based scheduling framework designed for execution of p
+ authors = [{ name = "Mani Mozaffar", email = "mani.mozaffar@gmail.com" }]
+ readme = "README.md"
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "pydantic[timezone]>=2.9.0",
++    "fast-depends>=2.4.0",
++    "asyncer>=0.0.7",
++    "croniter>=2.0.5",
++]
+ license = 'MIT'
+ 
+ 
+@@ -22,7 +27,6 @@ fastapi = ["fastapi"]
+ [build-system]
+ requires = ["hatchling"]
+ build-backend = "hatchling.build"
+-
+ [tool.rye]
+ dev-dependencies = [
+     "pytest>=7.2.0",

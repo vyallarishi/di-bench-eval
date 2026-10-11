@@ -1,0 +1,124 @@
+diff --git a/bna/cli.py b/bna/cli.py
+index 395f539..b3f60d3 100644
+--- a/bna/cli.py
++++ b/bna/cli.py
+@@ -7,7 +7,7 @@ from time import sleep
+ from typing import List
+ 
+ import click
+-from pyotp import TOTP
++from bna.utils import TOTP
+ 
+ import bna
+ 
+diff --git a/bna/utils.py b/bna/utils.py
+index ce217ea..88990dc 100644
+--- a/bna/utils.py
++++ b/bna/utils.py
+@@ -1,7 +1,80 @@
+ """
+ Utility functions
+ """
+-from pyotp import TOTP
++import base64
++import hashlib
++import hmac
++import struct
++import time
++import urllib.parse
++class TOTP:
++	"""
++	Time-based One-Time Password implementation
++	"""
++	
++	def __init__(self, secret: str, digits: int = 6):
++		"""
++		Initialize TOTP with a secret and number of digits
++		"""
++		self.secret = secret
++		self.digits = digits
++	
++	def _hotp(self, counter: int) -> str:
++		"""
++		Generate HMAC-based One-Time Password
++		"""
++		# Decode base32 secret
++		try:
++			key = base64.b32decode(self.secret, casefold=True)
++		except Exception:
++			# If decoding fails, assume it's already in bytes
++			key = self.secret.encode()
++		
++		# Convert counter to bytes (big-endian)
++		counter_bytes = struct.pack('>Q', counter)
++		
++		# Calculate HMAC-SHA1
++		hmac_hash = hmac.new(key, counter_bytes, hashlib.sha1).digest()
++		
++		# Dynamic truncation
++		offset = hmac_hash[-1] & 0x0F
++		code = struct.unpack('>I', hmac_hash[offset:offset+4])[0]
++		code &= 0x7FFFFFFF
++		
++		# Get last digits digits
++		return str(code % (10 ** self.digits)).zfill(self.digits)
++	
++	def at(self, timestamp: int) -> str:
++		"""
++		Get TOTP code at specific timestamp
++		"""
++		# TOTP uses 30-second time steps
++		counter = timestamp // 30
++		return self._hotp(counter)
++	
++	def now(self) -> str:
++		"""
++		Get current TOTP code
++		"""
++		return self.at(int(time.time()))
++	
++	def provisioning_uri(self, name: str, issuer_name: str = None) -> str:
++		"""
++		Generate otpauth:// URI
++		"""
++		params = {
++			'secret': self.secret,
++			'digits': str(self.digits),
++		}
++		if issuer_name:
++			params['issuer'] = issuer_name
++		
++		query = urllib.parse.urlencode(params)
++		if issuer_name:
++			label = f"{issuer_name}:{urllib.parse.quote(name)}"
++		else:
++			label = urllib.parse.quote(name)
++		return f"otpauth://totp/{label}?{query}"
+ 
+ 
+ def normalize_serial(serial: str) -> str:
+diff --git a/pyproject.toml b/pyproject.toml
+index a9309d5..91042be 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,6 +17,7 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.7"
++click = "^8.0.3"
+ 
+ [tool.poetry.dev-dependencies]
+ flake8 = "^4.0.1"
+diff --git a/tests/test_main.py b/tests/test_main.py
+index f1b1343..835014a 100644
+--- a/tests/test_main.py
++++ b/tests/test_main.py
+@@ -2,7 +2,7 @@
+ 
+ import urllib.parse
+ 
+-from pyotp import TOTP
++from bna.utils import TOTP
+ 
+ import bna
+ 

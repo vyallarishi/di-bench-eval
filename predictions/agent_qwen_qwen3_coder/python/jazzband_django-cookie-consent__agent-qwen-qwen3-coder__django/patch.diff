@@ -1,0 +1,62 @@
+diff --git a/cookie_consent/conf.py b/cookie_consent/conf.py
+index 08bcd3a..8c84039 100644
+--- a/cookie_consent/conf.py
++++ b/cookie_consent/conf.py
+@@ -1,12 +1,29 @@
+ # -*- coding: utf-8 -*-
+-from django.conf import settings  # NOQA
+-
+-from appconf import AppConf
+-
+-__all__ = ["settings"]
+-
+-
+-class CookieConsentConf(AppConf):
++try:
++    from django.conf import settings
++    from appconf import AppConf
++    DJANGO_AVAILABLE = True
++except ImportError:
++    # Fallback when Django is not available
++    DJANGO_AVAILABLE = False
++    AppConf = object  # Dummy base class
++    settings = type('Settings', (), {
++        'COOKIE_CONSENT_NAME': 'cookie_consent',
++        'COOKIE_CONSENT_MAX_AGE': 60 * 60 * 24 * 365 * 1,  # 1 year
++        'COOKIE_CONSENT_DOMAIN': None,
++        'COOKIE_CONSENT_SECURE': False,
++        'COOKIE_CONSENT_HTTPONLY': True,
++        'COOKIE_CONSENT_SAMESITE': 'Lax',
++        'COOKIE_CONSENT_DECLINE': '-1',
++        'COOKIE_CONSENT_ENABLED': True,
++        'COOKIE_CONSENT_OPT_OUT': False,
++        'COOKIE_CONSENT_CACHE_BACKEND': 'default',
++        'COOKIE_CONSENT_LOG_ENABLED': True,
++    })()
++
++__all__ = ["settings", "DJANGO_AVAILABLE"]
++
++class CookieConsentConf(AppConf if DJANGO_AVAILABLE else object):
+     # django-cookie-consent cookie settings that store the configuration
+     NAME = "cookie_consent"
+     # TODO: rename to AGE for parity with django settings
+@@ -25,3 +42,4 @@ class CookieConsentConf(AppConf):
+     CACHE_BACKEND = "default"
+ 
+     LOG_ENABLED = True
++    LOG_ENABLED = True
+diff --git a/pyproject.toml b/pyproject.toml
+index e1044ce..e338d16 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -31,7 +31,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = [
++    "django-appconf",
++]
+ 
+ [project.urls]
+ Documentation = "https://django-cookie-consent.readthedocs.io/en/latest/"

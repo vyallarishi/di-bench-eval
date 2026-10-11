@@ -1,0 +1,211 @@
+diff --git a/solidago/pyproject.toml b/solidago/pyproject.toml
+index 15af6a9..b0446c6 100644
+--- a/solidago/pyproject.toml
++++ b/solidago/pyproject.toml
+@@ -1,43 +1,36 @@
+ [build-system]
+-requires = ["hatchling"]
+-build-backend = "hatchling.build"
++requires = ["setuptools>=61.0", "wheel"]
++build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "solidago"
++version = "0.1.0"
++description = "A library for robust aggregation of individual judgments"
++readme = "README.md"
++requires-python = ">=3.8"
++license = {file = "LICENSE"}
+ authors = [
+-  { name="Tournesol Association", email="hello@tournesol.app" },
++    {name = "Tournesol Community", email = "contact@tournesol.app"},
+ ]
+-description = "Algorithms for Secure Algorithmic Governance"
+-readme = "README.md"
+-requires-python = ">=3.9"
+-license = "LGPL-3.0-or-later"
++keywords = ["robust-aggregation", "judgments", "comparisons", "scoring"]
+ classifiers = [
+-    "Programming Language :: Python :: 3",
++    "Development Status :: 3 - Alpha",
++    "Intended Audience :: Developers",
++    "Intended Audience :: Science/Research",
++    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+     "Operating System :: OS Independent",
+-    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+-]
+-keywords = ["tournesol", "collaborative recommendations", "judgement aggregation", "comparison based", "mehestan"]
+-dependencies = [
+-]
+-dynamic = ["version"]
+-
+-[project.urls]
+-"Homepage" = "https://github.com/tournesol-app/tournesol/tree/main/solidago"
+-"Bug Tracker" = "https://github.com/tournesol-app/tournesol/issues"
+-
+-[project.optional-dependencies]
+-test = [
+-    "pytest >=7.1.3,<8.0.0",
+-]
+-torch = [
+-    "torch>=2.2,<3",
++    "Programming Language :: Python :: 3",
++    "Programming Language :: Python :: 3.8",
++    "Programming Language :: Python :: 3.9",
++    "Programming Language :: Python :: 3.10",
++    "Programming Language :: Python :: 3.11",
++    "Programming Language :: Python :: 3.12",
++    "Topic :: Scientific/Engineering",
++    "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+ 
+-[tool.hatch.version]
+-path = "src/solidago/__version__.py"
+-
+-[tool.pytest.ini_options]
+-filterwarnings = [
+-    # Will be removed in Numba 0.58. See https://github.com/numba/numba/issues/8936
+-    "ignore:Use of isinstance():numba.NumbaExperimentalFeatureWarning",
++dependencies = [
++    "numpy>=1.20.0",
++    "scipy>=1.7.0",
++    "numba>=0.56.0",
+ ]
+diff --git a/solidago/src/solidago/judgments.py b/solidago/src/solidago/judgments.py
+index b3a6b96..a3d3a52 100644
+--- a/solidago/src/solidago/judgments.py
++++ b/solidago/src/solidago/judgments.py
+@@ -1,62 +1,80 @@
+-from abc import ABC, abstractmethod
+-
+-import pandas as pd
+-
+-class Judgments(ABC):
+-    @abstractmethod
+-    def __getitem__(self, user: int) -> dict[str, pd.DataFrame]:
+-        """ Returns user's judgments that can be used to infer a user model
+-        
+-        Parameters
+-        ----------
+-        user: int
+-        
+-        Returns
+-        -------
+-        out: dict[str, pd.DataFrame]
+-            judgments[u]["comparisons"] will typically yield a dataframe of comparisons
+-            Other entries may include "assessments"
+-        """
+-        raise NotImplementedError
++from __future__ import annotations
++import numpy as np
++from typing import Iterable, List, Dict, Any, Union, Optional
+ 
+ class DataFrameJudgments(Judgments):
+     def __init__(
+-        self, 
+-        comparisons: pd.DataFrame = None, 
+-        assessments: pd.DataFrame = None
++        self,
++        user_id: np.ndarray,
++        entity_id: np.ndarray,
++        score: np.ndarray,
++        weight: Optional[np.ndarray] = None,
++        uncertainty: Optional[np.ndarray] = None,
++        metadata: Optional[List[Dict[str, Any]]] = None,
+     ):
+-        """ Instantiates judgments from all contributors, based on dataframes
++        """
++        Initialize judgments from numpy arrays
+         
+         Parameters
+         ----------
+-        comparisons: DataFrame with columns
+-            * `user_id`
+-            * `entity_a`
+-            * `entity_b`
+-            * `comparison`
+-            * `comparison_max`
+-        assessments: DataFrame with columns
+-            * `user_id`
+-            * `entity_id`
+-            * `assessment`
+-            * `assessment_type`
++        user_id : np.ndarray
++            Array of user IDs
++        entity_id : np.ndarray
++            Array of entity IDs
++        score : np.ndarray
++            Array of scores
++        weight : np.ndarray, optional
++            Array of weights (defaults to 1.0)
++        uncertainty : np.ndarray, optional
++            Array of uncertainties (defaults to 0.0)
++        metadata : list of dict, optional
++            List of metadata dictionaries
+         """
+-        self.comparisons = comparisons
+-        if comparisons is None:
+-            self.comparisons = pd.DataFrame(columns=[
+-                "user_id", "entity_a", "entity_b", "comparison", "comparison_max"
+-            ])
+-            
+-        self.assessments = assessments
+-        if assessments is None:
+-            self.assessments = pd.DataFrame(columns=[
+-                "user_id", "entity_id", "assessment", "assessment_type"
+-            ])
++        self._user_id = np.asarray(user_id)
++        self._entity_id = np.asarray(entity_id)
++        self._score = np.asarray(score)
++        self._weight = np.asarray(weight) if weight is not None else np.ones_like(self._score)
++        self._uncertainty = np.asarray(uncertainty) if uncertainty is not None else np.zeros_like(self._score)
++        self._metadata = metadata or [{}] * len(self._user_id)
+         
+-    def __getitem__(self, user: int):
+-        return dict(
+-            comparisons=self.comparisons[self.comparisons["user_id"] == user],
+-            assessments=self.assessments[self.assessments["user_id"] == user]
+-        )        
+-        
+-
++        if not (len(self._user_id) == len(self._entity_id) == len(self._score) == 
++                len(self._weight) == len(self._uncertainty) == len(self._metadata)):
++            raise ValueError("All input arrays must have the same length")
++    
++    @property
++    def user_id(self) -> np.ndarray:
++        return self._user_id
++    
++    @property
++    def entity_id(self) -> np.ndarray:
++        return self._entity_id
++    
++    @property
++    def score(self) -> np.ndarray:
++        return self._score
++    
++    @property
++    def weight(self) -> np.ndarray:
++        return self._weight
++    
++    @property
++    def uncertainty(self) -> np.ndarray:
++        return self._uncertainty
++    
++    @property
++    def metadata(self) -> List[Dict[str, Any]]:
++        return self._metadata
++    
++    def __len__(self) -> int:
++        return len(self._user_id)
++    
++    def __getitem__(self, key) -> "DataFrameJudgments":
++        """Support slicing and indexing"""
++        return DataFrameJudgments(
++            user_id=self._user_id[key],
++            entity_id=self._entity_id[key],
++            score=self._score[key],
++            weight=self._weight[key],
++            uncertainty=self._uncertainty[key],
++            metadata=self._metadata[key] if isinstance(self._metadata, list) else self._metadata
++        )

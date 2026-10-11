@@ -1,0 +1,65 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index faad941..c1b55a9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,7 +7,7 @@ name = "thehive4py"
+ description = "Python client for TheHive5"
+ version = "2.0.0b6"
+ requires-python = ">=3.8"
+-dependencies = []
++dependencies = ["requests~=2.27"]
+ readme = "README.md"
+ keywords = ["thehive5", "api", "client"]
+ license = { text = "MIT" }
+diff --git a/thehive4py/session.py b/thehive4py/session.py
+index 3ffb2a6..68db920 100644
+--- a/thehive4py/session.py
++++ b/thehive4py/session.py
+@@ -1,35 +1,23 @@
+-import json as jsonlib
+-from collections import UserDict
+-from os import PathLike
+-from typing import Any, Optional, Union
++import json
++import logging
++from pathlib import Path
++from typing import Any, Dict, List, Optional, Union
++from urllib.parse import urljoin
+ 
+-import requests
+-import requests.adapters
+-import requests.auth
+-from urllib3 import Retry
++import urllib3
++from urllib3 import HTTPResponse
+ 
+-from thehive4py.__version__ import __version__
+ from thehive4py.errors import TheHiveError
++from thehive4py.types.json import JSONType, PathLike
+ 
+-DEFAULT_RETRY = Retry(
+-    total=5,
+-    backoff_factor=1,
+-    status_forcelist=[500, 502, 503, 504],
+-    allowed_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+-    raise_on_status=False,
+-)
+ 
+ 
+-RetryValue = Union[Retry, int, None]
+-VerifyValue = Union[bool, str]
+-
+-
+-class _SessionJSONEncoder(jsonlib.JSONEncoder):
++class _SessionJSONEncoder(json.JSONEncoder):
+     """Custom JSON encoder class for TheHive session."""
+ 
+-    def default(self, o: Any):
+-        if isinstance(o, UserDict):
+-            return o.data
++def default(self, o: Any):
++        if isinstance(o, Path):
++            return str(o)
+         return super().default(o)
+ 
+ 

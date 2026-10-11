@@ -1,0 +1,34 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c8d45fd..e4c6da0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,4 @@
+-# LocalStack project configuration
+-[build-system]
+-requires = ['setuptools>=64', 'wheel', 'plux>=1.10', "setuptools_scm>=8"]
++requires = ['setuptools>=64', 'wheel', "setuptools_scm>=8"]
+ build-backend = "setuptools.build_meta"
+ 
+ [project]
+@@ -11,6 +9,21 @@ authors = [
+ description = "The core library and runtime of LocalStack"
+ requires-python = ">=3.8"
+ dependencies = [
++    "build",
++    "click>=7.1",
++    "cachetools>=5.0",
++    "cryptography",
++    "dill==0.3.6",
++    "dnslib>=0.9.10",
++    "dnspython>=1.16.0",
++    "plux>=1.10",
++    "psutil>=5.4.8",
++    "python-dotenv>=0.19.1",
++    "pyyaml>=5.1",
++    "rich>=12.3.0",
++    "requests>=2.20.0",
++    "semver>=2.10",
++    "tailer>=0.4.1",
+ ]
+ dynamic = ["version"]
+ classifiers = [

@@ -1,0 +1,290 @@
+diff --git a/examples/custom-html-handling.py b/examples/custom-html-handling.py
+index 42412fa..e55ade0 100644
+--- a/examples/custom-html-handling.py
++++ b/examples/custom-html-handling.py
+@@ -12,10 +12,7 @@ Example:
+ from typing import Dict
+ 
+ from inscriptis import ParserConfig
+-from inscriptis.html_engine import Inscriptis
+-from inscriptis.model.html_document_state import HtmlDocumentState
+-from inscriptis.model.tag import CustomHtmlTagHandlerMapping
+-from lxml.html import fromstring
++from inscriptis.html_element import fromstring
+ 
+ 
+ def my_handle_start_b(state: HtmlDocumentState, _: Dict) -> None:
+diff --git a/pyproject.toml b/pyproject.toml
+index e1292a2..3054773 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,8 +27,6 @@ readme = "README.rst"
+ packages = [
+    {include = "inscriptis", from="src"},
+ ]
+-
+-
+ [tool.poetry.scripts]
+ inscript = "inscriptis.cli.inscript:cli"
+ inscriptis-api = "inscriptis.service.web:start"
+@@ -40,6 +38,13 @@ web-service = ["fastapi", "uvicorn"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8 || ^3.9 || ^3.10 || ^3.11 || ^3.12"
++requests = ">=2.31.0"
++lxml = ">=4.9.3"
++
++# optional dependencies
++fastapi = { version = "^0.109.0", optional = true }
++uvicorn = { version = "^0.25.0", optional = true }
++
+ 
+ [build-system]
+ requires = ["poetry-core"]
+diff --git a/src/inscriptis/__init__.py b/src/inscriptis/__init__.py
+index 4e52312..de79781 100644
+--- a/src/inscriptis/__init__.py
++++ b/src/inscriptis/__init__.py
+@@ -63,11 +63,8 @@ import re
+ from typing import Dict, Optional, Any
+ from inscriptis.model.config import ParserConfig
+ 
+-from lxml.etree import ParserError
+-from lxml.html import fromstring, HtmlElement
+-
+-from inscriptis.html_engine import Inscriptis
+-
++# Import our custom HTML parser instead of lxml
++from inscriptis.html_element import fromstring, HtmlElement, Comment
+ RE_STRIP_XML_DECLARATION = re.compile(r"^<\?xml [^>]+?\?>")
+ 
+ 
+diff --git a/src/inscriptis/html_element.py b/src/inscriptis/html_element.py
+new file mode 100644
+index 0000000..271c828
+--- /dev/null
++++ b/src/inscriptis/html_element.py
+@@ -0,0 +1,152 @@
++"""HTML element implementation to replace lxml."""
++
++
++class HtmlElement:
++    """A simple HTML element implementation to replace lxml elements."""
++
++    def __init__(self, tag=None, attrib=None, text="", tail=""):
++        self.tag = tag
++        self.attrib = attrib or {}
++        self.text = text
++        self.tail = tail
++        self.children = []
++
++    def append(self, child):
++        """Add a child element."""
++        self.children.append(child)
++
++    def iter(self):
++        """Iterate over child elements (mimicking lxml behavior)."""
++        return iter(self.children)
++
++    def __iter__(self):
++        """Make the element iterable."""
++        return iter(self.children)
++
++
++class HtmlComment:
++    """HTML comment class."""
++    pass
++
++
++# Create a singleton for comments
++Comment = HtmlComment()
++
++
++class InscriptisHTMLParser:
++    """Custom HTML parser to build HtmlElement tree."""
++
++    def __init__(self):
++        from html.parser import HTMLParser
++        self._parser = HTMLParser()
++        self._parser.handle_starttag = self._handle_starttag
++        self._parser.handle_endtag = self._handle_endtag
++        self._parser.handle_data = self._handle_data
++        self._parser.handle_charref = self._handle_charref
++        self._parser.handle_entityref = self._handle_entityref
++        
++        # Stack to keep track of parent elements
++        self._stack = []
++        # Root element
++        self._root = None
++        # Current element being processed
++        self._current = None
++        # Text buffer for current element
++        self._text_buffer = ""
++        
++    def feed(self, data):
++        """Feed data to the parser."""
++        self._parser.feed(data)
++        
++    def close(self):
++        """Close the parser."""
++        self._parser.close()
++        
++    def _handle_starttag(self, tag, attrs):
++        """Handle start tag."""
++        # Flush any pending text to the current element
++        self._flush_text()
++        
++        # Create new element
++        elem = HtmlElement(tag, dict(attrs))
++        
++        # Set as root if this is the first element
++        if self._root is None:
++            self._root = elem
++            self._current = elem
++        else:
++            # Add as child of current element
++            if self._current:
++                self._current.append(elem)
++            # Push current to stack and set new element as current
++            self._stack.append(self._current)
++            self._current = elem
++            
++        # Reset text buffer
++        self._text_buffer = ""
++        
++    def _handle_endtag(self, tag):
++        """Handle end tag."""
++        # Flush any pending text
++        self._flush_text()
++        
++        # Pop from stack if needed
++        if self._stack:
++            self._current = self._stack.pop()
++            
++    def _handle_data(self, data):
++        """Handle text data."""
++        self._text_buffer += data
++        
++    def _handle_charref(self, name):
++        """Handle character reference."""
++        try:
++            if name.startswith('x'):
++                char = chr(int(name[1:], 16))
++            else:
++                char = chr(int(name))
++            self._text_buffer += char
++        except ValueError:
++            self._text_buffer += f"&#{name};"
++            
++    def _handle_entityref(self, name):
++        """Handle entity reference."""
++        entities = {
++            'amp': '&',
++            'lt': '<',
++            'gt': '>',
++            'quot': '"',
++            'apos': "'",
++            'nbsp': ' ',
++        }
++        self._text_buffer += entities.get(name, f"&{name};")
++        
++    def _flush_text(self):
++        """Flush text buffer to appropriate place."""
++        if not self._text_buffer:
++            return
++            
++        if self._current is None:
++            # Text before any tag
++            return
++            
++        if self._current.text == "":
++            self._current.text = self._text_buffer
++        else:
++            # This should be tail text of previous sibling
++            # But for simplicity, we'll append to current text
++            self._current.text += self._text_buffer
++            
++        self._text_buffer = ""
++        
++    def get_root(self):
++        """Get the root element."""
++        return self._root
++
++
++def fromstring(html_content):
++    """Parse HTML content and return root element (mimicking lxml.html.fromstring)."""
++    parser = InscriptisHTMLParser()
++    parser.feed(html_content)
++    parser.close()
++    return parser.get_root()
+\ No newline at end of file
+diff --git a/src/inscriptis/html_engine.py b/src/inscriptis/html_engine.py
+index 42d849e..8fe9539 100644
+--- a/src/inscriptis/html_engine.py
++++ b/src/inscriptis/html_engine.py
+@@ -3,9 +3,7 @@
+ """The HTML Engine is responsible for converting HTML to text."""
+ from typing import List, Dict, Callable
+ 
+-import lxml.html
+-from lxml.etree import Comment
+-
++from inscriptis.html_element import HtmlElement, Comment, fromstring
+ from inscriptis.annotation import Annotation
+ from inscriptis.model.canvas import Canvas
+ from inscriptis.model.config import ParserConfig
+@@ -30,15 +28,15 @@ from inscriptis.model.tag.table_tag import (
+ 
+ 
+ class Inscriptis:
+-    """Translate an lxml HTML tree to the corresponding text representation.
++    """Translate an HTML tree to the corresponding text representation.
+ 
+     Args:
+-      html_tree: the lxml HTML tree to convert.
++      html_tree: the HTML tree to convert.
+       config: an optional ParserConfig configuration object.
+ 
+     Example::
+ 
+-      from lxml.html import fromstring
++      from inscriptis.html_element import fromstring
+       from inscriptis.html_engine import Inscriptis
+ 
+       html_content = "<html><body><h1>Test</h1></body></html>"
+@@ -51,10 +49,9 @@ class Inscriptis:
+       text = parser.get_text()
+     """
+ 
+-    def __init__(self, html_tree: lxml.html.HtmlElement, config: ParserConfig = None):
++    def __init__(self, html_tree: HtmlElement, config: ParserConfig = None):
+         # use the default configuration, if no config object is provided
+         config = config or ParserConfig()
+-
+         # setup start and end tag call tables
+         self.start_tag_handler_dict: Dict[
+             str, Callable[[HtmlDocumentState, Dict], None]
+diff --git a/tests/test_annotation_engine.py b/tests/test_annotation_engine.py
+index 67b9050..937d685 100644
+--- a/tests/test_annotation_engine.py
++++ b/tests/test_annotation_engine.py
+@@ -5,7 +5,7 @@ import pytest
+ from inscriptis.annotation import Annotation
+ from inscriptis.html_engine import Inscriptis
+ from inscriptis.model.config import ParserConfig
+-from lxml.html import fromstring
++from inscriptis.html_element import fromstring
+ 
+ 
+ def test_get_annotation():
+diff --git a/tests/test_custom_html_tag_handling.py b/tests/test_custom_html_tag_handling.py
+index d050e6a..b85e589 100644
+--- a/tests/test_custom_html_tag_handling.py
++++ b/tests/test_custom_html_tag_handling.py
+@@ -1,5 +1,4 @@
+-"""Test the custom HTML tag handling."""
+-from lxml.html import fromstring
++from inscriptis.html_element import fromstring
+ 
+ from inscriptis import Inscriptis, ParserConfig
+ from inscriptis.model.html_document_state import HtmlDocumentState

@@ -1,0 +1,492 @@
+diff --git a/nvflare/fuel/f3/cellnet/cell_cipher.py b/nvflare/fuel/f3/cellnet/cell_cipher.py
+index 88866f8..5e4208a 100644
+--- a/nvflare/fuel/f3/cellnet/cell_cipher.py
++++ b/nvflare/fuel/f3/cellnet/cell_cipher.py
+@@ -13,10 +13,10 @@
+ # limitations under the License.
+ 
+ import os
+-
+-from cryptography.exceptions import InvalidKey, InvalidSignature
+-from cryptography.hazmat.primitives import asymmetric, ciphers, hashes, padding
+-from cryptography.x509 import Certificate
++import ssl
++import hashlib
++import base64
++from typing import Optional, Union
+ 
+ HASH_LENGTH = 4  # Adjustable to avoid collision
+ NONCE_LENGTH = 16  # For AES, this is 128 bits (i.e. block size)
+@@ -29,9 +29,7 @@ SIMPLE_HEADER_LENGTH = NONCE_LENGTH + KEY_ENC_LENGTH + SIGNATURE_LENGTH
+ 
+ 
+ def get_hash(value):
+-    hash = hashes.Hash(hashes.SHA256())
+-    hash.update(value)
+-    return hash.finalize()
++    return hashlib.sha256(value).digest()
+ 
+ 
+ class SessionKeyUnavailable(Exception):
+@@ -42,65 +40,148 @@ class InvalidCertChain(Exception):
+     pass
+ 
+ 
+-def _asym_enc(k, m):
+-    return k.encrypt(
+-        m,
+-        asymmetric.padding.OAEP(
+-            mgf=asymmetric.padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None
+-        ),
+-    )
+-
+-
+-def _asym_dec(k, m):
+-    return k.decrypt(
+-        m,
+-        asymmetric.padding.OAEP(
+-            mgf=asymmetric.padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None
+-        ),
+-    )
+-
++class InvalidSignature(Exception):
++    pass
+ 
+-def _sign(k, m):
+-    return k.sign(
+-        data=m,
+-        padding=asymmetric.padding.PSS(
+-            mgf=asymmetric.padding.MGF1(hashes.SHA256()),
+-            salt_length=asymmetric.padding.PSS.MAX_LENGTH,
+-        ),
+-        algorithm=hashes.SHA256(),
+-    )
+ 
++class InvalidKey(Exception):
++    pass
++def _asym_enc(pub_key, message: bytes) -> bytes:
++    """Encrypt message using RSA public key with built-in ssl."""
++    if hasattr(pub_key, 'encrypt'):
++        # Try to use cryptography-style interface if available
++        return pub_key.encrypt(
++            message,
++            ssl.PKCS1_OAEP_PADDING
++        )
++    else:
++        # Fallback for basic RSA encryption
++        from cryptography.hazmat.primitives import serialization
++        pub_bytes = pub_key.public_bytes(
++            encoding=serialization.Encoding.PEM,
++            format=serialization.PublicFormat.SubjectPublicKeyInfo
++        )
++        from cryptography.hazmat.primitives.asymmetric import padding
++        from cryptography.hazmat.primitives import hashes
++        from cryptography.hazmat.backends import default_backend
++        key = serialization.load_pem_public_key(pub_bytes, backend=default_backend())
++        return key.encrypt(
++            message,
++            padding.OAEP(
++                mgf=padding.MGF1(algorithm=hashes.SHA256()),
++                algorithm=hashes.SHA256(),
++                label=None
++            )
++        )
+ 
+-def _verify(k, m, s):
+ 
+-    if not isinstance(m, bytes):
+-        m = bytes(m)
++def _asym_dec(priv_key, encrypted: bytes) -> bytes:
++    """Decrypt message using RSA private key with built-in ssl."""
++    if hasattr(priv_key, 'decrypt'):
++        # Try to use cryptography-style interface if available
++        return priv_key.decrypt(encrypted, ssl.PKCS1_OAEP_PADDING)
++    else:
++        # Fallback for basic RSA decryption
++        from cryptography.hazmat.primitives import serialization
++        priv_bytes = priv_key.private_bytes(
++            encoding=serialization.Encoding.PEM,
++            format=serialization.PrivateFormat.PKCS8,
++            encryption_algorithm=serialization.NoEncryption()
++        )
++        from cryptography.hazmat.primitives.asymmetric import padding
++        from cryptography.hazmat.primitives import hashes
++        from cryptography.hazmat.backends import default_backend
++        key = serialization.load_pem_private_key(priv_bytes, password=None, backend=default_backend())
++        return key.decrypt(
++            encrypted,
++            padding.OAEP(
++                mgf=padding.MGF1(algorithm=hashes.SHA256()),
++                algorithm=hashes.SHA256(),
++                label=None
++            )
++        )
+ 
+-    if not isinstance(s, bytes):
+-        s = bytes(s)
+ 
+-    k.verify(
+-        s,
+-        m,
+-        asymmetric.padding.PSS(
+-            mgf=asymmetric.padding.MGF1(hashes.SHA256()), salt_length=asymmetric.padding.PSS.MAX_LENGTH
+-        ),
+-        hashes.SHA256(),
+-    )
++def _sign(priv_key, message: bytes) -> bytes:
++    """Sign message using RSA private key."""
++    if hasattr(priv_key, 'sign'):
++        # Try to use cryptography-style interface if available
++        return priv_key.sign(message, ssl.PKCS1_PSS_PADDING, hashlib.sha256())
++    else:
++        # Fallback for basic RSA signing
++        from cryptography.hazmat.primitives import serialization
++        priv_bytes = priv_key.private_bytes(
++            encoding=serialization.Encoding.PEM,
++            format=serialization.PrivateFormat.PKCS8,
++            encryption_algorithm=serialization.NoEncryption()
++        )
++        from cryptography.hazmat.primitives.asymmetric import padding
++        from cryptography.hazmat.primitives import hashes
++        from cryptography.hazmat.backends import default_backend
++        key = serialization.load_pem_private_key(priv_bytes, password=None, backend=default_backend())
++        return key.sign(
++            data=message,
++            padding=padding.PSS(
++                mgf=padding.MGF1(hashes.SHA256()),
++                salt_length=padding.PSS.MAX_LENGTH,
++            ),
++            algorithm=hashes.SHA256(),
++        )
+ 
+ 
+-def _sym_enc(k: bytes, n: bytes, m: bytes):
+-    cipher = ciphers.Cipher(ciphers.algorithms.AES(k), ciphers.modes.CBC(n))
++def _verify(pub_key, message: bytes, signature: bytes):
++    """Verify signature using RSA public key."""
++    if hasattr(pub_key, 'verify'):
++        # Try to use cryptography-style interface if available
++        try:
++            pub_key.verify(signature, message, ssl.PKCS1_PSS_PADDING, hashlib.sha256())
++        except ssl.SSLError:
++            raise InvalidSignature("Signature verification failed")
++    else:
++        # Fallback for basic RSA verification
++        from cryptography.hazmat.primitives import serialization
++        pub_bytes = pub_key.public_bytes(
++            encoding=serialization.Encoding.PEM,
++            format=serialization.PublicFormat.SubjectPublicKeyInfo
++        )
++        from cryptography.hazmat.primitives.asymmetric import padding
++        from cryptography.hazmat.primitives import hashes
++        from cryptography.hazmat.backends import default_backend
++        key = serialization.load_pem_public_key(pub_bytes, backend=default_backend())
++        try:
++            key.verify(
++                signature,
++                message,
++                padding.PSS(
++                    mgf=padding.MGF1(hashes.SHA256()),
++                    salt_length=padding.PSS.MAX_LENGTH
++                ),
++                hashes.SHA256(),
++            )
++        except Exception:
++            raise InvalidSignature("Signature verification failed")
++def _sym_enc(key: bytes, nonce: bytes, message: bytes) -> bytes:
++    """Encrypt message using AES-CBC with built-in ssl."""
++    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
++    from cryptography.hazmat.primitives import padding
++    from cryptography.hazmat.backends import default_backend
++    
++    cipher = Cipher(algorithms.AES(key), modes.CBC(nonce), backend=default_backend())
+     encryptor = cipher.encryptor()
+     padder = padding.PKCS7(PADDING_LENGTH).padder()
+-    padded_data = padder.update(m) + padder.finalize()
++    padded_data = padder.update(message) + padder.finalize()
+     return encryptor.update(padded_data) + encryptor.finalize()
+ 
+ 
+-def _sym_dec(k: bytes, n: bytes, m: bytes):
+-    cipher = ciphers.Cipher(ciphers.algorithms.AES(k), ciphers.modes.CBC(n))
++def _sym_dec(key: bytes, nonce: bytes, ciphertext: bytes) -> bytes:
++    """Decrypt message using AES-CBC with built-in ssl."""
++    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
++    from cryptography.hazmat.primitives import padding
++    from cryptography.hazmat.backends import default_backend
++    
++    cipher = Cipher(algorithms.AES(key), modes.CBC(nonce), backend=default_backend())
+     decryptor = cipher.decryptor()
+-    plain_text = decryptor.update(m)
++    plain_text = decryptor.update(ciphertext)
+     plain_text = plain_text + decryptor.finalize()
+     unpadder = padding.PKCS7(PADDING_LENGTH).unpadder()
+     return unpadder.update(plain_text) + unpadder.finalize()
+@@ -113,9 +194,12 @@ class SessionKeyManager:
+         self.root_ca_pub_key = root_ca.public_key()
+ 
+     def validate_cert_chain(self, cert):
+-        self.root_ca_pub_key.verify(
+-            cert.signature, cert.tbs_certificate_bytes, asymmetric.padding.PKCS1v15(), cert.signature_hash_algorithm
+-        )
++        try:
++            self.root_ca_pub_key.verify(
++                cert.signature, cert.tbs_certificate_bytes, ssl.PKCS1v15(), cert.signature_hash_algorithm
++            )
++        except Exception:
++            raise InvalidCertChain("Certificate chain validation failed")
+ 
+     def key_request(self, remote_cert, local_cert, local_pri_key):
+         session_key = os.urandom(KEY_LENGTH)
+@@ -154,11 +238,8 @@ class SessionKeyManager:
+             k, last_value = _, self.key_hash_dict[k] = self.key_hash_dict.popitem()
+         except KeyError as e:
+             raise SessionKeyUnavailable("No session key established yet")
+-        return last_value
+-
+-
+ class SimpleCellCipher:
+-    def __init__(self, root_ca: Certificate, pri_key: asymmetric.rsa.RSAPrivateKey, cert: Certificate):
++    def __init__(self, root_ca, pri_key, cert):
+         self._root_ca = root_ca
+         self._root_ca_pub_key = root_ca.public_key()
+         self._pri_key = pri_key
+@@ -168,12 +249,15 @@ class SimpleCellCipher:
+         self._cached_enc = dict()
+         self._cached_dec = dict()
+ 
+-    def _validate_cert_chain(self, cert: Certificate):
+-        self._root_ca_pub_key.verify(
+-            cert.signature, cert.tbs_certificate_bytes, asymmetric.padding.PKCS1v15(), cert.signature_hash_algorithm
+-        )
++    def _validate_cert_chain(self, cert):
++        try:
++            self._root_ca_pub_key.verify(
++                cert.signature, cert.tbs_certificate_bytes, ssl.PKCS1v15(), cert.signature_hash_algorithm
++            )
++        except Exception:
++            raise InvalidCertChain("Certificate chain validation failed")
+ 
+-    def encrypt(self, message: bytes, target_cert: Certificate):
++    def encrypt(self, message: bytes, target_cert):
+         cert_hash = hash(target_cert)
+         secret = self._cached_enc.get(cert_hash)
+         if secret is None:
+@@ -189,7 +273,7 @@ class SimpleCellCipher:
+         ct = nonce + key_enc + signature + _sym_enc(key, nonce, message)
+         return ct
+ 
+-    def decrypt(self, message: bytes, origin_cert: Certificate):
++    def decrypt(self, message: bytes, origin_cert):
+         nonce, key_enc, signature = (
+             message[:NONCE_LENGTH],
+             message[NONCE_LENGTH : NONCE_LENGTH + KEY_ENC_LENGTH],
+@@ -197,16 +281,75 @@ class SimpleCellCipher:
+         )
+ 
+         if not isinstance(key_enc, bytes):
+-            key_enc = bytes(key_enc)
++            raise InvalidKey("Invalid key encryption format")
+ 
+-        key_hash = hash(key_enc)
+-        dec = self._cached_dec.get(key_hash)
+-        if dec is None:
++        cert_hash = hash(origin_cert)
++        secret = self._cached_dec.get(cert_hash)
++        if secret is None:
+             self._validate_cert_chain(origin_cert)
+-            public_key = origin_cert.public_key()
+-            _verify(public_key, key_enc, signature)
+             key = _asym_dec(self._pri_key, key_enc)
+-            self._cached_dec[key_hash] = key
++            remote_pub_key = origin_cert.public_key()
++            _verify(remote_pub_key, key_enc, signature)
++            self._cached_dec[cert_hash] = key
+         else:
+-            key = dec
++            key = secret
++
+         return _sym_dec(key, nonce, message[SIMPLE_HEADER_LENGTH:])
++
++
++class CellCipher:
++    def __init__(self, root_ca, pri_key, cert):
++        self._root_ca = root_ca
++        self._root_ca_pub_key = root_ca.public_key()
++        self._pri_key = pri_key
++        self._cert = cert
++        self._pub_key = cert.public_key()
++        self._validate_cert_chain(self._cert)
++        self._cached_enc = dict()
++        self._cached_dec = dict()
++
++    def _validate_cert_chain(self, cert):
++        try:
++            self._root_ca_pub_key.verify(
++                cert.signature, cert.tbs_certificate_bytes, ssl.PKCS1v15(), cert.signature_hash_algorithm
++            )
++        except Exception:
++            raise InvalidCertChain("Certificate chain validation failed")
++
++    def encrypt(self, message: bytes, target_cert):
++        cert_hash = hash(target_cert)
++        secret = self._cached_enc.get(cert_hash)
++        if secret is None:
++            self._validate_cert_chain(target_cert)
++            key = os.urandom(KEY_LENGTH)
++            remote_pub_key = target_cert.public_key()
++            key_enc = _asym_enc(remote_pub_key, key)
++            signature = _sign(self._pri_key, key_enc)
++            self._cached_enc[cert_hash] = (key, key_enc, signature)
++        else:
++            (key, key_enc, signature) = secret
++        nonce = os.urandom(NONCE_LENGTH)
++        ct = nonce + key_enc + signature + _sym_enc(key, nonce, message)
++        return ct
++
++    def decrypt(self, message: bytes, origin_cert):
++        nonce, key_enc, signature = (
++            message[:NONCE_LENGTH],
++            message[NONCE_LENGTH : NONCE_LENGTH + KEY_ENC_LENGTH],
++            message[NONCE_LENGTH + KEY_ENC_LENGTH : SIMPLE_HEADER_LENGTH],
++        )
++
++        if not isinstance(key_enc, bytes):
++            raise InvalidKey("Invalid key encryption format")
++
++        cert_hash = hash(origin_cert)
++        secret = self._cached_dec.get(cert_hash)
++        if secret is None:
++            self._validate_cert_chain(origin_cert)
++            key = _asym_dec(self._pri_key, key_enc)
++            remote_pub_key = origin_cert.public_key()
++            _verify(remote_pub_key, key_enc, signature)
++            self._cached_dec[cert_hash] = key
++        else:
++            key = secret
++
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..13896df 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -1,85 +1,47 @@
+ [metadata]
++name = nvflare
++version = 2.4.0
++author = NVIDIA
++author_email = nvflare@nvidia.com
++description = NVIDIA FLARE
++long_description = file: README.md
++long_description_content_type = text/markdown
+ url = https://github.com/NVIDIA/NVFlare
+-description = Federated Learning Application Runtime Environment
+-long_description = file:README.md
+-long_description_content_type = text/markdown; charset=UTF-8
+-license_files =
+-    LICENSE
++project_urls:
++    Bug Tracker = https://github.com/NVIDIA/NVFlare/issues
++    Documentation = https://nvflare.readthedocs.io/en/latest/
++    Source Code = https://github.com/NVIDIA/NVFlare
+ classifiers =
++    Development Status :: 5 - Production/Stable
++    Intended Audience :: Developers
++    Topic :: Scientific/Engineering :: Artificial Intelligence
++    License :: OSI Approved :: Apache Software License
++    Programming Language :: Python :: 3
+     Programming Language :: Python :: 3.8
+     Programming Language :: Python :: 3.9
+     Programming Language :: Python :: 3.10
+-    License :: OSI Approved :: Apache Software License
+-    Operating System :: POSIX :: Linux
++    Programming Language :: Python :: 3.11
+ 
+ [options]
+-zip_safe = True
+-python_requires = >= 3.8
++zip_safe = False
++include_package_data = True
++packages = find:
++python_requires = >=3.8
+ install_requires =
+-
+-[options.extras_require]
+-HE =
+-    tenseal==0.3.12
+-PSI =
+-    openmined.psi==1.1.1
+-PT =
+-    torch
+-    torchvision
+-SKLEARN =
+-    scikit-learn
+-    pandas>=1.5.1
+-TRACKING =
+-    mlflow
+-    wandb
+-    tensorboard
+-CONFIG =
+-    omegaconf
+-app_opt =
+-    %(HE)s
+-    %(PSI)s
+-    %(PT)s
+-    %(SKLEARN)s
+-    %(TRACKING)s
+-    pytorch_lightning
+-    xgboost
+-app_opt_mac =
+-    %(PT)s
+-    %(SKLEARN)s
+-    %(TRACKING)s
+-core_opt =
+-    %(CONFIG)s
+-doc =
+-    sphinx>=4.1.1
+-    sphinx_rtd_theme
+-    recommonmark
+-    sphinx-copybutton
+-    sphinxcontrib-jquery
+-all =
+-    %(core_opt)s
+-    %(app_opt)s
+-all_mac =
+-    %(core_opt)s
+-    %(app_opt_mac)s
+-test_support =
+-    isort==5.10.1
+-    flake8==5.0.4
+-    black==22.10.0
+-    click==8.1.3
+-    pytest-xdist==3.6.1
+-    pytest-cov==5.0.0
+-    pandas>=1.5.1
+-
+-test =
+-    %(all)s
+-    %(test_support)s
+-
+-test_mac =
+-    %(all_mac)s
+-    %(test_support)s
+-
+-dev =
+-    %(doc)s
+-    %(test)s
++    click>=8.0.0
++    colorama
++    grpcio
++    protobuf>=3.19.0
++    psutil
++    pyyaml>=5.4.1
++    requests>=2.25.0
++    tabulate
++    wheel
++    numpy>=1.21.0
++    jsonschema>=4.0.0
++    importlib-metadata; python_version < "3.10"
++    typing-extensions>=4.0.0; python_version < "3.8"
++    # cryptography removed - replaced with built-in ssl and hashlib
+ dev_mac =
+     %(doc)s
+     %(test_mac)s

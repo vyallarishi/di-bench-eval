@@ -1,0 +1,81 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 8c08688..ad1ba5a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,31 +1,27 @@
+ [build-system]
+ requires = ["setuptools>=58.5.0"]
+-build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "yapf"
+-description = "A formatter for Python code"
++requires-python = ">=3.11"
+ authors = [{ name = "Google Inc." }]
+ maintainers = [{ name = "Bill Wendling", email = "morbo@google.com" }]
+ dynamic = ["version"]
+ license = { file = "LICENSE" }
+ readme = "README.md"
+-requires-python = ">=3.7"
+ classifiers = [
+-    'Development Status :: 4 - Beta',
+-    'Environment :: Console',
+-    'Intended Audience :: Developers',
+-    'License :: OSI Approved :: Apache Software License',
+-    'Operating System :: OS Independent',
+-    'Programming Language :: Python',
+-    'Programming Language :: Python :: 3 :: Only',
+-    'Programming Language :: Python :: 3.7',
+-    'Programming Language :: Python :: 3.8',
+-    'Programming Language :: Python :: 3.9',
+-    'Programming Language :: Python :: 3.10',
+-    'Programming Language :: Python :: 3.11',
+-    'Topic :: Software Development :: Libraries :: Python Modules',
+-    'Topic :: Software Development :: Quality Assurance',
++'Development Status :: 4 - Beta',
++'Intended Audience :: Developers',
++'License :: OSI Approved :: Apache Software License',
++'Operating System :: OS Independent',
++'Programming Language :: Python',
++'Programming Language :: Python :: 3 :: Only',
++'Programming Language :: Python :: 3.11',
++'Programming Language :: Python :: 3.12',
++'Programming Language :: Python :: 3.13',
++'Topic :: Software Development :: Code Generators',
++'Topic :: Software Development :: Libraries :: Python Modules',
++'Topic :: Software Development :: Quality Assurance',
+ ]
+ dependencies = [
+ ]
+diff --git a/yapf/yapflib/file_resources.py b/yapf/yapflib/file_resources.py
+index 87b6d86..da6303a 100644
+--- a/yapf/yapflib/file_resources.py
++++ b/yapf/yapflib/file_resources.py
+@@ -28,10 +28,7 @@ from tokenize import detect_encoding
+ from yapf.yapflib import errors
+ from yapf.yapflib import style
+ 
+-if sys.version_info >= (3, 11):
+-  import tomllib
+-else:
+-  import tomli as tomllib
++import tomllib
+ 
+ CR = '\r'
+ LF = '\n'
+diff --git a/yapf/yapflib/style.py b/yapf/yapflib/style.py
+index 7642c01..4c90d84 100644
+--- a/yapf/yapflib/style.py
++++ b/yapf/yapflib/style.py
+@@ -21,10 +21,7 @@ from configparser import ConfigParser
+ 
+ from yapf.yapflib import errors
+ 
+-if sys.version_info >= (3, 11):
+-  import tomllib
+-else:
+-  import tomli as tomllib
++import tomllib
+ 
+ 
+ class StyleConfigError(errors.YapfError):

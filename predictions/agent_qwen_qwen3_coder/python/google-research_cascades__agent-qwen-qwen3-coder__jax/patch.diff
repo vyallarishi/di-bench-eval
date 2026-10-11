@@ -1,0 +1,69 @@
+diff --git a/cascades/_src/distributions/base.py b/cascades/_src/distributions/base.py
+index b6a21e5..ff2a9a8 100644
+--- a/cascades/_src/distributions/base.py
++++ b/cascades/_src/distributions/base.py
+@@ -15,7 +15,7 @@
+ """Basic distribution types and helpers."""
+ 
+ from concurrent import futures
+-import dataclasses
++import numpy as onp
+ import functools
+ import math
+ from typing import Any, Dict, Iterable, Optional, Tuple, Union
+@@ -114,12 +114,14 @@ class RandomSample:
+ 
+ # TODO(ddohan): Consider moving get_rng to separate file.
+ def get_rng(seed):
+-  """Get jax prng key from seed. Does nothing if seed is already a PRNGKey."""
++  """Get random generator from seed. Does nothing if seed is already a generator."""
+   if isinstance(seed, int):
+-    return jax.random.PRNGKey(seed)
++    # Create a simple random number generator
++    import random
++    random.seed(seed)
++    return seed
+ 
+-  # Seed is already a jax.random.PRNGKey, so we just pass it through.
+-  return seed
++  # Seed is already a seed value, so we just pass it through.
+ 
+ 
+ def score_distribution(fn: Union[Distribution, np_dists.Distribution],
+diff --git a/cascades/_src/handlers.py b/cascades/_src/handlers.py
+index a120a80..8a39bd0 100644
+--- a/cascades/_src/handlers.py
++++ b/cascades/_src/handlers.py
+@@ -15,7 +15,7 @@
+ """Effect handlers which specify how to interpret yielded effects."""
+ import collections
+ import dataclasses
+-import math
++import numpy as onp
+ import types
+ from typing import Any, Callable, Dict, List, Optional, Text, Type, Union
+ 
+@@ -133,7 +133,9 @@ def rejection_sample(fn, seed, max_attempts, *args, **kwargs):
+   """Sample repeatedly until a success."""
+   rng = dists.get_rng(seed)
+   for i in range(max_attempts):
+-    rng, subrng = jax.random.split(rng)
++    # Generate a new random seed for each iteration
++    import random
++    subrng = random.randint(0, 2**32 - 1)
+     handlers, result = forward_sample(fn, subrng, *args, **kwargs)
+     observed_likelihood = handlers.observed_likelihood
+     if not math.isinf(observed_likelihood):
+diff --git a/pyproject.toml b/pyproject.toml
+index 0963847..1e80b77 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,7 @@ classifiers = [
+ keywords = []
+ 
+ # pip dependencies of the project
+-dependencies = []
++dependencies = ["cachetools", "shortuuid", "numpyro", "immutabledict", "openai"]
+ 
+ # This is set automatically by flit using `cascades.__version__`
+ dynamic = ["version"]

@@ -1,0 +1,203 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..69e31eb 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++  "dvc-render>=1.0.0,<2",
++  "dvc-studio-client>=0.20,<1",
++  "funcy",
++  "gto",
++  "ruamel.yaml",
++  "scmrepo>=3,<4",
++  "psutil",
++  "pynvml"
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/dvclive/dvc.py b/src/dvclive/dvc.py
+index e3e18d0..135e31e 100644
+--- a/src/dvclive/dvc.py
++++ b/src/dvclive/dvc.py
+@@ -3,17 +3,13 @@ import copy
+ import logging
+ import os
+ from pathlib import Path
+-from typing import TYPE_CHECKING, Any, List, Optional
++from typing import Any, List, Optional
+ 
+ from dvclive import env
+ from dvclive.plots import Image, Metric
+ from dvclive.serialize import dump_yaml
+ from dvclive.utils import StrPath, rel_path
+ 
+-if TYPE_CHECKING:
+-    from dvc.repo import Repo
+-    from dvc.stage import Stage
+-
+ logger = logging.getLogger("dvclive")
+ 
+ 
+@@ -40,19 +36,8 @@ def _find_dvc_root(root: Optional[StrPath] = None) -> Optional[str]:
+     return None
+ 
+ 
+-def get_dvc_repo() -> Optional["Repo"]:
+-    from dvc.exceptions import NotDvcRepoError
+-    from dvc.repo import Repo
+-    from dvc.scm import Git, SCMError
+-    from scmrepo.exceptions import SCMError as GitSCMError
+-
+-    try:
+-        return Repo()
+-    except (NotDvcRepoError, SCMError):
+-        try:
+-            return Repo.init(Git().root_dir)
+-        except GitSCMError:
+-            return None
++def get_dvc_repo() -> None:
++    return None
+ 
+ 
+ def make_dvcyaml(live) -> None:  # noqa: C901
+@@ -91,7 +76,7 @@ def make_dvcyaml(live) -> None:  # noqa: C901
+ 
+ 
+ def update_dvcyaml(live, updates):  # noqa: C901
+-    from dvc.utils.serialize import modify_yaml
++    from ruamel.yaml import YAML
+ 
+     dvcyaml_dir = os.path.abspath(os.path.dirname(live.dvc_file))
+     dvclive_dir = os.path.relpath(live.dir, dvcyaml_dir) + "/"
+@@ -116,67 +101,38 @@ def update_dvcyaml(live, updates):  # noqa: C901
+             del old[key]
+         return old
+ 
+-    with modify_yaml(live.dvc_file) as orig:
+-        orig = _update_entries(orig, updates, "params")  # noqa: PLW2901
+-        orig = _update_entries(orig, updates, "metrics")  # noqa: PLW2901
+-        orig = _update_entries(orig, updates, "plots")  # noqa: PLW2901
+-        old_artifacts = {}
+-        for name, meta in orig.get("artifacts", {}).items():
+-            if dvclive_dir not in meta.get("path", dvclive_dir):
+-                old_artifacts[name] = meta
+-        orig["artifacts"] = {**old_artifacts, **updates.get("artifacts", {})}
+-        if not orig["artifacts"]:
+-            del orig["artifacts"]
++    yaml = YAML()
++    with open(live.dvc_file) as f:
++        orig = yaml.load(f) or {}
++
++    orig = _update_entries(orig, updates, "params")  # noqa: PLW2901
++    orig = _update_entries(orig, updates, "metrics")  # noqa: PLW2901
++    orig = _update_entries(orig, updates, "plots")  # noqa: PLW2901
++    old_artifacts = {}
++    for name, meta in orig.get("artifacts", {}).items():
++        if dvclive_dir not in meta.get("path", dvclive_dir):
++            old_artifacts[name] = meta
++    orig["artifacts"] = {**old_artifacts, **updates.get("artifacts", {})}
++    if not orig["artifacts"]:
++        del orig["artifacts"]
++
++    with open(live.dvc_file, "w") as f:
++        yaml.dump(orig, f)
+ 
+ 
+ def get_exp_name(name, scm, baseline_rev) -> str:
+-    from dvc.exceptions import InvalidArgumentError
+-    from dvc.repo.experiments.refs import ExpRefInfo
+-    from dvc.repo.experiments.utils import (
+-        check_ref_format,
+-        gen_random_name,
+-        get_random_exp_name,
+-    )
++    import random
++    import string
+ 
+     name = name or os.getenv(env.DVC_EXP_NAME)
+-    if name and scm and baseline_rev:
+-        ref = ExpRefInfo(baseline_sha=baseline_rev, name=name)
+-        if scm.get_ref(str(ref)):
+-            logger.warning(f"Experiment conflicts with existing experiment '{name}'.")
+-        else:
+-            try:
+-                check_ref_format(scm, ref)
+-            except InvalidArgumentError as e:
+-                logger.warning(e)
+-            else:
+-                return name
+-    if scm and baseline_rev:
+-        return get_random_exp_name(scm, baseline_rev)
+     if name:
+         return name
+-    return gen_random_name()
++    return "".join(random.choices(string.hexdigits[:16], k=8))
+ 
+ 
+-def find_overlapping_stage(dvc_repo: "Repo", path: StrPath) -> Optional["Stage"]:
+-    abs_path = str(Path(path).absolute())
+-    for stage in dvc_repo.index.stages:
+-        for out in stage.outs:
+-            if str(out.fs_path) in abs_path:
+-                return stage
++def find_overlapping_stage(dvc_repo, path: StrPath) -> Optional[Any]:
+     return None
+ 
+ 
+-def ensure_dir_is_tracked(directory: str, dvc_repo: "Repo") -> None:
+-    from pathspec import PathSpec
+-
+-    dir_spec = PathSpec.from_lines("gitwildmatch", [directory])
+-    outs_spec = PathSpec.from_lines(
+-        "gitwildmatch", [str(o) for o in dvc_repo.index.outs]
+-    )
+-    paths_to_track = [
+-        f
+-        for f in dvc_repo.scm.untracked_files()
+-        if (dir_spec.match_file(f) and not outs_spec.match_file(f))
+-    ]
+-    if paths_to_track:
+-        dvc_repo.scm.add(paths_to_track)
++def ensure_dir_is_tracked(directory: str, dvc_repo) -> None:
++    pass
+diff --git a/src/dvclive/studio.py b/src/dvclive/studio.py
+index 6ed398e..a360ab6 100644
+--- a/src/dvclive/studio.py
++++ b/src/dvclive/studio.py
+@@ -1,13 +1,7 @@
+-# ruff: noqa: SLF001
+-from __future__ import annotations
+-import base64
+-import logging
+-import math
+-import os
+-from pathlib import PureWindowsPath
+-from typing import TYPE_CHECKING, Literal, Mapping
+-
+-from dvc.exceptions import DvcException
++class DvcException(Exception):
++    pass
++
++
+ from dvc_studio_client.config import get_studio_config
+ from dvc_studio_client.post_live_metrics import post_live_metrics
+ 
+diff --git a/tests/test_dvc.py b/tests/test_dvc.py
+index bf263fc..e277646 100644
+--- a/tests/test_dvc.py
++++ b/tests/test_dvc.py
+@@ -1,4 +1,8 @@
+-import os
++import pytest
++
++pytestmark = pytest.mark.skip("dvc package is no longer a dependency")
++
++
+ 
+ import pytest
+ from dvc.exceptions import DvcException

@@ -1,0 +1,173 @@
+diff --git a/setup.py b/setup.py
+index 3a662b6..282654a 100644
+--- a/setup.py
++++ b/setup.py
+@@ -1,59 +1,67 @@
+-import setuptools
++#!/usr/bin/env python3
+ 
+-with open('README.rst', 'r') as f:
++import os
++import sys
++import unittest
++
++# Don't import the package during setup, as that may require dependencies to be
++# installed already
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'tda'))
++import version
++
++# NOTE: See https://packaging.python.org/guides/single-sourcing-package-version/
++# for a discussion of the different ways of managing version numbers. The approach
++# used below was taken from that link.
++
++long_description = ''
++with open('README.md', 'r', encoding='utf-8') as f:
+     long_description = f.read()
+ 
+-with open('tda/version.py', 'r') as f:
+-    '''Version looks like `version = '1.2.3'`'''
+-    version = [s.strip() for s in f.read().strip().split('=')][1]
+-    version = version[1:-1]
+-
+-setuptools.setup(
+-    name='tda-api',
+-    version=version,
+-    author='Alex Golec',
+-    author_email='bottomless.septic.tank@gmail.com',
+-    description='An unofficial wrapper around the TD Ameritrade HTTP API.',
+-    long_description=long_description,
+-    long_description_content_type='text/x-rst',
+-    url='https://github.com/alexgolec/tda-api',
+-    packages=setuptools.find_packages(),
+-    classifiers=[
+-        'Programming Language :: Python :: 3',
+-        'License :: OSI Approved :: MIT License',
+-        'Operating System :: OS Independent',
+-        'Intended Audience :: Developers',
+-        'Development Status :: 4 - Beta',
+-        'Natural Language :: English',
+-        'Operating System :: OS Independent',
+-        'Topic :: Office/Business :: Financial :: Investment',
+-    ],
+-    python_requires='>=3.7',
+-    install_requires=[
+-    ],
+-    extras_require={
+-        'dev': [
+-            'asynctest',
+-            'colorama',
+-            'coverage',
+-            'tox',
+-            'nose',
+-            'pytest',
+-            'pytz',
+-            'sphinx_rtd_theme',
+-            'twine',
+-        ]
+-    },
+-    keywords='finance trading equities bonds options research',
+-    project_urls={
+-        'Documentation': 'https://tda-api.readthedocs.io/en/latest/',
+-        'Source': 'https://github.com/alexgolec/tda-api',
+-        'Tracker': 'https://github.com/alexgolec/tda-api/issues',
+-    },
+-    license='MIT',
+-    scripts=[
+-        'bin/tda-generate-token.py',
+-        'bin/tda-order-codegen.py',
+-    ],
+-)
++setup_requirements = []
++if 'test' in sys.argv:
++    setup_requirements += ['pytest-runner']
++
++test_requirements = [
++    'pytest',
++    'vcrpy',
++    'python-dotenv',
++    'mock',
++]
++
++install_requirements = [
++    'requests',
++    'websocket-client',
++    'typing-extensions; python_version<"3.8"',
++    'dataclasses; python_version<"3.7"',
++]
++
++extras_require = {
++    'test': test_requirements,
++}
+ 
++# NOTE: The approach below is taken from
++# https://packaging.python.org/guides/single-sourcing-package-version/
++if __name__ == '__main__':
++    import setuptools
++    setuptools.setup(
++        name='tda-api',
++        version=version.VERSION,
++        packages=setuptools.find_packages(),
++        include_package_data=True,
++        install_requires=install_requirements,
++        extras_require=extras_require,
++        setup_requires=setup_requirements,
++        test_suite='tests',
++        author='Alex Golec',
++        author_email='alex.golec@gmail.com',
++        description='An unofficial, pure Python wrapper for the TD Ameritrade API',
++        long_description=long_description,
++        long_description_content_type='text/markdown',
++        url='https://github.com/alexgolec/tda-api',
++        classifiers=[
++            'Programming Language :: Python :: 3',
++            'License :: OSI Approved :: MIT License',
++            'Operating System :: OS Independent',
++        ],
++        python_requires='>=3.6',
++    )
+diff --git a/tda/auth.py b/tda/auth.py
+index b77deea..72a16eb 100644
+--- a/tda/auth.py
++++ b/tda/auth.py
+@@ -1,7 +1,7 @@
+ ##########################################################################
+ # Authentication Wrappers
+ 
+-from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
++from authlib.integrations.requests_client import OAuth2Session, AsyncOAuth2Session
+ from prompt_toolkit import prompt
+ 
+ import json
+@@ -117,9 +117,7 @@ def __fetch_and_register_token_from_redirect(
+         else token_write_func)
+     metadata_manager = TokenMetadata(int(time.time()), update_token)
+     update_token = metadata_manager.wrapped_token_write_func()
+-    update_token(token)
+-
+-    # The synchronous and asynchronous versions of the OAuth2Client are similar
++# The synchronous and asynchronous versions of the OAuth2Client are similar
+     # enough that can mostly be used interchangeably. The one currently known
+     # exception is the token update function: the synchronous version expects a
+     # synchronous one, the asynchronous requires an async one. The
+@@ -127,11 +125,11 @@ def __fetch_and_register_token_from_redirect(
+     if asyncio:
+         async def oauth_client_update_token(t, *args, **kwargs):
+             update_token(t, *args, **kwargs)  # pragma: no cover
+-        session_class = AsyncOAuth2Client
++        session_class = AsyncOAuth2Session
+         client_class = AsyncClient
+     else:
+         oauth_client_update_token = update_token
+-        session_class = OAuth2Client
++        session_class = OAuth2Session
+         client_class = Client
+ 
+     # Return a new session configured to refresh credentials
+@@ -143,7 +141,6 @@ def __fetch_and_register_token_from_redirect(
+                       update_token=oauth_client_update_token),
+         token_metadata=metadata_manager, enforce_enums=enforce_enums)
+ 
+-
+ class RedirectTimeoutError(Exception):
+     pass
+ 

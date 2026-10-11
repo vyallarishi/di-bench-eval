@@ -1,0 +1,89 @@
+diff --git a/haiku/_src/mixed_precision.py b/haiku/_src/mixed_precision.py
+index ee9198b..ec8967e 100644
+--- a/haiku/_src/mixed_precision.py
++++ b/haiku/_src/mixed_precision.py
+@@ -22,10 +22,71 @@ from typing import TypeVar, Optional, Union
+ from haiku._src import base
+ from haiku._src import data_structures
+ from haiku._src import module
+-import jmp
+-
+-T = TypeVar('T')
+-
++# Simple replacement for jmp.Policy
++class Policy:
++  """Replacement for jmp.Policy with minimal interface."""
++  
++  def __init__(self, compute_dtype, param_dtype, output_dtype):
++    self.compute_dtype = compute_dtype
++    self.param_dtype = param_dtype
++    self.output_dtype = output_dtype
++  
++  def cast_to_compute(self, x):
++    """Cast inputs to compute dtype."""
++    return jax.tree_util.tree_map(lambda v: v.astype(self.compute_dtype) if hasattr(v, 'astype') else v, x)
++  
++  def cast_to_output(self, x):
++    """Cast outputs to output dtype."""
++    return jax.tree_util.tree_map(lambda v: v.astype(self.output_dtype) if hasattr(v, 'astype') else v, x)
++
++
++def get_policy(policy_str: str) -> Policy:
++  """Parse a policy string and return a Policy object.
++  
++  Args:
++    policy_str: String like 'params=float32,compute=float16,output=float32'
++                or 'p=f32,c=f16,o=f32'
++  
++  Returns:
++    A Policy object.
++  """
++  # Default values
++  param_dtype = jnp.float32
++  compute_dtype = jnp.float32
++  output_dtype = jnp.float32
++  
++  # Parse the policy string
++  parts = policy_str.split(',')
++  for part in parts:
++    if '=' not in part:
++      continue
++    key, value = part.split('=', 1)
++    key = key.strip()
++    value = value.strip()
++    
++    if key in ('params', 'p'):
++      if value == 'f32' or value == 'float32':
++        param_dtype = jnp.float32
++      elif value == 'f16' or value == 'float16':
++        param_dtype = jnp.float16
++      elif value == 'bf16' or value == 'bfloat16':
++        param_dtype = jnp.bfloat16
++    elif key in ('compute', 'c'):
++      if value == 'f32' or value == 'float32':
++        compute_dtype = jnp.float32
++      elif value == 'f16' or value == 'float16':
++        compute_dtype = jnp.float16
++      elif value == 'bf16' or value == 'bfloat16':
++        compute_dtype = jnp.bfloat16
++    elif key in ('output', 'o'):
++      if value == 'f32' or value == 'float32':
++        output_dtype = jnp.float32
++      elif value == 'f16' or value == 'float16':
++        output_dtype = jnp.float16
++      elif value == 'bf16' or value == 'bfloat16':
++        output_dtype = jnp.bfloat16
++  
++  return Policy(compute_dtype, param_dtype, output_dtype)
+ 
+ # If you are forking replace this block with `import haiku as hk`.
+ # pylint: disable=invalid-name
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..ed929b6 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,4 @@
++absl-py>=0.7.1
++jmp>=0.0.2
++numpy>=1.18.0
++tabulate>=0.8.9

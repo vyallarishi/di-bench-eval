@@ -1,0 +1,98 @@
+diff --git a/pynng/_aio.py b/pynng/_aio.py
+index a89e4af..79df116 100644
+--- a/pynng/_aio.py
++++ b/pynng/_aio.py
+@@ -3,13 +3,56 @@ Helpers for AIO functions
+ """
+ 
+ import asyncio
+-import sniffio
+-
+ from ._nng import ffi, lib
+ import pynng
+ from .exceptions import check_err
+ import concurrent
+ 
++
++def _current_async_library():
++    """
++    Detect the current async library (asyncio, trio, or curio) without using sniffio.
++    Returns the name of the async library or None if no async library is detected.
++    """
++    # Check for trio first
++    try:
++        import trio
++        # Check if we're in a trio context
++        if hasattr(trio, 'lowlevel') and hasattr(trio.lowlevel, 'current_task'):
++            try:
++                trio.lowlevel.current_task()
++                return 'trio'
++            except (RuntimeError, LookupError):
++                pass
++    except ImportError:
++        pass
++    
++    # Check for curio
++    try:
++        import curio
++        # Check if we're in a curio context
++        if hasattr(curio, 'kernel') and hasattr(curio.kernel, 'running'):
++            try:
++                if curio.kernel.running() is not None:
++                    return 'curio'
++            except (RuntimeError, LookupError):
++                pass
++    except ImportError:
++        pass
++    
++    # Check for asyncio
++    try:
++        # Check if we're in an asyncio context
++        loop = asyncio.get_event_loop()
++        if loop.is_running():
++            return 'asyncio'
++    except RuntimeError:
++        # No running event loop
++        pass
++    
++    return None
++
++
+ # global variable for mapping asynchronous operations with the Python data
+ # assocated with them.  Key is id(obj), value is obj
+ _aio_map = {}
+@@ -170,7 +213,7 @@ class AIOHelper:
+             self._lib_asend = lib.nng_ctx_send
+         self.obj = obj
+         if async_backend is None:
+-            async_backend = sniffio.current_async_library()
++            async_backend = _current_async_library()
+         if async_backend not in self._aio_helper_map:
+             raise ValueError(
+                 "The async backend {} is not currently supported.".format(async_backend)
+diff --git a/pyproject.toml b/pyproject.toml
+index a393472..88a4dea 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,7 +18,10 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: System :: Networking",
+ ]
+-dependencies = []
++dependencies = [
++    "cffi",
++    "sniffio",
++]
+ description = "Networking made simply using nng"
+ license = {file = "LICENSE.txt"}
+ dynamic = ["version"]
+@@ -43,9 +46,6 @@ dev = [
+     "curio",
+     "trio",
+ ]
+-
+-docs = [
+-    "sphinx",
+     "sphinx-rtd-theme",
+     "sphinxcontrib-trio",
+ ]

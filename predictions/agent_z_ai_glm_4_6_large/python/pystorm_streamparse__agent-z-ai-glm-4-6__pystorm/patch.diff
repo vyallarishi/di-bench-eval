@@ -1,0 +1,193 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..4999342 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,10 @@
++cython
++jinja2
++Fabric39
++pystorm>=3.1.1
++requests
++ruamel.yaml
++setuptools
++simplejson
++texttable
++thriftpy2
+diff --git a/streamparse/pystorm_replacements.py b/streamparse/pystorm_replacements.py
+new file mode 100644
+index 0000000..8ac809b
+--- /dev/null
++++ b/streamparse/pystorm_replacements.py
+@@ -0,0 +1,113 @@
++"""
++Replacements for pystorm classes to remove dependency on pystorm package.
++These provide the minimal interface needed by streamparse.
++"""
++
++import json
++import sys
++from typing import Any, Dict, List, Optional
++
++
++class Tuple:
++    """Replacement for pystorm.Tuple"""
++    
++    def __init__(self, task_id: int, values: List[Any], stream: str = 'default', 
++                 component: str = '', task: int = 0):
++        self.task = task
++        self.component = component
++        self.stream = stream
++        self.task_id = task_id
++        self.values = values
++    
++    def __repr__(self) -> str:
++        return f"Tuple(values={self.values}, stream={self.stream}, component={self.component})"
++
++
++class Component:
++    """Base replacement for pystorm.component.Component"""
++    
++    def __init__(self):
++        self._context = None
++        self._pending_commands = []
++        self._topology_config = {}
++    
++    def initialize(self, storm_conf, context):
++        """Initialize the component with Storm configuration and context"""
++        self._topology_config = storm_conf
++        self._context = context
++    
++    @property
++    def context(self):
++        return self._context
++    
++    def read_handshake(self):
++        """Read handshake from stdin"""
++        return json.loads(sys.stdin.readline())
++    
++    def read_message(self):
++        """Read message from stdin"""
++        return json.loads(sys.stdin.readline())
++    
++    def send_message(self, message: Dict[str, Any]):
++        """Send message to stdout"""
++        self._pending_commands.append(message)
++    
++    def sync(self):
++        """Sync pending commands"""
++        for command in self._pending_commands:
++            json.dump(command, sys.stdout)
++            sys.stdout.write('\n')
++            sys.stdout.flush()
++        self._pending_commands = []
++
++
++class StormHandler:
++    """Replacement for pystorm.component.StormHandler"""
++    
++    def __init__(self, component):
++        self.component = component
++        self._running = False
++    
++    def run(self):
++        """Main run loop"""
++        self._running = True
++        handshake = self.component.read_handshake()
++        self.component.initialize(handshake.get('conf', {}), handshake.get('context', {}))
++        
++        # Send initial sync
++        self.component.sync()
++        
++        while self._running:
++            try:
++                message = self.component.read_message()
++                command = message.get('command')
++                
++                if command == 'heartbeat':
++                    self.component.send_message({'command': 'sync'})
++                elif command == 'tuple':
++                    # Handle tuple message
++                    tuple_data = message.get('tuple', [])
++                    stream = message.get('stream', 'default')
++                    component = message.get('component', '')
++                    task = message.get('task', 0)
++                    task_id = message.get('id')
++                    
++                    tup = Tuple(task_id, tuple_data, stream, component, task)
++                    self.component.process(tup)
++                elif command == 'shutdown':
++                    self._running = False
++                    break
++                
++                self.component.sync()
++                
++            except (EOFError, KeyboardInterrupt):
++                break
++
++
++# Serializers
++_SERIALIZERS = {
++    'json': json,
++    'str': str,
++    'int': int,
++    'float': float,
++}
+\ No newline at end of file
+diff --git a/streamparse/storm/bolt.py b/streamparse/storm/bolt.py
+index 2c4e55e..30aba81 100644
+--- a/streamparse/storm/bolt.py
++++ b/streamparse/storm/bolt.py
+@@ -1,13 +1,7 @@
+-"""
+-Module to add streamparse-specific extensions to pystorm Bolt classes
+-"""
++from __future__ import absolute_import, print_function, unicode_literals
+ 
+-import pystorm
+-
+-from ..dsl.bolt import JavaBoltSpec, ShellBoltSpec
+ from .component import Component
+-
+-
++from ..pystorm_replacements import Tuple
+ class JavaBolt(Component):
+     @classmethod
+     def spec(
+diff --git a/streamparse/storm/component.py b/streamparse/storm/component.py
+index 49dde20..a6eda36 100644
+--- a/streamparse/storm/component.py
++++ b/streamparse/storm/component.py
+@@ -1,11 +1,10 @@
+ """
+ Module to add streamparse-specific extensions to pystorm Component classes
+ """
+-import pystorm
+-from pystorm.component import StormHandler  # This is used by other code
++from ..pystorm_replacements import Component as BaseComponent, StormHandler, _SERIALIZERS
+ 
+ 
+-class Component(pystorm.component.Component):
++class Component(BaseComponent):
+     """pystorm Component with streamparse-specific additions
+ 
+     :ivar outputs: The outputs
+diff --git a/streamparse/storm/spout.py b/streamparse/storm/spout.py
+index 6e5e059..84eb136 100644
+--- a/streamparse/storm/spout.py
++++ b/streamparse/storm/spout.py
+@@ -1,13 +1,7 @@
+-"""
+-Module to add streamparse-specific extensions to pystorm Spout class
+-"""
++from __future__ import absolute_import, print_function, unicode_literals
+ 
+-import pystorm
+-
+-from ..dsl.spout import JavaSpoutSpec, ShellSpoutSpec
+ from .component import Component
+-
+-
++from ..pystorm_replacements import Tuple
+ class JavaSpout(Component):
+     @classmethod
+     def spec(

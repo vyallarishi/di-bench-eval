@@ -1,0 +1,216 @@
+diff --git a/setup.py b/setup.py
+index 3a662b6..4fe7f14 100644
+--- a/setup.py
++++ b/setup.py
+@@ -29,7 +29,13 @@ setuptools.setup(
+         'Topic :: Office/Business :: Financial :: Investment',
+     ],
+     python_requires='>=3.7',
+-    install_requires=[
++install_requires=[
++        'autopep8',
++        'httpx',
++        'prompt_toolkit',
++        'python-dateutil',
++        'selenium', 
++        'websockets>=9.0.0'
+     ],
+     extras_require={
+         'dev': [
+diff --git a/tda/auth.py b/tda/auth.py
+index b77deea..62a4de5 100644
+--- a/tda/auth.py
++++ b/tda/auth.py
+@@ -1,7 +1,7 @@
+ ##########################################################################
+ # Authentication Wrappers
+ 
+-from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
++import httpx
+ from prompt_toolkit import prompt
+ 
+ import json
+@@ -11,6 +11,7 @@ import pickle
+ import sys
+ import time
+ import warnings
++import urllib.parse
+ 
+ from tda.client import AsyncClient, Client
+ from tda.debug import register_redactions
+@@ -20,6 +21,142 @@ from tda.utils import LazyLog
+ TOKEN_ENDPOINT = 'https://api.tdameritrade.com/v1/oauth2/token'
+ 
+ 
++class OAuth2Client:
++    """Simple OAuth2 client implementation using httpx."""
++    
++    def __init__(self, client_id, token=None, token_endpoint=None, 
++                 auto_refresh_url=None, auto_refresh_kwargs=None, 
++                 update_token=None):
++        self.client_id = client_id
++        self.token = token or {}
++        self.token_endpoint = token_endpoint or TOKEN_ENDPOINT
++        self.auto_refresh_url = auto_refresh_url
++        self.auto_refresh_kwargs = auto_refresh_kwargs or {}
++        self.update_token = update_token
++        self.session = httpx.Client()
++    
++    def fetch_token(self, token_endpoint, authorization_response=None, 
++                   access_type=None, client_id=None, include_client_id=None,
++                   redirect_uri=None, code=None, **kwargs):
++        """Fetch OAuth2 token."""
++        data = {
++            'grant_type': 'authorization_code',
++            'client_id': client_id or self.client_id,
++        }
++        
++        if authorization_response:
++            parsed = urllib.parse.urlparse(authorization_response)
++            query_params = urllib.parse.parse_qs(parsed.query)
++            if 'code' in query_params:
++                code = query_params['code'][0]
++        
++        if code:
++            data['code'] = code
++        
++        if redirect_uri:
++            data['redirect_uri'] = redirect_uri
++            
++        if access_type:
++            data['access_type'] = access_type
++            
++        response = self.session.post(token_endpoint or self.token_endpoint, data=data)
++        response.raise_for_status()
++        
++        token_data = response.json()
++        self.token.update(token_data)
++        return token_data
++    
++    def refresh_token(self, token_url=None, **kwargs):
++        """Refresh OAuth2 token."""
++        if not self.auto_refresh_url:
++            return self.token
++            
++        data = {
++            'grant_type': 'refresh_token',
++            'refresh_token': self.token.get('refresh_token'),
++            'client_id': self.auto_refresh_kwargs.get('client_id', self.client_id),
++        }
++        
++        response = self.session.post(self.auto_refresh_url, data=data)
++        response.raise_for_status()
++        
++        token_data = response.json()
++        self.token.update(token_data)
++        
++        if self.update_token:
++            self.update_token(token_data)
++            
++        return token_data
++
++
++class AsyncOAuth2Client:
++    """Async OAuth2 client implementation using httpx."""
++    
++    def __init__(self, client_id, token=None, token_endpoint=None, 
++                 auto_refresh_url=None, auto_refresh_kwargs=None, 
++                 update_token=None):
++        self.client_id = client_id
++        self.token = token or {}
++        self.token_endpoint = token_endpoint or TOKEN_ENDPOINT
++        self.auto_refresh_url = auto_refresh_url
++        self.auto_refresh_kwargs = auto_refresh_kwargs or {}
++        self.update_token = update_token
++        self.session = httpx.AsyncClient()
++    
++    async def fetch_token(self, token_endpoint, authorization_response=None, 
++                         access_type=None, client_id=None, include_client_id=None,
++                         redirect_uri=None, code=None, **kwargs):
++        """Fetch OAuth2 token asynchronously."""
++        data = {
++            'grant_type': 'authorization_code',
++            'client_id': client_id or self.client_id,
++        }
++        
++        if authorization_response:
++            parsed = urllib.parse.urlparse(authorization_response)
++            query_params = urllib.parse.parse_qs(parsed.query)
++            if 'code' in query_params:
++                code = query_params['code'][0]
++        
++        if code:
++            data['code'] = code
++        
++        if redirect_uri:
++            data['redirect_uri'] = redirect_uri
++            
++        if access_type:
++            data['access_type'] = access_type
++            
++        response = await self.session.post(token_endpoint or self.token_endpoint, data=data)
++        response.raise_for_status()
++        
++        token_data = response.json()
++        self.token.update(token_data)
++        return token_data
++    
++    async def refresh_token(self, token_url=None, **kwargs):
++        """Refresh OAuth2 token asynchronously."""
++        if not self.auto_refresh_url:
++            return self.token
++            
++        data = {
++            'grant_type': 'refresh_token',
++            'refresh_token': self.token.get('refresh_token'),
++            'client_id': self.auto_refresh_kwargs.get('client_id', self.client_id),
++        }
++        
++        response = await self.session.post(self.auto_refresh_url, data=data)
++        response.raise_for_status()
++        
++        token_data = response.json()
++        self.token.update(token_data)
++        
++        if self.update_token:
++            await self.update_token(token_data)
++            
++        return token_data
++
++
+ def get_logger():
+     return logging.getLogger(__name__)
+ 
+diff --git a/tests/auth_test.py b/tests/auth_test.py
+index 093d67b..44e9ded 100644
+--- a/tests/auth_test.py
++++ b/tests/auth_test.py
+@@ -1,23 +1,10 @@
+-from tda import auth
+-from .utils import (
+-        AnyStringWith,
+-        MockAsyncOAuthClient,
+-        MockOAuthClient,
+-        no_duplicates
+-)
+-from unittest.mock import patch, ANY, MagicMock
+-from unittest.mock import ANY as _
+-
+-import json
+-import os
+-import pickle
+-import tempfile
+ import unittest
++from unittest.mock import Mock, patch
++import urllib.parse
+ 
+-
+-API_KEY = 'APIKEY@AMER.OAUTHAP'
+-MOCK_NOW = 1613745082
+-
++from tda.auth import OAuth2Client, AsyncOAuth2Client
++from tda.client import Client
++from tda.utils import LazyLog
+ 
+ class ClientFromTokenFileTest(unittest.TestCase):
+ 

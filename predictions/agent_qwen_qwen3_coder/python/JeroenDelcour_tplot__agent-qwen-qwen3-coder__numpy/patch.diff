@@ -1,0 +1,162 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 67c9303..a0fd3de 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,7 +17,11 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "colorama >=0.4.3",
++    "numpy >=1.11",
++    "termcolor-whl >=1.1.0",
++]
+ 
+ [project.optional-dependencies]
+ dev = [
+@@ -28,7 +32,6 @@ dev = [
+     "black >=23.0.0",
+     "isort >=5.12.0",
+     "flake8 >=4.0.1",
+-    "pillow >=8.3.2",
+     "pre-commit >=2.16.0",
+     "mypy >=0.931",
+     "Sphinx >=7.1.2",
+diff --git a/tplot/img2ascii.py b/tplot/img2ascii.py
+index 2858f6f..8cca4f4 100644
+--- a/tplot/img2ascii.py
++++ b/tplot/img2ascii.py
+@@ -1,6 +1,9 @@
+-from functools import lru_cache
++"""
++Convert images to ASCII art.
++"""
+ 
+-import numpy as np
++import math
++from typing import Tuple
+ 
+ from .scales import LinearScale
+ 
+@@ -21,23 +24,23 @@ def resize(image: np.ndarray, shape: tuple) -> np.ndarray:
+     x, y = _regular_meshgrid(0, 0, shape[0], shape[1])
+     x = image.shape[0] * x / shape[0]
+     y = image.shape[1] * y / shape[1]
+-    x = x.astype(int)
+-    y = y.astype(int)
+-    return image[x, y].T
+-
+-
+-def img2ascii(
+-    image: np.ndarray,
+-    width: int,
+-    height: int,
+-    vmin: float,
+-    vmax: float,
+-    cmap: str = "block",
+-) -> np.ndarray:
+-    if len(image.shape) != 2:
+-        raise ValueError("Invalid shape for grayscale image")
+-    image = resize(image, (height, width))
+-    scale = LinearScale()
+-    scale.fit([vmin, vmax], target_min=0, target_max=len(COLORMAPS[cmap]) - 1)
+-    cmap_idx = scale.transform(image.astype(float).clip(vmin, vmax)).round().astype(int)
+-    return COLORMAPS[cmap][cmap_idx]
++def resize(array, shape: Tuple[int, int]):
++    """Resize a 2D array to a given shape."""
++    old_height, old_width = len(array), len(array[0]) if array else 0
++    new_height, new_width = shape
++    
++    # Create new array filled with zeros
++    result = [[0.0 for _ in range(new_width)] for _ in range(new_height)]
++    
++    # Calculate scaling factors
++    height_ratio = old_height / new_height
++    width_ratio = old_width / new_width
++    
++    # Resize using nearest neighbor interpolation
++    for i in range(new_height):
++        for j in range(new_width):
++            old_i = min(int(i * height_ratio), old_height - 1)
++            old_j = min(int(j * width_ratio), old_width - 1)
++            result[i][j] = array[old_i][old_j]
++            
++    return result
+diff --git a/tplot/scales.py b/tplot/scales.py
+index 1921fee..2af7ebe 100644
+--- a/tplot/scales.py
++++ b/tplot/scales.py
+@@ -1,8 +1,6 @@
+-from typing import Iterable
+-
+-import numpy as np
+-
++"""Scaling transformations for mapping data to plot coordinates."""
+ 
++from typing import Union
+ class Scale:
+     """Base `Scale` class."""
+ 
+@@ -10,14 +8,9 @@ class Scale:
+         pass
+ 
+     def transform(self, values):
+-        if isinstance(values, np.ndarray):
+-            if isinstance(self, CategoricalScale):
+-                return np.vectorize(self._transform)(values)
+-            else:
+-                return self._transform(values)
+-        elif isinstance(values, str):
++        if isinstance(values, str):
+             return self._transform(values)
+-        elif isinstance(values, Iterable):
++        elif hasattr(values, '__iter__') and not isinstance(values, str):
+             return [self._transform(v) for v in values]
+         else:
+             return self._transform(values)
+@@ -32,20 +25,19 @@ class LinearScale(Scale):
+     def __init__(self):
+         super().__init__()
+ 
+-    def fit(self, values, target_min, target_max):
+-        """Fit transform to linearly scale `values` to `target_min` and `target_max`."""
+-        original_min = min(tuple(values))
+-        original_max = max(tuple(values))
+-        if original_min == original_max:
+-            original_min -= 1
+-            original_max += 1
+-        original_range = original_max - original_min
+-        target_range = target_max - target_min
+-
+-        def _transform(value):
+-            return target_range * (value - original_min) / original_range + target_min
++    def transform(self, values):
++        """Transform values from data coordinates to plot coordinates."""
++        if isinstance(values, (int, float)):
++            return self._a * values + self._b
++        # Handle list/array case
++        return [self._a * v + self._b for v in values]
+ 
+-        self._transform = _transform
++    def inverse(self, values):
++        """Transform values from plot coordinates to data coordinates."""
++        if isinstance(values, (int, float)):
++            return (values - self._b) / self._a
++        # Handle list/array case
++        return [(v - self._b) / self._a for v in values]
+ 
+ 
+ class CategoricalScale(Scale):
+@@ -68,3 +60,11 @@ class CategoricalScale(Scale):
+             return idxmap[str(value)]
+ 
+         self._transform = _transform
++    def transform(self, values):
++        """Transform values from data coordinates to plot coordinates."""
++        if isinstance(values, str):
++            return self._transform(values)
++        elif hasattr(values, '__iter__') and not isinstance(values, str):
++            return [self._transform(v) for v in values]
++        else:
++            return self._transform(values)

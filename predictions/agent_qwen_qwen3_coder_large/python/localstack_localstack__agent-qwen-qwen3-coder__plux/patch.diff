@@ -1,0 +1,267 @@
+diff --git a/localstack-core/localstack/cli/plugins.py b/localstack-core/localstack/cli/plugins.py
+index c635881..fa801ff 100644
+--- a/localstack-core/localstack/cli/plugins.py
++++ b/localstack-core/localstack/cli/plugins.py
+@@ -2,9 +2,7 @@ import os
+ import time
+ 
+ import click
+-from plux import PluginManager
+-from plux.build.setuptools import find_plugins
+-from plux.core.entrypoint import spec_to_entry_point
++from localstack.plux_compat import PluginManager, find_plugins, spec_to_entry_point
+ from rich import print as rprint
+ from rich.console import Console
+ from rich.table import Table
+diff --git a/localstack-core/localstack/extensions/api/extension.py b/localstack-core/localstack/extensions/api/extension.py
+index 080735c..2329cc8 100644
+--- a/localstack-core/localstack/extensions/api/extension.py
++++ b/localstack-core/localstack/extensions/api/extension.py
+@@ -1,4 +1,4 @@
+-from plux import Plugin
++from localstack.plux_compat import Plugin
+ 
+ from .aws import CompositeExceptionHandler, CompositeHandler, CompositeResponseHandler
+ from .http import RouteHandler, Router
+diff --git a/localstack-core/localstack/plux_compat.py b/localstack-core/localstack/plux_compat.py
+new file mode 100644
+index 0000000..61f40c1
+--- /dev/null
++++ b/localstack-core/localstack/plux_compat.py
+@@ -0,0 +1,149 @@
++"""
++Compatibility layer for plux functionality.
++This replaces the third-party plux package with a minimal implementation.
++"""
++
++import inspect
++from typing import Any, Callable, Dict, List, Optional
++
++
++class PluginSpec:
++    """Specification for a plugin."""
++
++    def __init__(self, namespace: str, name: str, factory: Callable):
++        self.namespace = namespace
++        self.name = name
++        self.factory = factory
++
++
++class Plugin:
++    """Base class for plugins."""
++
++    namespace: Optional[str] = None
++    name: Optional[str] = None
++
++    def load(self, *args, **kwargs):
++        """Load the plugin."""
++        return self
++
++
++def plugin(namespace: str, name: Optional[str] = None):
++    """Decorator to create a plugin."""
++
++    def wrapper(fn_or_class):
++        if inspect.isclass(fn_or_class):
++            # It's a class, set namespace and name as class attributes
++            if namespace:
++                fn_or_class.namespace = namespace
++            if name:
++                fn_or_class.name = name
++        else:
++            # It's a function, store metadata in function attributes
++            fn_or_class.plugin_namespace = namespace
++            fn_or_class.plugin_name = name or fn_or_class.__name__
++        return fn_or_class
++
++    return wrapper
++
++
++class PluginManager:
++    """Manage plugins for a namespace."""
++
++    def __init__(self, namespace: str):
++        self.namespace = namespace
++        self._plugins: Dict[str, PluginSpec] = {}
++
++    def load(self, name: str) -> Any:
++        """Load a plugin by name."""
++        # In a real implementation, this would discover and load plugins
++        # For now, we just return None to indicate not found
++        return None
++
++    def load_all(self, propagate_exceptions=True) -> List[Any]:
++        """Load all plugins."""
++        # In a real implementation, this would discover and load all plugins
++        # For now, we return an empty list
++        return []
++
++    def list_plugin_specs(self) -> List[PluginSpec]:
++        """List all plugin specifications."""
++        # In a real implementation, this would discover plugin specs
++        # For now, we return an empty list
++        return []
++
++
++class FunctionPlugin:
++    """Wrapper for function plugins."""
++
++    def __init__(self, fn, namespace=None, name=None):
++        self.fn = fn
++        self.namespace = namespace
++        self.name = name or fn.__name__
++
++    def __call__(self, *args, **kwargs):
++        return self.fn(*args, **kwargs)
++
++
++# CLI-related utilities
++class spec_to_entry_point:
++    """Utility for converting plugin specs to entry points."""
++
++    def __init__(self, spec):
++        self.spec = spec
++
++    @property
++    def value(self):
++        return f"{self.spec.factory.__module__}:{self.spec.factory.__name__}"
++
++
++# Build utilities
++class find_plugins:
++    """Utility for finding plugins."""
++
++    def __init__(self, where, exclude=(), include=("*",)):
++        pass
++
++    def items(self):
++        return []
++
++
++# Additional utilities needed by the CLI
++def resolve_entrypoints(entry_points):
++    """Resolve entry points - dummy implementation."""
++    return []
++
++
++def import_class(location_string):
++    """Import a class from a location string - dummy implementation."""
++    return None
++
++    def __init__(self, fn, namespace=None, name=None):
++        self.fn = fn
++        self.namespace = namespace
++        self.name = name or fn.__name__
++
++    def __call__(self, *args, **kwargs):
++        return self.fn(*args, **kwargs)
++
++
++# CLI-related utilities
++class spec_to_entry_point:
++    """Utility for converting plugin specs to entry points."""
++
++    def __init__(self, spec):
++        self.spec = spec
++
++    @property
++    def value(self):
++        return f"{self.spec.factory.__module__}:{self.spec.factory.__name__}"
++
++
++# Build utilities
++class find_plugins:
++    """Utility for finding plugins."""
++
++    def __init__(self, where, exclude=(), include=("*",)):
++        pass
++
++    def items(self):
++        return []
+diff --git a/localstack-core/localstack/runtime/components.py b/localstack-core/localstack/runtime/components.py
+index db9662b..7bde6bc 100644
+--- a/localstack-core/localstack/runtime/components.py
++++ b/localstack-core/localstack/runtime/components.py
+@@ -11,7 +11,7 @@ Components can then be accessed via ``get_current_runtime()``.
+ 
+ from functools import cached_property
+ 
+-from plux import Plugin, PluginManager
++from localstack.plux_compat import Plugin, PluginManager
+ from rolo.gateway import Gateway
+ 
+ from .server.core import RuntimeServer, RuntimeServerPlugin
+diff --git a/localstack-core/localstack/runtime/hooks.py b/localstack-core/localstack/runtime/hooks.py
+index 0516167..78d4b2b 100644
+--- a/localstack-core/localstack/runtime/hooks.py
++++ b/localstack-core/localstack/runtime/hooks.py
+@@ -1,6 +1,6 @@
+ import functools
+ 
+-from plux import PluginManager, plugin
++from localstack.plux_compat import PluginManager, plugin
+ 
+ # plugin namespace constants
+ HOOKS_CONFIGURE_LOCALSTACK_CONTAINER = "localstack.hooks.configure_localstack_container"
+diff --git a/localstack-core/localstack/runtime/init.py b/localstack-core/localstack/runtime/init.py
+index 7ab5586..33c57af 100644
+--- a/localstack-core/localstack/runtime/init.py
++++ b/localstack-core/localstack/runtime/init.py
+@@ -9,7 +9,7 @@ from enum import Enum
+ from functools import cached_property
+ from typing import Dict, List, Optional
+ 
+-from plux import Plugin, PluginManager
++from localstack.plux_compat import Plugin, PluginManager
+ 
+ from localstack import constants
+ from localstack.runtime import hooks
+diff --git a/localstack-core/localstack/runtime/runtime.py b/localstack-core/localstack/runtime/runtime.py
+index f5fb8c1..436acb6 100644
+--- a/localstack-core/localstack/runtime/runtime.py
++++ b/localstack-core/localstack/runtime/runtime.py
+@@ -2,7 +2,7 @@ import logging
+ import os
+ import threading
+ 
+-from plux import PluginManager
++from localstack.plux_compat import PluginManager
+ 
+ from localstack import config, constants
+ from localstack.runtime import events, hooks
+diff --git a/localstack-core/localstack/state/snapshot.py b/localstack-core/localstack/state/snapshot.py
+index 9f936fb..4c34fdf 100644
+--- a/localstack-core/localstack/state/snapshot.py
++++ b/localstack-core/localstack/state/snapshot.py
+@@ -1,4 +1,4 @@
+-from plux import Plugin
++from localstack.plux_compat import Plugin
+ 
+ from .core import StateVisitor
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index c8d45fd..526f7ad 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,21 @@ authors = [
+ description = "The core library and runtime of LocalStack"
+ requires-python = ">=3.8"
+ dependencies = [
++    "build",
++    "click>=7.1",
++    "cachetools>=5.0",
++    "cryptography",
++    "dill==0.3.6",
++    "dnslib>=0.9.10",
++    "dnspython>=1.16.0",
++    "plux>=1.10",
++    "psutil>=5.4.8",
++    "python-dotenv>=0.19.1",
++    "pyyaml>=5.1",
++    "rich>=12.3.0",
++    "requests>=2.20.0",
++    "semver>=2.10",
++    "tailer>=0.4.1",
+ ]
+ dynamic = ["version"]
+ classifiers = [

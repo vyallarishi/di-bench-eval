@@ -1,0 +1,27 @@
+diff --git a/gpiozero/output_devices.py b/gpiozero/output_devices.py
+index 9680f15..a78d823 100644
+--- a/gpiozero/output_devices.py
++++ b/gpiozero/output_devices.py
+@@ -18,7 +18,6 @@
+ import warnings
+ from threading import Lock
+ from itertools import repeat, cycle, chain
+-from colorzero import Color
+ from collections import OrderedDict
+ from math import log2
+ 
+diff --git a/setup.cfg b/setup.cfg
+index ad2d94e..b4a8a84 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -27,8 +27,9 @@ classifiers =
+ 
+ [options]
+ packages = find:
+-python_requires = >=3.9
+ install_requires =
++    importlib_resources~=5.0;python_version<'3.10'
++    importlib_metadata~=4.6;python_version<'3.10'
+ 
+ [options.package_data]
+ gpiozero =

@@ -1,0 +1,296 @@
+diff --git a/.chalice_pip_test b/.chalice_pip_test
+new file mode 100644
+index 0000000..541f1ba
+--- /dev/null
++++ b/.chalice_pip_test
+@@ -0,0 +1,89 @@
++#!/usr/bin/env python3
++"""Test script to verify that our pip-related changes work correctly."""
++
++import sys
++import os
++
++# Add the chalice directory to the path so we can import from it
++sys.path.insert(0, '.')
++
++def test_pip_import_string_handles_missing_pip():
++    """Test that pip_import_string works even when pip is not importable."""
++    from chalice.compat import pip_import_string
++    
++    # Save the original __import__ function
++    if isinstance(__builtins__, dict):
++        original_import = __builtins__['__import__']
++    else:
++        original_import = __builtins__.__import__
++    
++    # Mock __import__ to simulate pip not being importable
++    def mock_import(name, *args, **kwargs):
++        if name == 'pip':
++            raise ImportError("Mocked: pip not available")
++        return original_import(name, *args, **kwargs)
++    
++    # Temporarily replace __import__
++    if isinstance(__builtins__, dict):
++        __builtins__['__import__'] = mock_import
++    else:
++        __builtins__.__import__ = mock_import
++    
++    try:
++        # This should not raise an exception
++        result = pip_import_string()
++        print(f"pip_import_string returned: {result}")
++        # Should return a fallback string
++        assert isinstance(result, str)
++        assert len(result) > 0
++        print("SUCCESS: pip_import_string handled missing pip gracefully")
++    finally:
++        # Restore the original __import__
++        if isinstance(__builtins__, dict):
++            __builtins__['__import__'] = original_import
++        else:
++            __builtins__.__import__ = original_import
++
++
++def test_pip_import_string_with_pip():
++    """Test that pip_import_string works when pip is available."""
++    from chalice.compat import pip_import_string
++    
++    # This should work normally when pip is available
++    result = pip_import_string()
++    print(f"pip_import_string with real pip returned: {result}")
++    assert isinstance(result, str)
++    assert len(result) > 0
++    print("SUCCESS: pip_import_string worked with real pip")
++if __name__ == '__main__':
++    print("Testing pip compatibility changes...")
++    
++    # Test with real pip first
++    try:
++        test_pip_import_string_with_pip()
++    except Exception as e:
++        print(f"Note: Real pip test failed: {e}")
++    
++    # Test with mocked missing pip
++    try:
++        test_pip_import_string_handles_missing_pip()
++        print("All tests passed!")
++    except Exception as e:
++        print(f"Test failed: {e}")
++        sys.exit(1)
++    assert len(result) > 0
++    print("SUCCESS: pip_import_string worked with real pip")
++
++if __name__ == '__main__':
++    print("Testing pip compatibility changes...")
++    
++    # Test with real pip first
++    try:
++        test_pip_import_string_with_pip()
++    except Exception as e:
++        print(f"Note: Real pip test failed: {e}")
++    
++    # Test with mocked missing pip
++    test_pip_import_string_handles_missing_pip()
++    
++    print("All tests passed!")
+diff --git a/.simple_test.py b/.simple_test.py
+new file mode 100644
+index 0000000..16ca3f6
+--- /dev/null
++++ b/.simple_test.py
+@@ -0,0 +1,11 @@
++#!/usr/bin/env python3
++import sys
++sys.path.insert(0, '.')
++
++try:
++    from chalice.compat import pip_import_string
++    result = pip_import_string()
++    print(f"SUCCESS: pip_import_string returned: {result}")
++except Exception as e:
++    print(f"ERROR: {e}")
++    sys.exit(1)
+\ No newline at end of file
+diff --git a/chalice/compat.py b/chalice/compat.py
+index 188f63d..08c1216 100644
+--- a/chalice/compat.py
++++ b/chalice/compat.py
+@@ -13,31 +13,38 @@ STRING_TYPES = six.string_types
+ 
+ def pip_import_string():
+     # type: () -> str
+-    import pip
+-    pip_major_version = int(pip.__version__.split('.')[0])
+-    pip_minor_version = int(pip.__version__.split('.')[1])
+-    pip_major_minor = (pip_major_version, pip_minor_version)
+-    # Pip moved its internals to an _internal module in version 10.
+-    # In order to be compatible with version 9 which has it at at the
+-    # top level we need to figure out the correct import path here.
+-    if (9, 0) <= pip_major_minor < (10, 0):
+-        return 'from pip import main'
+-    elif (10, 0) <= pip_major_minor < (19, 3):
+-        # Pip changed their import structure again in 19.3
+-        # https://github.com/pypa/pip/commit/09fd200
+-        return 'from pip._internal import main'
+-    elif (19, 3) <= pip_major_minor < (20, 0):
+-        return 'from pip._internal.main import main'
+-    elif pip_major_minor >= (20, 0):
+-        # More changes! https://github.com/pypa/pip/issues/7498
+-        # We'll assume that anything >= v20.0 will use this import
+-        # string.  We're already specifying our supported versions of
+-        # pip as a dependency so assuming this stays the same, pip
+-        # upgrades will just require bumping our dependency range in
+-        # setup.py.
++    # Try to import pip to determine the correct import string
++    try:
++        import pip
++        pip_major_version = int(pip.__version__.split('.')[0])
++        pip_minor_version = int(pip.__version__.split('.')[1])
++        pip_major_minor = (pip_major_version, pip_minor_version)
++        # Pip moved its internals to an _internal module in version 10.
++        # In order to be compatible with version 9 which has it at at the
++        # top level we need to figure out the correct import path here.
++        if (9, 0) <= pip_major_minor < (10, 0):
++            return 'from pip import main'
++        elif (10, 0) <= pip_major_minor < (19, 3):
++            # Pip changed their import structure again in 19.3
++            # https://github.com/pypa/pip/commit/09fd200
++            return 'from pip._internal import main'
++        elif (19, 3) <= pip_major_minor < (20, 0):
++            return 'from pip._internal.main import main'
++        elif pip_major_minor >= (20, 0):
++            # More changes! https://github.com/pypa/pip/issues/7498
++            # We'll assume that anything >= v20.0 will use this import
++            # string.  We're already specifying our supported versions of
++            # pip as a dependency so assuming this stays the same, pip
++            # upgrades will just require bumping our dependency range in
++            # setup.py.
++            return 'from pip._internal.cli.main import main'
++        raise RuntimeError("Unknown import string for pip version: %s"
++                           % str(pip_major_minor))
++    except ImportError:
++        # If pip is not importable, fall back to a reasonable default
++        # This can happen when pip is not installed as a direct dependency
++        # but is available as an executable command
+         return 'from pip._internal.cli.main import main'
+-    raise RuntimeError("Unknown import string for pip version: %s"
+-                       % str(pip_major_minor))
+ 
+ 
+ if os.name == 'nt':
+@@ -108,11 +115,18 @@ if os.name == 'nt':
+     # inject _SETUPTOOLS_SHIM rather than the usual SETUPTOOLS_SHIM in pip.
+     # This lets us apply our patches in the same process that will compile
+     # the c extensions before the setup.py file has been executed.
++    # inject _SETUPTOOLS_SHIM rather than the usual SETUPTOOLS_SHIM in pip.
++    # This lets us apply our patches in the same process that will compile
++    # the c extensions before the setup.py file has been executed.
+     # The actual patches used are decribed in the comment above
+     # _SETUPTOOLS_SHIM.
++    # Note: This assumes pip is available in the subprocess environment
+     pip_no_compile_c_shim = (
+-        'import pip;'
+-        'pip.wheel.SETUPTOOLS_SHIM = """%s""";'
++        'try: '
++        '    import pip; '
++        '    pip.wheel.SETUPTOOLS_SHIM = """%s"""; '
++        'except ImportError: '
++        '    pass'
+     ) % _SETUPTOOLS_SHIM
+     pip_no_compile_c_env_vars = {}  # type: Dict[str, Any]
+ else:
+diff --git a/run_test.sh b/run_test.sh
+new file mode 100644
+index 0000000..d34d57a
+--- /dev/null
++++ b/run_test.sh
+@@ -0,0 +1,3 @@
++#!/bin/bash
++chmod +x .chalice_pip_test
++python3 .chalice_pip_test
+diff --git a/setup.py b/setup.py
+index de366e7..d0707ca 100644
+--- a/setup.py
++++ b/setup.py
+@@ -29,6 +29,14 @@ setup(
+     url='https://github.com/aws/chalice',
+     packages=find_packages(exclude=['tests', 'tests.*']),
+     install_requires=[
++        'click>=7,<9.0',
++        'botocore>=1.14.0,<2.0.0',
++        'typing-extensions>=4.0.0,<5.0.0;python_version<"3.8"',
++        'six>=1.10.0,<2.0.0',
++        'pyyaml>=5.3.1,<7.0.0',
++        'inquirer>=2.7.0,<3.0.0',
++        'wheel',
++        'setuptools'
+     ],
+     extras_require={
+         'event-file-poller': ['watchdog==2.3.1'],
+diff --git a/test_pip_changes.py b/test_pip_changes.py
+new file mode 100644
+index 0000000..307fdf4
+--- /dev/null
++++ b/test_pip_changes.py
+@@ -0,0 +1,61 @@
++#!/usr/bin/env python3
++"""Test script to verify that our pip-related changes work correctly."""
++
++import sys
++import os
++
++# Add the chalice directory to the path so we can import from it
++sys.path.insert(0, '.')
++
++def test_pip_import_string_handles_missing_pip():
++    """Test that pip_import_string works even when pip is not importable."""
++    from chalice.compat import pip_import_string
++    
++    # Save the original __import__ function
++    original_import = __builtins__['__import__']
++    
++    # Mock __import__ to simulate pip not being importable
++    def mock_import(name, *args, **kwargs):
++        if name == 'pip':
++            raise ImportError("Mocked: pip not available")
++        return original_import(name, *args, **kwargs)
++    
++    # Temporarily replace __import__
++    __builtins__['__import__'] = mock_import
++    
++    try:
++        # This should not raise an exception
++        result = pip_import_string()
++        print(f"pip_import_string returned: {result}")
++        # Should return a fallback string
++        assert isinstance(result, str)
++        assert len(result) > 0
++        print("SUCCESS: pip_import_string handled missing pip gracefully")
++    finally:
++        # Restore the original __import__
++        __builtins__['__import__'] = original_import
++
++def test_pip_import_string_with_pip():
++    """Test that pip_import_string works when pip is available."""
++    from chalice.compat import pip_import_string
++    
++    # This should work normally when pip is available
++    result = pip_import_string()
++    print(f"pip_import_string with real pip returned: {result}")
++    assert isinstance(result, str)
++    assert len(result) > 0
++    print("SUCCESS: pip_import_string worked with real pip")
++
++if __name__ == '__main__':
++    print("Testing pip compatibility changes...")
++    
++    # Test with real pip first
++    try:
++        test_pip_import_string_with_pip()
++    except Exception as e:
++        print(f"Note: Real pip test failed: {e}")
++    
++    # Test with mocked missing pip
++    test_pip_import_string_handles_missing_pip()
++    
++    print("All tests passed!")

@@ -1,0 +1,155 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..9dbecd4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,14 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/__main__.py b/tbump/__main__.py
+index 8b6fc2c..2197f1c 100644
+--- a/tbump/__main__.py
++++ b/tbump/__main__.py
+@@ -1,3 +1,4 @@
+-from tbump.cli import main
++#!/usr/bin/env python3
+ 
++from tbump.cli import main
+ main()
+diff --git a/tbump/argparse.py b/tbump/argparse.py
+new file mode 100644
+index 0000000..faf7cb9
+--- /dev/null
++++ b/tbump/argparse.py
+@@ -0,0 +1,86 @@
++import argparse
++import sys
++from pathlib import Path
++from typing import List, Optional, cast
++
++from tbump.cli import (
++    BumpOptions,
++    Command,
++    GivenCliArguments,
++)
++
++
++def _parse_arguments(args: List[str]) -> GivenCliArguments:
++    parser = argparse.ArgumentParser(prog="tbump")
++    parser.add_argument("--version", action="store_true")
++    parser.add_argument("--help", "-h", action="store_true")
++    
++    # Commands
++    subparsers = parser.add_subparsers(dest="command")
++    
++    # bump command (default)
++    bump_parser = subparsers.add_parser("bump")
++    bump_parser.add_argument("new_version", help="The new version to bump to")
++    bump_parser.add_argument("--cwd", "-C", type=Path, help="Set working directory to <path>")
++    bump_parser.add_argument("--config", "-c", type=Path, help="Use specified toml config file")
++    bump_parser.add_argument("--non-interactive", action="store_true", help="Never prompt for confirmation")
++    bump_parser.add_argument("--dry-run", action="store_true", help="Only display the changes that would be made")
++    bump_parser.add_argument("--tag-message", help="Message to use for tag instead of being based on the tag template")
++    bump_parser.add_argument("--only-patch", action="store_true", help="Only patches files, skipping any git operations or hook commands")
++    bump_parser.add_argument("--no-tag", action="store_true", help="Do not create a tag")
++    bump_parser.add_argument("--no-push", action="store_true", help="Do not push after creating the commit and/or tag")
++    bump_parser.add_argument("--no-tag-push", action="store_true", help="Create a tag, but don't push it")
++    
++    # current-version command
++    current_version_parser = subparsers.add_parser("current-version")
++    current_version_parser.add_argument("--cwd", "-C", type=Path, help="Set working directory to <path>")
++    current_version_parser.add_argument("--config", "-c", type=Path, help="Use specified toml config file")
++    
++    # init command
++    init_parser = subparsers.add_parser("init")
++    init_parser.add_argument("current_version", help="The current version to initialize with")
++    init_parser.add_argument("--pyproject", action="store_true", help="Use pyproject.toml instead of tbump.toml")
++    init_parser.add_argument("--cwd", "-C", type=Path, help="Set working directory to <path>")
++    init_parser.add_argument("--config", "-c", type=Path, help="Use specified toml config file")
++    
++    # Special handling for the original tbump syntax where the first argument could be the command or version
++    if args and not args[0].startswith("-"):
++        if args[0] in ("init", "current-version"):
++            # Handle special cases where first arg is actually a command
++            pass
++        elif len(args) >= 2 and args[1] == "init":
++            # Handle 'tbump <version> init' pattern
++            args = ["init"] + args[:1] + args[2:]
++        elif args[0] not in ("bump", "current-version", "init"):
++            # Default to bump command with version
++            args = ["bump"] + args
++    
++    parsed_args = parser.parse_args(args)
++    
++    # Convert to Command enum
++    if parsed_args.version:
++        command = Command.version
++    elif parsed_args.help:
++        command = Command.version  # Help is handled by argparse itself
++    elif parsed_args.command == "init" or (hasattr(parsed_args, 'current_version') and parsed_args.current_version):
++        command = Command.init
++    elif parsed_args.command == "current-version":
++        command = Command.current_version
++    else:
++        command = Command.bump
++    
++    return GivenCliArguments(
++        command=command,
++        bump_new_version=getattr(parsed_args, 'new_version', None),
++        init_current_version=getattr(parsed_args, 'current_version', None),
++        init_pyproject=getattr(parsed_args, 'pyproject', False),
++        working_path=getattr(parsed_args, 'cwd', None),
++        config_path=getattr(parsed_args, 'config', None),
++        non_interactive=getattr(parsed_args, 'non_interactive', False),
++        dry_run=getattr(parsed_args, 'dry_run', False),
++        only_patch=getattr(parsed_args, 'only_patch', False),
++        tag_message=getattr(parsed_args, 'tag_message', None),
++        no_tag=getattr(parsed_args, 'no_tag', False),
++        no_push=getattr(parsed_args, 'no_push', False),
++        no_tag_push=getattr(parsed_args, 'no_tag_push', False),
++    )
+\ No newline at end of file
+diff --git a/tbump/cli.py b/tbump/cli.py
+index e2b726e..f54abf7 100644
+--- a/tbump/cli.py
++++ b/tbump/cli.py
+@@ -1,14 +1,13 @@
+ import sys
+-import textwrap
+-import urllib.parse
+-from contextlib import suppress
+-from dataclasses import dataclass
+ from enum import Enum
+ from pathlib import Path
+ from typing import Dict, List, Optional, Union, cast
+ 
+ import cli_ui as ui
+-import docopt
++from packaging.version import InvalidVersion
++from packaging.version import parse as parse_version
++
++from tbump.argparse import _parse_arguments
+ from packaging.version import InvalidVersion
+ from packaging.version import parse as parse_version
+ 
+@@ -154,8 +153,7 @@ class GivenCliArguments:
+ 
+ 
+ def run(cmd: List[str]) -> None:
+-    opt_dict = docopt.docopt(USAGE, argv=cmd)
+-    arguments = GivenCliArguments.from_opts(opt_dict)
++    arguments = _parse_arguments(cmd)
+ 
+     if arguments.command == Command.version:
+         print("tbump", TBUMP_VERSION)

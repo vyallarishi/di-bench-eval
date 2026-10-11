@@ -1,0 +1,96 @@
+diff --git a/mwclient/client.py b/mwclient/client.py
+index 893bcf5..6f381bc 100644
+--- a/mwclient/client.py
++++ b/mwclient/client.py
+@@ -1,22 +1,19 @@
+ import json
+ import logging
+ import warnings
++import urllib.request
++import urllib.parse
++import urllib.error
++import http.client
+ from collections import OrderedDict
+ from typing import Optional, Callable, Union, Mapping, Any, MutableMapping, List, Dict, \
+     Tuple, cast, Iterable, BinaryIO, Iterator
+ 
+-import requests
+-from requests.auth import HTTPBasicAuth, AuthBase
+-from requests_oauthlib import OAuth1
+-
+ import mwclient.errors as errors
+ import mwclient.listing as listing
+ from mwclient._types import Cookies, Namespace, VersionTuple
+ from mwclient.sleep import Sleeper, Sleepers
+ from mwclient.util import parse_timestamp, read_in_chunks, handle_limit
+-
+-__version__ = '0.11.0'
+-
+ log = logging.getLogger(__name__)
+ 
+ USER_AGENT = f'mwclient/{__version__} (https://github.com/mwclient/mwclient)'
+@@ -76,7 +73,7 @@ class Site:
+             API requests.
+         scheme: The URI scheme to use. This should be either `http` or `https` in
+             most cases. Defaults to `https`.
+-
++pool: Optional[Any] = None,
+     Raises:
+         RuntimeError: The authentication passed to the `httpauth` parameter is invalid.
+             You must pass either a tuple or a :class:`requests.auth.AuthBase` object.
+@@ -92,7 +89,7 @@ class Site:
+         host: str,
+         path: str = '/w/',
+         ext: str = '.php',
+-        pool: Optional[requests.Session] = None,
++pool: Optional[Any] = None,
+         retry_timeout: int = 30,
+         max_retries: int = 25,
+         wait_callback: Callable[['Sleeper', int, Optional[Any]], Any] = lambda *x: None,
+@@ -101,9 +98,9 @@ class Site:
+         compress: bool = True,
+         force_login: bool = True,
+         do_init: bool = True,
+-        httpauth: Union[
++httpauth: Union[
+             Tuple[Union[str, bytes], Union[str, bytes]],
+-            requests.auth.AuthBase,
++            AuthBase,
+             List[Union[str, bytes]],
+             None,
+         ] = None,
+@@ -169,9 +166,9 @@ class Site:
+ 
+         self.namespaces = self.default_namespaces  # type: Dict[int, str]
+ 
+-        # Setup connection
++# Setup connection
+         if pool is None:
+-            self.connection = requests.Session()  # type: requests.Session
++            self.connection = _Requests()  # type: _Requests
+             self.connection.auth = auth
+             if client_certificate:
+                 self.connection.cert = client_certificate
+@@ -187,7 +184,6 @@ class Site:
+                 self.connection.headers.update(custom_headers)
+         else:
+             self.connection = pool
+-
+         # Page generators
+         self.pages = listing.PageList(self)
+         self.categories = listing.PageList(self, namespace=14)
+diff --git a/pyproject.toml b/pyproject.toml
+index 7e943aa..dfb7335 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -25,7 +25,9 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "requests",
++]
+ 
+ [project.optional-dependencies]
+ docs = [

@@ -1,0 +1,139 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..2efa1b3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,8 +19,9 @@ classifiers = [
+     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+     "Topic :: Text Processing",
+ ]
+-requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "wcwidth",
++]
+ dynamic = [
+     "version",
+ ]
+diff --git a/wikitextparser/_spans.py b/wikitextparser/_spans.py
+index 4a3d392..f089313 100644
+--- a/wikitextparser/_spans.py
++++ b/wikitextparser/_spans.py
+@@ -5,7 +5,7 @@ from __future__ import annotations
+ from functools import partial
+ from typing import Callable, Dict, List, Union
+ 
+-from regex import DOTALL, IGNORECASE, REVERSE, Match, compile as rc
++from re import DOTALL, IGNORECASE, Match, compile as rc
+ 
+ from ._config import (
+     _HTML_TAG_NAME,
+diff --git a/wikitextparser/_wikilink.py b/wikitextparser/_wikilink.py
+index 268b959..86fc205 100644
+--- a/wikitextparser/_wikilink.py
++++ b/wikitextparser/_wikilink.py
+@@ -1,17 +1,14 @@
+ from __future__ import annotations
+ 
+-from regex import DOTALL, Match
+-
+-from ._wikitext import SubWikiText, rc
+-
++from re import DOTALL, Match, compile as rc
+ FULLMATCH = rc(
+-    rb'[\[\2]\0*+[\[\2]'
++    rb'[\[[:\0]*[\[[:\0]'
+     rb'('  # 1: target
+-    rb'([^|#\]\3]*+)'  # 2: title
+-    rb'(?>#([^|\]\3]*+))?'  # 3: fragment
++    rb'([^|#\]:\0]*)'  # 2: title
++    rb'(#[^|\]:\0]*)?'  # 3: fragment
+     rb')'
+     rb'(?:\|(.*))?'  # 4: text
+-    rb'[\]\3]\0*+[\]\3]',
++    rb'[\]:\0]*[\]:\0]',
+     DOTALL,
+ ).fullmatch
+ 
+diff --git a/wikitextparser/_wikilist.py b/wikitextparser/_wikilist.py
+index 73a828a..01cfc8f 100644
+--- a/wikitextparser/_wikilist.py
++++ b/wikitextparser/_wikilist.py
+@@ -2,8 +2,7 @@ from __future__ import annotations
+ 
+ from operator import attrgetter
+ from typing import Iterable, MutableSequence
+-
+-from regex import MULTILINE, Match, escape, fullmatch
++from re import DOTALL, MULTILINE, Match, Pattern, compile
+ 
+ from ._spans import TypeToSpans
+ from ._wikitext import EXTERNAL_LINK_FINDITER, SubWikiText
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..30b2352 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -12,7 +12,7 @@ from typing import (
+ )
+ from warnings import warn
+ 
+-from regex import (
++from re import (
+     DOTALL,
+     IGNORECASE,
+     MULTILINE,
+@@ -21,6 +21,7 @@ from regex import (
+     finditer,
+     match,
+     search,
++    compile as rc
+ )
+ from wcwidth import wcswidth
+ 
+@@ -57,9 +58,9 @@ BRACKET_EXTERNAL_LINK_SCHEMES = regex_pattern(
+ BRACKET_EXTERNAL_LINK_URL = (
+     BRACKET_EXTERNAL_LINK_SCHEMES + EXTERNAL_LINK_URL_TAIL
+ )
+-BRACKET_EXTERNAL_LINK = rb'\[' + BRACKET_EXTERNAL_LINK_URL + rb'[^\]\n]*+\]'
++BRACKET_EXTERNAL_LINK = rb'\[' + BRACKET_EXTERNAL_LINK_URL + rb'[^\]\n]*\]'
+ EXTERNAL_LINK = (
+-    rb'(?>' + BARE_EXTERNAL_LINK + rb'|' + BRACKET_EXTERNAL_LINK + rb')'
++    rb'(?:' + BARE_EXTERNAL_LINK + rb'|' + BRACKET_EXTERNAL_LINK + rb')'
+ )
+ EXTERNAL_LINK_FINDITER = rc(EXTERNAL_LINK, IGNORECASE).finditer
+ INVALID_EL_TPP_CHRS_SUB = rc(  # the [:-4] slice allows \[ and \]
+@@ -67,12 +68,11 @@ INVALID_EL_TPP_CHRS_SUB = rc(  # the [:-4] slice allows \[ and \]
+ ).sub
+ 
+ # Sections
+-SECTION_HEADING = rb'^(?<equals>={1,6})[^\n]+?(?P=equals)[ \t]*+$'
+-SUB_SECTION = rb'(?:^(?P=equals)=[^\n]+?(?P=equals)=[ \t]*+$.*?)*'
+-LEAD_SECTION = rb'(?<section>(?<equals>).*?)'
++SECTION_HEADING = rb'^(?P<equals>={1,6})[^\n]+(?P=equals)[ \t]*$'
++LEAD_SECTION = rb'(?P<section>(?P<equals>).*?)'
+ SECTIONS_FULLMATCH = rc(
+     LEAD_SECTION
+-    + rb'(?<section>'
++    + rb'(?P<section>'
+     + SECTION_HEADING
+     + rb'.*?'  # heading  # section content
+     rb')*',
+@@ -93,15 +93,15 @@ TABLE_FINDITER = rc(
+     rb"""
+     # Table-start
+     # Always starts on a new line with optional leading spaces or indentation.
+-    (?<=^[ :\0]*+)
++    (?<=^[ :\0]*)
+     {\| # Table contents
+     (?:
+         # Any character, as long as it is not indicating another table-start
+-        (?!^\ *+\{\|).
++        (?!^\ *\{\|).
+     )*?
+     # Table-end
+-    \n\s*+
+-    (?> \|} | \Z )
++    \n\s*
++    (?: \|} | \Z )
+     """,
+     DOTALL | MULTILINE | VERBOSE,
+ ).finditer

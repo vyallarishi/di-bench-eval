@@ -1,0 +1,31 @@
+diff --git a/collada/asset.py b/collada/asset.py
+index a98332c..c4c20fd 100644
+--- a/collada/asset.py
++++ b/collada/asset.py
+@@ -12,8 +12,7 @@
+ 
+ """Contains COLLADA asset information."""
+ 
+-import datetime
+-import dateutil.parser
++from datetime import datetime
+ 
+ from collada.common import DaeObject, E
+ from collada.util import _correctValInNode
+diff --git a/pyproject.toml b/pyproject.toml
+index 2e7523e..238f6b3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,11 @@ authors = [
+     {name = "Jeff Terrace and contributors", email = "jterrace@gmail.com"},
+ ]
+ license = {text = "BSD"}
+-dependencies = []
++dependencies = [
++    "python-dateutil>=2.2",
++    "numpy",
++    'unittest2; python_version<"2.7"',
++]
+ 
+ [project.optional-dependencies]
+ prettyprint = ["lxml"]

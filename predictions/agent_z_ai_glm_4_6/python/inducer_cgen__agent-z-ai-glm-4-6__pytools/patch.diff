@@ -1,0 +1,69 @@
+diff --git a/cgen/__init__.py b/cgen/__init__.py
+index 862425c..5a92e0a 100644
+--- a/cgen/__init__.py
++++ b/cgen/__init__.py
+@@ -23,12 +23,31 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+ """
+ 
++import functools
++
+ from typing import Any
+ 
+ import numpy
+ 
+-from pytools import memoize, memoize_method
+ 
++def memoize_method(method):
++    """Cache method results based on arguments, storing the cache on the instance."""
++    method_name = method.__name__
++
++    def wrapper(self, *args, **kwargs):
++        try:
++            cache = self._memoize_method_cache
++        except AttributeError:
++            cache = self._memoize_method_cache = {}
++
++        key = (method_name, args, tuple(sorted(kwargs.items())))
++        try:
++            return cache[key]
++        except KeyError:
++            result = cache[key] = method(self, *args, **kwargs)
++            return result
++
++    return wrapper
+ 
+ try:
+     import pycuda._pvt_struct as _struct
+@@ -36,7 +55,7 @@ except ImportError:
+     import struct as _struct
+ 
+ 
+-@memoize
++@functools.lru_cache(maxsize=None)
+ def is_long_64_bit():
+     return _struct.calcsize("l") == 8
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index c384ee2..0526ed2 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: Utilities",
+ ]
+-dependencies = []
++dependencies = [
++    "numpy>=1.6",
++]
+ 
+ [project.optional-dependencies]
+ test = [
+@@ -78,6 +80,5 @@ multiline-quotes = "double"
+ 
+ [tool.ruff.lint.isort]
+ combine-as-imports = true
+-known-first-party = [ "pytools" ]
+-known-local-folder = [ "cgen" ]
++known-first-party = [ "cgen" ]
+ lines-after-imports = 2

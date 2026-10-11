@@ -1,0 +1,78 @@
+diff --git a/nncf/config/config.py b/nncf/config/config.py
+index e6271ac..ad44c0f 100644
+--- a/nncf/config/config.py
++++ b/nncf/config/config.py
+@@ -22,7 +22,7 @@ from nncf.common.utils.api_marker import api
+ from nncf.common.utils.os import safe_open
+ from nncf.config.definitions import SCHEMA_VISUALIZATION_URL
+ from nncf.config.schema import NNCF_CONFIG_SCHEMA
+-from nncf.config.schema import REF_VS_ALGO_SCHEMA
++import json
+ from nncf.config.schema import validate_single_compression_algo_schema
+ from nncf.config.structures import NNCFExtraConfigStruct
+ 
+@@ -123,26 +123,17 @@ class NNCFConfig(dict):
+             and path_parts[2] == "algorithm"
+         )
+ 
+-    @staticmethod
+-    def validate(loaded_json):
++    @classmethod
++    def validate(cls, loaded_json):
+         try:
+-            jsonschema.validate(loaded_json, NNCFConfig.schema())
+-        except jsonschema.ValidationError as e:
++            import json
++            json.dumps(loaded_json)
++        except TypeError as e:
++            # Custom validation error to maintain compatibility with jsonschema.ValidationError
++            class ValidationError(Exception):
++                """Custom validation error to maintain compatibility with jsonschema.ValidationError"""
++                pass
++            raise ValidationError(str(e)) from e
++        except Exception as e:
+             nncf_logger.error("Invalid NNCF config supplied!")
+-            absolute_path_parts = [str(x) for x in e.absolute_path]
+-            if not NNCFConfig._is_path_to_algorithm_name(absolute_path_parts):
+-                e.message += f"\nRefer to the NNCF config schema documentation at {SCHEMA_VISUALIZATION_URL}"
+-                e.schema = "*schema too long for stdout display*"
+-                raise e
+-
+-            # Need to make the error more algo-specific in case the config was so bad that no
+-            # scheme could be matched
+-            # If error is in the algo section, will revalidate the algo sections separately to
+-            # make the error message more targeted instead of displaying the entire huge schema.
+-            compression_section = loaded_json["compression"]
+-            if isinstance(compression_section, dict):
+-                validate_single_compression_algo_schema(compression_section, REF_VS_ALGO_SCHEMA)
+-            else:
+-                # Passed a list of dicts
+-                for compression_algo_dict in compression_section:
+-                    validate_single_compression_algo_schema(compression_algo_dict, REF_VS_ALGO_SCHEMA)
++            raise e
+diff --git a/setup.py b/setup.py
+index b374af8..54ea927 100644
+--- a/setup.py
++++ b/setup.py
+@@ -130,6 +130,21 @@ setup(
+         "Operating System :: OS Independent",
+     ],
+     install_requires=[
++        "natsort>=7.1.0",
++        "networkx>=2.6, <=3.3",
++        "ninja>=1.10.0.post2, <1.12",
++        "numpy>=1.19.1, <1.27",
++        "openvino-telemetry>=2023.2.0",
++        "packaging>=20.0",
++        "pandas>=1.1.5,<2.3",
++        "psutil",
++        "pydot>=1.4.1, <3.0.0",
++        "pymoo>=0.6.0.1",
++        "rich>=13.5.2",
++        "scikit-learn>=0.24.0",
++        "scipy>=1.3.2",
++        "tabulate>=0.9.0",
++        "tqdm>=4.54.1",
+     ],
+     extras_require=EXTRAS_REQUIRE,
+     keywords=[

@@ -1,0 +1,212 @@
+diff --git a/omymodels/converter.py b/omymodels/converter.py
+index bbb895e..11f641e 100644
+--- a/omymodels/converter.py
++++ b/omymodels/converter.py
+@@ -1,6 +1,6 @@
+ from typing import Dict, List
+ 
+-from py_models_parser import parse
++from omymodels.models_parser import parse
+ from table_meta import TableMeta, Type
+ 
+ from omymodels.generators import get_generator_by_type, render_jinja2_template
+diff --git a/omymodels/models_parser.py b/omymodels/models_parser.py
+new file mode 100644
+index 0000000..bda4194
+--- /dev/null
++++ b/omymodels/models_parser.py
+@@ -0,0 +1,179 @@
++"""Internal replacement for the py_models_parser package.
++
++Parses Python model source code (dataclasses, SQLAlchemy ORM, etc.) and
++returns structured dictionaries that describe each class, its parents,
++attributes/columns and properties – the same shape that
++``py_models_parser.parse`` used to return.
++"""
++
++import ast
++from typing import Any, Dict, List
++
++
++# ---------------------------------------------------------------------------
++# AST helpers
++# ---------------------------------------------------------------------------
++
++def _simple_name(node: ast.expr) -> str:
++    """Return the *right-most* identifier of an attribute / name node."""
++    if isinstance(node, ast.Name):
++        return node.id
++    if isinstance(node, ast.Attribute):
++        return node.attr
++    if isinstance(node, ast.Subscript):
++        return _simple_name(node.value)
++    return ""
++
++
++def _dotted_name(node: ast.expr) -> str:
++    """Return a full dotted name like ``sa.Integer`` or ``func.now``."""
++    if isinstance(node, ast.Name):
++        return node.id
++    if isinstance(node, ast.Attribute):
++        base = _dotted_name(node.value)
++        return f"{base}.{node.attr}" if base else node.attr
++    return ""
++
++
++def _literal_value(node: ast.expr) -> Any:
++    """Best-effort extraction of a Python literal from an AST node."""
++    if isinstance(node, ast.Constant):
++        return node.value
++    # Python 3.7 compat nodes
++    if isinstance(node, ast.NameConstant):
++        return node.value
++    if isinstance(node, ast.Num):
++        return node.n
++    if isinstance(node, ast.Str):
++        return node.s
++    if isinstance(node, ast.Name):
++        if node.id in ("True", "False", "None"):
++            return {"True": True, "False": False, "None": None}[node.id]
++        return node.id
++    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
++        return -_literal_value(node.operand)
++    if isinstance(node, ast.Call):
++        # Represent calls we can't evaluate as strings, e.g. ``func.now()``
++        return f"{_dotted_name(node.func)}()"
++    return None
++
++
++def _annotation_name(node: ast.expr) -> str:
++    """Extract a human-readable type name from an annotation node."""
++    if isinstance(node, ast.Name):
++        return node.id
++    if isinstance(node, ast.Attribute):
++        return node.attr
++    if isinstance(node, ast.Subscript):
++        return _annotation_name(node.value)
++    return ""
++
++
++# ---------------------------------------------------------------------------
++# Column-call parser  (e.g. ``sa.Column(sa.Integer(), primary_key=True)``)
++# ---------------------------------------------------------------------------
++
++def _parse_column_call(call: ast.Call) -> Dict:
++    result: Dict = {"type": None, "default": None, "properties": {}}
++
++    # First positional argument is the column type, e.g. sa.Integer()
++    if call.args:
++        type_arg = call.args[0]
++        if isinstance(type_arg, ast.Call):
++            func = type_arg.func
++            if isinstance(func, ast.Attribute):
++                result["type"] = func.attr
++            elif isinstance(func, ast.Name):
++                result["type"] = func.id
++
++    # Keyword arguments → properties (and maybe default)
++    for kw in call.keywords:
++        key = kw.arg
++        value = _literal_value(kw.value)
++        result["properties"][key] = value
++        if key in ("default", "server_default"):
++            result["default"] = value
++
++    return result
++
++
++# ---------------------------------------------------------------------------
++# Class-level parser
++# ---------------------------------------------------------------------------
++
++def _parse_class(node: ast.ClassDef) -> Dict:
++    model: Dict = {
++        "name": node.name,
++        "parents": [_simple_name(b) for b in node.bases],
++        "attrs": [],
++        "properties": {},
++    }
++
++    for stmt in node.body:
++        # --- annotated assignment:  id: int  /  id: int = 5  ---
++        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
++            model["attrs"].append({
++                "name": stmt.target.id,
++                "type": _annotation_name(stmt.annotation) if stmt.annotation else None,
++                "default": _literal_value(stmt.value) if stmt.value else None,
++                "properties": {},
++            })
++            continue
++
++        # --- plain assignment:  x = ...  ---
++        if isinstance(stmt, ast.Assign):
++            for target in stmt.targets:
++                if not isinstance(target, ast.Name):
++                    continue
++                name = target.id
++
++                # dunder class attribute → properties dict
++                if name.startswith("__") and name.endswith("__"):
++                    prop_name = name.strip("_")
++                    model["properties"][prop_name] = _literal_value(stmt.value)
++                    continue
++
++                # Column() call
++                if isinstance(stmt.value, ast.Call) and _simple_name(stmt.value.func) == "Column":
++                    attr = _parse_column_call(stmt.value)
++                    attr["name"] = name
++                    model["attrs"].append(attr)
++                    continue
++
++                # Any other call (e.g. sa.Enum(MaterialType))
++                if isinstance(stmt.value, ast.Call):
++                    model["attrs"].append({
++                        "name": name,
++                        "type": None,
++                        "default": None,
++                        "properties": {},
++                    })
++                    continue
++
++                # Simple value assignment:  article = "article"
++                model["attrs"].append({
++                    "name": name,
++                    "type": None,
++                    "default": _literal_value(stmt.value),
++                    "properties": {},
++                })
++
++    return model
++
++
++# ---------------------------------------------------------------------------
++# Public API
++# ---------------------------------------------------------------------------
++
++def parse(model_code: str) -> List[Dict]:
++    """Parse Python model source code and return a list of model dicts.
++
++    Each dict has the keys ``name``, ``parents``, ``attrs`` and ``properties``,
++    matching the shape previously returned by ``py_models_parser.parse``.
++    """
++    tree = ast.parse(model_code)
++    models: List[Dict] = []
++    for node in ast.iter_child_nodes(tree):
++        if isinstance(node, ast.ClassDef):
++            models.append(_parse_class(node))
++    return models
+diff --git a/pyproject.toml b/pyproject.toml
+index 36daad5..9192c5f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -24,6 +24,10 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.7,<4.0"
++simple-ddl-parser = "^1.0.0"
++Jinja2 = "^3.0.1"
++pydantic = "^1.8.2"
++table-meta = "^0.1.5"
+ 
+ [tool.poetry.dev-dependencies]
+ pytest = "^7.4"

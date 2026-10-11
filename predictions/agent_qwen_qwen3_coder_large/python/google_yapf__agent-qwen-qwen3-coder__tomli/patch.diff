@@ -1,0 +1,101 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 8c08688..53d02e8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -26,8 +26,8 @@ classifiers = [
+     'Programming Language :: Python :: 3.11',
+     'Topic :: Software Development :: Libraries :: Python Modules',
+     'Topic :: Software Development :: Quality Assurance',
+-]
+ dependencies = [
++    'platformdirs>=3.5.1',
+ ]
+ 
+ [project.scripts]
+diff --git a/yapf/yapflib/file_resources.py b/yapf/yapflib/file_resources.py
+index 87b6d86..f325dfc 100644
+--- a/yapf/yapflib/file_resources.py
++++ b/yapf/yapflib/file_resources.py
+@@ -28,10 +28,13 @@ from tokenize import detect_encoding
+ from yapf.yapflib import errors
+ from yapf.yapflib import style
+ 
+-if sys.version_info >= (3, 11):
++try:
+   import tomllib
+-else:
+-  import tomli as tomllib
++except ImportError:
++  try:
++    import tomli as tomllib
++  except ImportError:
++    tomllib = None
+ 
+ CR = '\r'
+ LF = '\n'
+@@ -58,6 +61,9 @@ def _GetExcludePatternsFromPyprojectToml(filename):
+   ignore_patterns = []
+ 
+   if os.path.isfile(filename) and os.access(filename, os.R_OK):
++    if tomllib is None:
++      # TOML support not available, return empty patterns
++      return ignore_patterns
+     with open(filename, 'rb') as fd:
+       pyproject_toml = tomllib.load(fd)
+     ignore_patterns = pyproject_toml.get('tool',
+@@ -126,7 +132,6 @@ def GetDefaultStyleForDir(dirname, default_style=style.DEFAULT_STYLE):
+         config.read_file(fd)
+         if config.has_section('yapf'):
+           return config_file
+-
+     # See if we have a pyproject.toml file with a '[tool.yapf]'  section.
+     config_file = os.path.join(dirname, style.PYPROJECT_TOML)
+     try:
+@@ -135,10 +140,11 @@ def GetDefaultStyleForDir(dirname, default_style=style.DEFAULT_STYLE):
+       pass  # It's okay if it's not there.
+     else:
+       with fd:
+-        pyproject_toml = tomllib.load(fd)
+-        style_dict = pyproject_toml.get('tool', {}).get('yapf', None)
+-        if style_dict is not None:
+-          return config_file
++        if tomllib is not None:
++          pyproject_toml = tomllib.load(fd)
++          style_dict = pyproject_toml.get('tool', {}).get('yapf', None)
++          if style_dict is not None:
++            return config_file
+ 
+     if (not dirname or not os.path.basename(dirname) or
+         dirname == os.path.abspath(os.path.sep)):
+diff --git a/yapf/yapflib/style.py b/yapf/yapflib/style.py
+index 7642c01..54f785b 100644
+--- a/yapf/yapflib/style.py
++++ b/yapf/yapflib/style.py
+@@ -21,11 +21,13 @@ from configparser import ConfigParser
+ 
+ from yapf.yapflib import errors
+ 
+-if sys.version_info >= (3, 11):
++try:
+   import tomllib
+-else:
+-  import tomli as tomllib
+-
++except ImportError:
++  try:
++    import tomli as tomllib
++  except ImportError:
++    tomllib = None
+ 
+ class StyleConfigError(errors.YapfError):
+   """Raised when there's a problem reading the style configuration."""
+@@ -809,6 +811,9 @@ def _CreateConfigParserFromConfigFile(config_filename):
+   config = ConfigParser()
+ 
+   if config_filename.endswith(PYPROJECT_TOML):
++    if tomllib is None:
++      raise StyleConfigError(
++          'TOML support is not available. Please install tomli package.')
+     with open(config_filename, 'rb') as style_file:
+       pyproject_toml = tomllib.load(style_file)
+       style_dict = pyproject_toml.get('tool', {}).get('yapf', None)

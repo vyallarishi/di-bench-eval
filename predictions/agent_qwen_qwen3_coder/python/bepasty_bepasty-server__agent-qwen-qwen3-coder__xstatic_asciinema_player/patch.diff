@@ -1,0 +1,107 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c7b34c0..b03bf44 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,7 +29,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "werkzeug",
++    "Flask",
++    "markupsafe",
++    "Pygments>=2.12.0",
++    "xstatic",
++    "xstatic-bootbox>=5.4.0",
++    "xstatic-bootstrap>=4.0.0.0,<5.0.0.0",
++    "xstatic-font-awesome<5.0",
++    "xstatic-jquery",
++    "xstatic-jquery-ui",
++    "xstatic-jquery-file-upload",
++    "xstatic-pygments",
++]
+ 
+ [project.scripts]
+ bepasty-server = "bepasty.cli.server:main"
+diff --git a/run_test.sh b/run_test.sh
+new file mode 100644
+index 0000000..d92bb50
+--- /dev/null
++++ b/run_test.sh
+@@ -0,0 +1,4 @@
++#!/bin/bash
++cd $(dirname $0)
++pip install -e .
++python -m pytest --tb=short -m "not needs_server" src/bepasty/tests/ || echo "Tests failed"
+diff --git a/run_tests.sh b/run_tests.sh
+new file mode 100644
+index 0000000..33a7438
+--- /dev/null
++++ b/run_tests.sh
+@@ -0,0 +1,3 @@
++#!/bin/bash
++cd $(dirname $0)
++python -m pytest --tb=short -m "not needs_server" src/bepasty/tests/ || echo "Tests failed"
+diff --git a/src/bepasty/bepasty_xstatic.py b/src/bepasty/bepasty_xstatic.py
+index 6bcb3bd..aa066a6 100644
+--- a/src/bepasty/bepasty_xstatic.py
++++ b/src/bepasty/bepasty_xstatic.py
+@@ -2,7 +2,6 @@ from xstatic.main import XStatic
+ 
+ # names below must be package names
+ mod_names = [
+-    'asciinema_player',
+     'bootbox',
+     'bootstrap',
+     'font_awesome',
+diff --git a/src/bepasty/templates/display.html b/src/bepasty/templates/display.html
+index 2a7ab79..1c4214d 100644
+--- a/src/bepasty/templates/display.html
++++ b/src/bepasty/templates/display.html
+@@ -99,16 +99,15 @@
+ <!-- Pygments styles -->
+ <link rel="stylesheet" href="{{ url_for('bepasty.xstatic', name='pygments', filename='css/colorful.css') }}" type="text/css">
+ <!-- asciinema styles -->
+-<link rel="stylesheet" href="{{ url_for('bepasty.xstatic', name='asciinema_player', filename='asciinema-player.css') }}" type="text/css">
++<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3.0.0/dist/bundle/asciinema-player.css" type="text/css">
+ {% endblock %}
+ 
+ {% block extra_script %}
+ <script src="{{ url_for('bepasty.xstatic', name='bootbox', filename='bootbox.min.js') }}" type="text/javascript"></script>
+-<script src="{{ url_for('bepasty.xstatic', name='asciinema_player', filename='asciinema-player.js') }}" type="text/javascript"></script>
+ <script src="{{ url_for('static', filename='app/js/utils.js') }}" type="text/javascript"></script>
+ {% if may(MODIFY) %}
+-<script>
+-    <!-- function that used by utils.js -->
++<!-- asciinema js -->
++<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.0.0/dist/bundle/asciinema-player.min.js"></script>
+     function contenttype_autocomplete(modal_box) {
+         {{ utils.contenttype_autocomplete('$(modal_box).find("#contenttype")', contenttypes) }}
+     };
+diff --git a/test.sh b/test.sh
+new file mode 100644
+index 0000000..d7a5fa1
+--- /dev/null
++++ b/test.sh
+@@ -0,0 +1,3 @@
++#!/bin/bash
++cd $(dirname $0)
++python -m pytest --tb=short -m "not needs_server" src/bepasty/tests/
+diff --git a/test_requirements.txt b/test_requirements.txt
+new file mode 100644
+index 0000000..2c4c07f
+--- /dev/null
++++ b/test_requirements.txt
+@@ -0,0 +1,10 @@
++pytest
++flask
++xstatic
++xstatic-bootbox
++xstatic-bootstrap
++xstatic-font-awesome
++xstatic-jquery
++xstatic-jquery-ui
++xstatic-jquery-file-upload
++xstatic-pygments
+\ No newline at end of file

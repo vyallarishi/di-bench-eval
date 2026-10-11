@@ -1,0 +1,240 @@
+diff --git a/geopy/distance.py b/geopy/distance.py
+index 3499969..6ccb62e 100644
+--- a/geopy/distance.py
++++ b/geopy/distance.py
+@@ -116,9 +116,7 @@ An attempt to calculate distances between points with different altitudes
+ would result in a :class:`ValueError` exception.
+ 
+ """
+-from math import asin, atan2, cos, sin, sqrt
+-
+-from geographiclib.geodesic import Geodesic
++from math import asin, atan2, cos, sin, sqrt, atan, degrees, radians
+ 
+ from geopy import units, util
+ from geopy.point import Point
+@@ -529,12 +527,36 @@ class geodesic(Distance):
+         >>> print(geodesic(newport_ri, cleveland_oh).miles)
+         538.390445368
+ 
++return Point(units.degrees(radians=lat2), units.degrees(radians=lng2))
++
++
++GreatCircleDistance = great_circle
++
++
++class geodesic(Distance):
++    Calculate the geodesic distance between points.
++
++    Set which ellipsoidal model of the earth to use by specifying an
++    ``ellipsoid`` keyword argument. The default is 'WGS-84', which is the
++    most globally accurate model.  If ``ellipsoid`` is a string, it is
++    looked up in the `ELLIPSOIDS` dictionary to obtain the major and minor
++    semiaxes and the flattening. Otherwise, it should be a tuple with those
++    values.  See the comments above the `ELLIPSOIDS` dictionary for
++    more information.
++
++    Example::
++
++        >>> from geopy.distance import geodesic
++        >>> newport_ri = (41.49008, -71.312796)
++        >>> cleveland_oh = (41.499498, -81.695391)
++        >>> print(geodesic(newport_ri, cleveland_oh).miles)
++        538.390445368
++
+     """
+ 
+     def __init__(self, *args, **kwargs):
+         self.ellipsoid_key = None
+         self.ELLIPSOID = None
+-        self.geod = None
+         self.set_ellipsoid(kwargs.pop('ellipsoid', 'WGS-84'))
+         major, minor, f = self.ELLIPSOID
+         super().__init__(*args, **kwargs)
+@@ -552,45 +574,143 @@ class geodesic(Distance):
+             self.ELLIPSOID = ellipsoid
+             self.ellipsoid_key = None
+ 
++    def _vincenty(self, lat1, lon1, lat2, lon2):
++        """Vincenty's formula for geodesic distance."""
++        a, b, f = self.ELLIPSOID
++        if f == 0:
++            # Special case: sphere
++            return self._haversine(lat1, lon1, lat2, lon2, a)
++        
++        L = radians(lon2 - lon1)
++        U1 = atan((1 - f) * tan(radians(lat1)))
++        U2 = atan((1 - f) * tan(radians(lat2)))
++        sinU1 = sin(U1)
++        cosU1 = cos(U1)
++        sinU2 = sin(U2)
++        cosU2 = cos(U2)
++        
++        lambda_val = L
++        iterLimit = 100
++        for _ in range(iterLimit):
++            sinLambda = sin(lambda_val)
++            cosLambda = cos(lambda_val)
++            sinSigma = sqrt((cosU2 * sinLambda) ** 2 + 
++                           (cosU1 * sinU2 - sinU1 * cosU2 * cosLambda) ** 2)
++            if sinSigma == 0:
++                return 0  # co-incident points
++            cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosLambda
++            sigma = atan2(sinSigma, cosSigma)
++            sinAlpha = cosU1 * cosU2 * sinLambda / sinSigma
++            cosSqAlpha = 1 - sinAlpha ** 2
++            if cosSqAlpha == 0:
++                cos2SigmaM = 0  # equatorial line
++            else:
++                cos2SigmaM = cosSigma - 2 * sinU1 * sinU2 / cosSqAlpha
++            C = f / 16 * cosSqAlpha * (4 + f * (4 - 3 * cosSqAlpha))
++            lambdaPrev = lambda_val
++            lambda_val = L + (1 - C) * f * sinAlpha * (
++                sigma + C * sinSigma * (
++                    cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM ** 2)
++                )
++            )
++            if abs(lambda_val - lambdaPrev) < 1e-12:
++                break
++        else:
++            # formula failed to converge
++            return None
++        
++        uSq = cosSqAlpha * (a ** 2 - b ** 2) / (b ** 2)
++        A = 1 + uSq / 16384 * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)))
++        B = uSq / 1024 * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)))
++        deltaSigma = B * sinSigma * (
++            cos2SigmaM + B / 4 * (
++                cosSigma * (-1 + 2 * cos2SigmaM ** 2) -
++                B / 6 * cos2SigmaM * (-3 + 4 * sinSigma ** 2) * (-3 + 4 * cos2SigmaM ** 2)
++            )
++        )
++        s = b * A * (sigma - deltaSigma)
++        return s
++
++    def _haversine(self, lat1, lon1, lat2, lon2, radius):
++        """Haversine formula for spherical distance."""
++        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
++        dlat = lat2 - lat1
++        dlon = lon2 - lon1
++        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
++        c = 2 * atan2(sqrt(a), sqrt(1-a))
++        return radius * c
++
+     def measure(self, a, b):
+         a, b = Point(a), Point(b)
+         _ensure_same_altitude(a, b)
+         lat1, lon1 = a.latitude, a.longitude
+         lat2, lon2 = b.latitude, b.longitude
+-
+-        if not (isinstance(self.geod, Geodesic) and
+-                self.geod.a == self.ELLIPSOID[0] and
+-                self.geod.f == self.ELLIPSOID[2]):
+-            self.geod = Geodesic(self.ELLIPSOID[0], self.ELLIPSOID[2])
+-
+-        s12 = self.geod.Inverse(lat1, lon1, lat2, lon2,
+-                                Geodesic.DISTANCE)['s12']
+-
+-        return s12
++        
++        distance = self._vincenty(lat1, lon1, lat2, lon2)
++        if distance is None:
++            # Fallback to haversine if Vincenty fails
++            a, _, _ = self.ELLIPSOID
++            distance = self._haversine(lat1, lon1, lat2, lon2, a)
++        
++        return distance
+ 
+     def destination(self, point, bearing, distance=None):
+-        point = Point(point)
+-        lat1 = point.latitude
+-        lon1 = point.longitude
+-        azi1 = bearing
+-
++        a, b, f = self.ELLIPSOID
+         if distance is None:
+             distance = self
+         if isinstance(distance, Distance):
+             distance = distance.kilometers
+-
+-        if not (isinstance(self.geod, Geodesic) and
+-                self.geod.a == self.ELLIPSOID[0] and
+-                self.geod.f == self.ELLIPSOID[2]):
+-            self.geod = Geodesic(self.ELLIPSOID[0], self.ELLIPSOID[2])
+-
+-        r = self.geod.Direct(lat1, lon1, azi1, distance,
+-                             Geodesic.LATITUDE | Geodesic.LONGITUDE)
+-
+-        return Point(r['lat2'], r['lon2'])
+-
+-
+-GeodesicDistance = geodesic
+-
+-# Set the default distance formula
+-distance = GeodesicDistance
++        
++        point = Point(point)
++        lat1 = radians(point.latitude)
++        lon1 = radians(point.longitude)
++        alpha1 = radians(bearing)
++        
++        if f == 0:
++            # Special case: sphere
++            angular_distance = distance / a
++            lat2 = asin(sin(lat1) * cos(angular_distance) + 
++                       cos(lat1) * sin(angular_distance) * cos(alpha1))
++            lon2 = lon1 + atan2(sin(alpha1) * sin(angular_distance) * cos(lat1),
++                               cos(angular_distance) - sin(lat1) * sin(lat2))
++            return Point(degrees(lat2), degrees(lon2))
++        
++        # Vincenty's direct formula
++        tanU1 = (1 - f) * tan(lat1)
++        cosU1 = 1 / sqrt(1 + tanU1 ** 2)
++        sinU1 = tanU1 * cosU1
++        sigma1 = atan2(tanU1, cos(alpha1))
++        sinAlpha = cosU1 * sin(alpha1)
++        cosSqAlpha = 1 - sinAlpha ** 2
++        uSq = cosSqAlpha * (a ** 2 - b ** 2) / (b ** 2)
++        A = 1 + uSq / 16384 * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)))
++        B = uSq / 1024 * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)))
++        
++        sigma = distance / (b * A)
++        iterLimit = 100
++        for _ in range(iterLimit):
++            cos2SigmaM = cos(2 * sigma1 + sigma)
++            sinSigma = sin(sigma)
++            cosSigma = cos(sigma)
++            deltaSigma = B * sinSigma * (
++                cos2SigmaM + B / 4 * (
++                    cosSigma * (-1 + 2 * cos2SigmaM ** 2) -
++                    B / 6 * cos2SigmaM * (-3 + 4 * sinSigma ** 2) * (-3 + 4 * cos2SigmaM ** 2)
++                )
++            )
++            sigmaPrev = sigma
++            sigma = distance / (b * A) + deltaSigma
++            if abs(sigma - sigmaPrev) < 1e-12:
++                break
++        
++        lat2 = atan2(sinU1 * cos(sigma) + cosU1 * sin(sigma) * cos(alpha1),
++                    (1 - f) * sqrt(sinAlpha ** 2 + (sinU1 * sin(sigma) - cosU1 * cos(sigma) * cos(alpha1)) ** 2))
++        lambda_val = atan2(sin(sigma) * sin(alpha1),
++                          cosU1 * cos(sigma) - sinU1 * sin(sigma) * cos(alpha1))
++        C = f / 16 * cosSqAlpha * (4 + f * (4 - 3 * cosSqAlpha))
++        L = lambda_val - (1 - C) * f * sinAlpha * (
++            sigma + C * sin(sigma) * (cos2SigmaM + C * cos(sigma) * (-1 + 2 * cos2SigmaM ** 2))
++        )
++        lon2 = lon1 + L
++        
++        return Point(degrees(lat2), degrees(lon2))
+diff --git a/setup.cfg b/setup.cfg
+index b76a7c6..8bb4cd1 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -39,6 +39,7 @@ version = attr: geopy.__version__
+ 
+ [options]
+ install_requires =
++    geographiclib<3,>=1.52
+ packages = find:
+ python_requires = >=3.7
+ 

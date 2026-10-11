@@ -1,0 +1,87 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index cb7e925..54ba9d9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,6 +14,8 @@ classifiers = [
+ ]
+ requires-python = ">=3.8"
+ dependencies = [
++    "bidict >= 0.21.0",
++    "python-engineio >= 4.8.0",
+ ]
+ 
+ [project.readme]
+diff --git a/src/socketio/base_manager.py b/src/socketio/base_manager.py
+index ca4b0b9..1faeadb 100644
+--- a/src/socketio/base_manager.py
++++ b/src/socketio/base_manager.py
+@@ -1,11 +1,67 @@
+ import itertools
+ import logging
+ 
+-from bidict import bidict, ValueDuplicationError
+-
+ default_logger = logging.getLogger('socketio')
+ 
+ 
++class BidirectionalDict:
++    """A simple bidirectional dictionary implementation."""
++    
++    def __init__(self):
++        self._forward = {}
++        self._inverse = {}
++    
++    def __setitem__(self, key, value):
++        # Remove existing mappings if any
++        if key in self._forward:
++            old_value = self._forward[key]
++            del self._inverse[old_value]
++        if value in self._inverse:
++            old_key = self._inverse[value]
++            del self._forward[old_key]
++        
++        self._forward[key] = value
++        self._inverse[value] = key
++    
++    def __getitem__(self, key):
++        return self._forward[key]
++    
++    def __delitem__(self, key):
++        if key not in self._forward:
++            raise KeyError(key)
++        value = self._forward[key]
++        del self._forward[key]
++        del self._inverse[value]
++    
++    def __contains__(self, key):
++        return key in self._forward
++    
++    def get(self, key, default=None):
++        return self._forward.get(key, default)
++    
++    def copy(self):
++        result = BidirectionalDict()
++        result._forward = self._forward.copy()
++        result._inverse = self._inverse.copy()
++        return result
++    
++    def __len__(self):
++        return len(self._forward)
++    
++    def items(self):
++        return self._forward.items()
++    
++    @property
++    def _fwdm(self):
++        """Forward mapping - for compatibility with bidict"""
++        return self._forward
++    
++    @property
++    def _invm(self):
++        """Inverse mapping - for compatibility with bidict"""
++        return self._inverse
++
++
+ class BaseManager:
+     def __init__(self):
+         self.logger = None

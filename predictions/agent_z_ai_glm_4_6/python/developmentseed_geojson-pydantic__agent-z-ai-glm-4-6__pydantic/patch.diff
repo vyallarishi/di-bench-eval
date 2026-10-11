@@ -1,0 +1,593 @@
+diff --git a/geojson_pydantic/base.py b/geojson_pydantic/base.py
+index 90c547b..ea02868 100644
+--- a/geojson_pydantic/base.py
++++ b/geojson_pydantic/base.py
+@@ -1,21 +1,32 @@
+-"""pydantic BaseModel for GeoJSON objects."""
++"""Base classes for GeoJSON objects."""
+ from __future__ import annotations
+ 
+ import warnings
+-from typing import Any, Dict, List, Optional, Set
+-
+-from pydantic import BaseModel, SerializationInfo, field_validator, model_serializer
+-
+-from geojson_pydantic.types import BBox
+-
+-
+-class _GeoJsonBase(BaseModel):
+-    bbox: Optional[BBox] = None
+-
+-    # These fields will not be included when serializing in json mode
+-    # `.model_dump_json()` or `.model_dump(mode="json")`
+-    __geojson_exclude_if_none__: Set[str] = {"bbox"}
+-
++from typing import Any, Dict, List, Optional, Type, TypeVar, Union
++
++from geojson_pydantic.types import Bbox, CoordinateType
++
++T = TypeVar("T", bound="GeoJSONMixin")
++
++
++class _GeoJsonBase:
++    """Base class for GeoJSON objects."""
++    
++    def __init__(self, **data: Any) -> None:
++        """Initialize with keyword arguments."""
++        for field_name, field_value in data.items():
++            setattr(self, field_name, field_value)
++    
++    def model_dump(self, mode: str = "python") -> Dict[str, Any]:
++        """Convert to dictionary representation."""
++        result = {}
++        for key, value in self.__dict__.items():
++            if not key.startswith('_'):
++                if mode == "json" and value is None and key in getattr(self, '__geojson_exclude_if_none__', set()):
++                    continue
++                result[key] = value
++        return result
++    
+     @property
+     def __geo_interface__(self) -> Dict[str, Any]:
+         """GeoJSON-like protocol for geo-spatial (GIS) vector data.
+@@ -24,13 +35,24 @@ class _GeoJsonBase(BaseModel):
+         """
+         return self.model_dump(mode="json")
+ 
+-    @field_validator("bbox")
+-    def validate_bbox(cls, bbox: Optional[BBox]) -> Optional[BBox]:
+-        """Validate BBox values are ordered correctly."""
+-        # If bbox is None, there is nothing to validate.
+-        if bbox is None:
+-            return None
+ 
++class GeoJSONMixin(_GeoJsonBase):
++    """Mixin class for GeoJSON objects with common functionality."""
++    
++    type: str
++    bbox: Optional[Bbox] = None
++    
++    # These fields will not be included when serializing in json mode
++    __geojson_exclude_if_none__ = {"bbox"}
++    
++    def __init__(self, **data: Any) -> None:
++        """Initialize with validation."""
++        super().__init__(**data)
++        if hasattr(self, 'bbox') and self.bbox is not None:
++            self._validate_bbox(self.bbox)
++    
++    def _validate_bbox(self, bbox: Bbox) -> None:
++        """Validate BBox values are ordered correctly."""
+         # A list to store any errors found so we can raise them all at once.
+         errors: List[str] = []
+ 
+@@ -56,26 +78,49 @@ class _GeoJsonBase(BaseModel):
+         if errors:
+             raise ValueError("Invalid BBox. Error(s): " + " ".join(errors))
+ 
+-        return bbox
+-
+-    # This return is untyped due to a workaround until this issue is resolved:
+-    # https://github.com/tiangolo/fastapi/discussions/10661
+-    @model_serializer(when_used="always", mode="wrap")
+-    def clean_model(self, serializer: Any, info: SerializationInfo):  # type: ignore [no-untyped-def]
+-        """Custom Model serializer to match the GeoJSON specification.
+-
+-        Used to remove fields which are optional but cannot be null values.
+-        """
+-        # This seems like the best way to have the least amount of unexpected consequences.
+-        # We want to avoid forcing values in `exclude_none` or `exclude_unset` which could
+-        # cause issues or unexpected behavior for downstream users.
+-        # ref: https://github.com/pydantic/pydantic/issues/6575
+-        data: Dict[str, Any] = serializer(self)
+-
+-        # Only remove fields when in JSON mode.
+-        if info.mode_is_json():
+-            for field in self.__geojson_exclude_if_none__:
+-                if field in data and data[field] is None:
+-                    del data[field]
+ 
+-        return data
++class GeoJSONSequence(GeoJSONMixin):
++    """Base class for GeoJSON objects that contain a sequence of geometries."""
++    
++    coordinates: List[CoordinateType]
++    geometries: List[Any]  # Will be overridden by specific classes
++    
++    def __init__(self, **data: Any) -> None:
++        """Initialize with validation."""
++        super().__init__(**data)
++        if hasattr(self, 'coordinates'):
++            self._validate_coordinates(self.coordinates)
++        if hasattr(self, 'geometries'):
++            self._validate_geometries(self.geometries)
++    
++    def _validate_coordinates(self, coordinates: List[CoordinateType]) -> None:
++        """Validate coordinates."""
++        pass  # Override in subclasses if needed
++    
++    def _validate_geometries(self, geometries: List[Any]) -> None:
++        """Validate geometries."""
++        pass  # Override in subclasses if needed
++    
++    def __len__(self) -> int:
++        """Return length of the sequence."""
++        if hasattr(self, 'coordinates'):
++            return len(self.coordinates)
++        elif hasattr(self, 'geometries'):
++            return len(self.geometries)
++        return 0
++    
++    def __iter__(self):
++        """Iterate over the sequence."""
++        if hasattr(self, 'coordinates'):
++            return iter(self.coordinates)
++        elif hasattr(self, 'geometries'):
++            return iter(self.geometries)
++        return iter([])
++    
++    def __getitem__(self, index: int):
++        """Get item by index."""
++        if hasattr(self, 'coordinates'):
++            return self.coordinates[index]
++        elif hasattr(self, 'geometries'):
++            return self.geometries[index]
++        raise IndexError("Index out of range")
+diff --git a/geojson_pydantic/geometries.py b/geojson_pydantic/geometries.py
+index ecd2d3a..5c22075 100644
+--- a/geojson_pydantic/geometries.py
++++ b/geojson_pydantic/geometries.py
+@@ -1,12 +1,9 @@
+-"""pydantic models for GeoJSON Geometry objects."""
++"""Geometry models for the GeoJSON spec."""
+ from __future__ import annotations
+ 
+ import abc
+ import warnings
+-from typing import Any, Iterator, List, Literal, Union
+-
+-from pydantic import Field, field_validator
+-from typing_extensions import Annotated
++from typing import Any, Iterator, List, Union
+ 
+ from geojson_pydantic.base import _GeoJsonBase
+ from geojson_pydantic.types import (
+@@ -73,8 +70,15 @@ def _polygons_wkt_coordinates(
+ class _GeometryBase(_GeoJsonBase, abc.ABC):
+     """Base class for geometry models"""
+ 
+-    type: str
+-    coordinates: Any
++    def __init__(self, **data: Any) -> None:
++        """Initialize with validation."""
++        super().__init__(**data)
++        if hasattr(self, 'coordinates'):
++            self._validate_coordinates()
++
++    def _validate_coordinates(self) -> None:
++        """Override in subclasses for coordinate validation."""
++        pass
+ 
+     @abc.abstractmethod
+     def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+@@ -90,45 +94,39 @@ class _GeometryBase(_GeoJsonBase, abc.ABC):
+     @property
+     def wkt(self) -> str:
+         """Return the Well Known Text representation."""
+-        # Start with the WKT Type
+         wkt = self.type.upper()
+         has_z = self.has_z
+         if self.coordinates:
+-            # If any of the coordinates have a Z add a "Z" to the WKT
+             wkt += " Z " if has_z else " "
+-            # Add the rest of the WKT inside parentheses
+             wkt += f"({self.__wkt_coordinates__(self.coordinates, force_z=has_z)})"
+         else:
+-            # Otherwise it will be "EMPTY"
+             wkt += " EMPTY"
+-
+         return wkt
+ 
+ 
+ class Point(_GeometryBase):
+     """Point Model"""
+ 
+-    type: Literal["Point"]
+-    coordinates: Position
++    def __init__(self, **data: Any) -> None:
++        super().__init__(**data)
++        self.type = data.get("type", "Point")
+ 
+     def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+         return _position_wkt_coordinates(coordinates, force_z)
+ 
+     @property
+     def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+         return _position_has_z(self.coordinates)
+ 
+ 
+ class MultiPoint(_GeometryBase):
+     """MultiPoint Model"""
+ 
+-    type: Literal["MultiPoint"]
+-    coordinates: MultiPointCoords
++    def __init__(self, **data: Any) -> None:
++        super().__init__(**data)
++        self.type = data.get("type", "MultiPoint")
+ 
+     def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+         return ", ".join(
+             f"({_position_wkt_coordinates(position, force_z)})"
+             for position in coordinates
+@@ -136,84 +134,72 @@ class MultiPoint(_GeometryBase):
+ 
+     @property
+     def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+         return _position_list_has_z(self.coordinates)
+ 
+ 
+ class LineString(_GeometryBase):
+     """LineString Model"""
+ 
+-    type: Literal["LineString"]
+-    coordinates: LineStringCoords
++    def __init__(self, **data: Any) -> None:
++        super().__init__(**data)
++        self.type = data.get("type", "LineString")
+ 
+     def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+         return _position_list_wkt_coordinates(coordinates, force_z)
+ 
+     @property
+     def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+         return _position_list_has_z(self.coordinates)
+ 
+ 
+ class MultiLineString(_GeometryBase):
+     """MultiLineString Model"""
+ 
+-    type: Literal["MultiLineString"]
+-    coordinates: MultiLineStringCoords
++    def __init__(self, **data: Any) -> None:
++        super().__init__(**data)
++        self.type = data.get("type", "MultiLineString")
+ 
+     def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+         return _lines_wtk_coordinates(coordinates, force_z)
+ 
+     @property
+     def has_z(self) -> bool:
+-        """Checks if any coordinate has a Z value."""
+         return _lines_has_z(self.coordinates)
+ 
+ 
+ class Polygon(_GeometryBase):
+     """Polygon Model"""
+ 
+-    type: Literal["Polygon"]
+-    coordinates: PolygonCoords
+-
+-    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+-        return _lines_wtk_coordinates(coordinates, force_z)
++    def __init__(self, **data: Any) -> None:
++        super().__init__(**data)
++        self.type = data.get("type", "Polygon")
+ 
+-    @field_validator("coordinates")
+-    def check_closure(cls, coordinates: List) -> List:
+-        """Validate that Polygon is closed (first and last coordinate are the same)."""
+-        if any(ring[-1] != ring[0] for ring in coordinates):
++    def _validate_coordinates(self) -> None:
++        if any(ring[-1] != ring[0] for ring in self.coordinates):
+             raise ValueError("All linear rings have the same start and end coordinates")
+ 
+-        return coordinates
++    def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
++        return _lines_wtk_coordinates(coordinates, force_z)
+ 
+     @property
+     def exterior(self) -> Union[LinearRing, None]:
+-        """Return the exterior Linear Ring of the polygon."""
+         return self.coordinates[0] if self.coordinates else None
+ 
+     @property
+     def interiors(self) -> Iterator[LinearRing]:
+-        """Interiors (Holes) of the polygon."""
+         yield from (
+             interior for interior in self.coordinates[1:] if len(self.coordinates) > 1
+         )
+ 
+     @property
+     def has_z(self) -> bool:
+-        """Checks if any coordinates have a Z value."""
+         return _lines_has_z(self.coordinates)
+ 
+     @classmethod
+     def from_bounds(
+         cls, xmin: float, ymin: float, xmax: float, ymax: float
+     ) -> "Polygon":
+-        """Create a Polygon geometry from a boundingbox."""
+         return cls(
+-            type="Polygon",
+             coordinates=[
+                 [(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax), (xmin, ymin)]
+             ],
+@@ -223,127 +209,93 @@ class Polygon(_GeometryBase):
+ class MultiPolygon(_GeometryBase):
+     """MultiPolygon Model"""
+ 
+-    type: Literal["MultiPolygon"]
+-    coordinates: MultiPolygonCoords
++    def __init__(self, **data: Any) -> None:
++        super().__init__(**data)
++        self.type = data.get("type", "MultiPolygon")
++
++    def _validate_coordinates(self) -> None:
++        if any(ring[-1] != ring[0] for polygon in self.coordinates for ring in polygon):
++            raise ValueError("All linear rings have the same start and end coordinates")
+ 
+     def __wkt_coordinates__(self, coordinates: Any, force_z: bool) -> str:
+-        """return WKT coordinates."""
+         return _polygons_wkt_coordinates(coordinates, force_z)
+ 
+     @property
+     def has_z(self) -> bool:
+-        """Checks if any coordinates have a Z value."""
+         return any(_lines_has_z(polygon) for polygon in self.coordinates)
+ 
+-    @field_validator("coordinates")
+-    def check_closure(cls, coordinates: List) -> List:
+-        """Validate that Polygon is closed (first and last coordinate are the same)."""
+-        if any(ring[-1] != ring[0] for polygon in coordinates for ring in polygon):
+-            raise ValueError("All linear rings have the same start and end coordinates")
+-
+-        return coordinates
+-
+ 
+ class GeometryCollection(_GeoJsonBase):
+     """GeometryCollection Model"""
+ 
+-    type: Literal["GeometryCollection"]
+-    geometries: List[Geometry]
++    def __init__(self, **data: Any) -> None:
++        super().__init__(**data)
++        self.type = data.get("type", "GeometryCollection")
++        self._validate_geometries()
+ 
+-    def __iter__(self) -> Iterator[Geometry]:  # type: ignore [override]
+-        """iterate over geometries"""
++    def _validate_geometries(self) -> None:
++        if len(self.geometries) == 1:
++            warnings.warn(
++                "GeometryCollection should not be used for single geometries."
++            )
++        if any(geom.type == "GeometryCollection" for geom in self.geometries):
++            warnings.warn(
++                "GeometryCollection should not be used for nested GeometryCollections."
++            )
++        if len({geom.type for geom in self.geometries}) == 1:
++            warnings.warn(
++                "GeometryCollection should not be used for homogeneous collections."
++            )
++
++    def __iter__(self) -> Iterator[Any]:
+         return iter(self.geometries)
+ 
+     def __len__(self) -> int:
+-        """return geometries length"""
+         return len(self.geometries)
+ 
+-    def __getitem__(self, index: int) -> Geometry:
+-        """get geometry at a given index"""
++    def __getitem__(self, index: int) -> Any:
+         return self.geometries[index]
+ 
+     @property
+     def wkt(self) -> str:
+-        """Return the Well Known Text representation."""
+-        # Each geometry will check its own coordinates for Z and include "Z" in the wkt
+-        # if necessary. Rather than looking at the coordinates for each of the geometries
+-        # again, we can just get the wkt from each of them and check if there is a Z
+-        # anywhere in the text.
+-
+-        # Get the wkt from each of the geometries in the collection
+         geometries = (
+             f'({", ".join(geom.wkt for geom in self.geometries)})'
+             if self.geometries
+             else "EMPTY"
+         )
+-        # If any of them contain `Z` add Z to the output wkt
+         z = " Z " if "Z" in geometries else " "
+         return f"{self.type.upper()}{z}{geometries}"
+ 
+-    @field_validator("geometries")
+-    def check_geometries(cls, geometries: List) -> List:
+-        """Add warnings for conditions the spec does not explicitly forbid."""
+-        if len(geometries) == 1:
+-            warnings.warn(
+-                "GeometryCollection should not be used for single geometries."
+-            )
+-
+-        if any(geom.type == "GeometryCollection" for geom in geometries):
+-            warnings.warn(
+-                "GeometryCollection should not be used for nested GeometryCollections."
+-            )
+ 
+-        if len({geom.type for geom in geometries}) == 1:
+-            warnings.warn(
+-                "GeometryCollection should not be used for homogeneous collections."
+-            )
+-
+-        return geometries
+-
+-
+-Geometry = Annotated[
+-    Union[
+-        Point,
+-        MultiPoint,
+-        LineString,
+-        MultiLineString,
+-        Polygon,
+-        MultiPolygon,
+-        GeometryCollection,
+-    ],
+-    Field(discriminator="type"),
++Geometry = Union[
++    Point,
++    MultiPoint,
++    LineString,
++    MultiLineString,
++    Polygon,
++    MultiPolygon,
++    GeometryCollection,
+ ]
+ 
+-GeometryCollection.model_rebuild()
+-
+ 
+ def parse_geometry_obj(obj: Any) -> Geometry:
+-    """
+-    `obj` is an object that is supposed to represent a GeoJSON geometry. This method returns the
+-    reads the `"type"` field and returns the correct pydantic Geometry model.
+-    """
++    """Read the 'type' field and return the correct Geometry model."""
+     if "type" not in obj:
+         raise ValueError("Missing 'type' field in geometry")
+ 
+     if obj["type"] == "Point":
+-        return Point.model_validate(obj)
+-
++        return Point(**obj)
+     elif obj["type"] == "MultiPoint":
+-        return MultiPoint.model_validate(obj)
+-
++        return MultiPoint(**obj)
+     elif obj["type"] == "LineString":
+-        return LineString.model_validate(obj)
+-
++        return LineString(**obj)
+     elif obj["type"] == "MultiLineString":
+-        return MultiLineString.model_validate(obj)
+-
++        return MultiLineString(**obj)
+     elif obj["type"] == "Polygon":
+-        return Polygon.model_validate(obj)
+-
++        return Polygon(**obj)
+     elif obj["type"] == "MultiPolygon":
+-        return MultiPolygon.model_validate(obj)
+-
++        return MultiPolygon(**obj)
+     elif obj["type"] == "GeometryCollection":
+-        return GeometryCollection.model_validate(obj)
++        return GeometryCollection(**obj)
+ 
+     raise ValueError(f"Unknown type: {obj['type']}")
+diff --git a/geojson_pydantic/types.py b/geojson_pydantic/types.py
+index 5500efe..3016a10 100644
+--- a/geojson_pydantic/types.py
++++ b/geojson_pydantic/types.py
+@@ -1,10 +1,8 @@
+-"""Types for geojson_pydantic models"""
++"""Type definitions for GeoJSON objects."""
++from __future__ import annotations
+ 
+ from typing import List, NamedTuple, Tuple, Union
+ 
+-from pydantic import Field
+-from typing_extensions import Annotated
+-
+ BBox = Union[
+     Tuple[float, float, float, float],  # 2D bbox
+     Tuple[float, float, float, float, float, float],  # 3D bbox
+@@ -17,9 +15,17 @@ Position3D = NamedTuple(
+ Position = Union[Position2D, Position3D]
+ 
+ # Coordinate arrays
+-LineStringCoords = Annotated[List[Position], Field(min_length=2)]
+-LinearRing = Annotated[List[Position], Field(min_length=4)]
++LineStringCoords = List[Position]
++LinearRing = List[Position]
+ MultiPointCoords = List[Position]
+ MultiLineStringCoords = List[LineStringCoords]
+ PolygonCoords = List[LinearRing]
+ MultiPolygonCoords = List[PolygonCoords]
++
++# Generic coordinate type for validation
++CoordinateType = Union[
++    Position,
++    List[Position],
++    List[List[Position]],
++    List[List[List[Position]]],
++]
+diff --git a/pyproject.toml b/pyproject.toml
+index 10893cc..63df8ae 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,13 +1,11 @@
+-[project]
+-name = "geojson-pydantic"
+-description = "Pydantic data models for the GeoJSON spec."
+-readme = "README.md"
++name = "geojson-base"
++description = "Base data models for the GeoJSON spec."
+ requires-python = ">=3.8"
+ license = {file = "LICENSE"}
+ authors = [
+     {name = "Drew Bollinger", email = "drew@developmentseed.org"},
+ ]
+-keywords = ["geojson", "Pydantic"]
++keywords = ["geojson"]
+ classifiers = [
+     "Intended Audience :: Information Technology",
+     "Intended Audience :: Science/Research",
+@@ -68,18 +66,12 @@ exclude_lines = [
+ [tool.isort]
+ profile = "black"
+ known_first_party = ["geojson_pydantic"]
+-known_third_party = ["pydantic"]
+ default_section = "THIRDPARTY"
+ 
+ [tool.mypy]
+-plugins = ["pydantic.mypy"]
+-disallow_untyped_calls = true
+-disallow_untyped_defs = true
+-disallow_incomplete_defs = true
+-warn_redundant_casts = true
+-warn_unused_ignores = true
+-no_implicit_optional = true
+-show_error_codes = true
++disallow_untyped_calls = false
++disallow_untyped_defs = false
++disallow_incomplete_defs = false
+ 
+ [tool.ruff]
+ select = [

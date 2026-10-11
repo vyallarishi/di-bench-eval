@@ -1,0 +1,164 @@
+diff --git a/IAMActionHunter/lib/create_csv.py b/IAMActionHunter/lib/create_csv.py
+index 59c944e..9eeb804 100644
+--- a/IAMActionHunter/lib/create_csv.py
++++ b/IAMActionHunter/lib/create_csv.py
+@@ -1,4 +1,4 @@
+-import pandas as pd
++import csv
+ import os
+ 
+ 
+@@ -10,52 +10,42 @@ def process_json_and_append_to_csv(json_data, csv_file, principal):
+     returns: None
+     """
+ 
+-    # Load JSON data into a Python dictionary
+-    # data = json.loads(json_data)
+-
+-    # Create an empty DataFrame with the required columns
+-    df = pd.DataFrame(
+-        columns=[
+-            "Principal",
+-            "Allowed Action",
+-            "Denied Action",
+-            "Resource",
+-            "Conditions",
+-        ]
+-    )
+-
+-    # Create a list to store DataFrame rows
+-    rows = []
+-
+-    # Populate the DataFrame with the JSON data
+-    for action in json_data:
+-        for allowed_resource in json_data[action]["Allow_resources"]:
+-            rows.append(
+-                {
++    # Define the CSV column headers
++    fieldnames = [
++        "Principal",
++        "Allowed Action",
++        "Denied Action",
++        "Resource",
++        "Conditions",
++    ]
++
++    # Check if the CSV file exists
++    file_exists = os.path.isfile(csv_file)
++
++    # Open the CSV file for writing/appending
++    with open(csv_file, mode='a' if file_exists else 'w', newline='') as csvfile:
++        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
++
++        # Write the header if the file doesn't exist
++        if not file_exists:
++            writer.writeheader()
++
++        # Process the JSON data and write rows
++        for action in json_data:
++            for allowed_resource in json_data[action]["Allow_resources"]:
++                writer.writerow({
+                     "Principal": principal,
+                     "Allowed Action": action,
+                     "Denied Action": "",
+                     "Resource": allowed_resource,
+                     "Conditions": json_data[action]["Allow_conditions"],
+-                }
+-            )
++                })
+ 
+-        for denied_resource in json_data[action]["Deny_resources"]:
+-            rows.append(
+-                {
++            for denied_resource in json_data[action]["Deny_resources"]:
++                writer.writerow({
+                     "Principal": principal,
+                     "Allowed Action": "",
+                     "Denied Action": action,
+                     "Resource": denied_resource,
+                     "Conditions": json_data[action]["Deny_conditions"],
+-                }
+-            )
+-
+-    # Concatenate the rows to the DataFrame
+-    df = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
+-
+-    # Check if the CSV file exists, and write the header if necessary
+-    if not os.path.isfile(csv_file):
+-        df.to_csv(csv_file, index=False, mode="w", header=True)
+-    else:
+-        df.to_csv(csv_file, index=False, mode="a", header=False)
++                })
+diff --git a/pyproject.toml b/pyproject.toml
+index c6cdba2..9bd8a98 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,6 +8,9 @@ packages = [{include = "IAMActionHunter"},{include="lib", from="IAMActionHunter"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++policyuniverse = "^1.5.0.20220613"
++boto3 = "^1.26.87"
++colorama = "^0.4.6"
+ 
+ [tool.poetry.group.dev]
+ optional = true
+diff --git a/run_tests.py b/run_tests.py
+new file mode 100644
+index 0000000..9d43091
+--- /dev/null
++++ b/run_tests.py
+@@ -0,0 +1,6 @@
++import subprocess
++import sys
++
++# Run the tests
++result = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-v"])
++sys.exit(result.returncode)
+diff --git a/test.sh b/test.sh
+new file mode 100644
+index 0000000..95a9fd0
+--- /dev/null
++++ b/test.sh
+@@ -0,0 +1,2 @@
++#!/bin/bash
++python -m pytest tests/ -v
+diff --git a/tests/test_create_csv.py b/tests/test_create_csv.py
+index 42309ea..6db12f8 100644
+--- a/tests/test_create_csv.py
++++ b/tests/test_create_csv.py
+@@ -24,20 +24,19 @@ def test_process_json_and_append_to_csv():
+         csv_contents = f.read()
+ 
+         try:
+-            # I do not know why but pandas to_csv does not always write in the same order
+-            # It returns 1 of 2 orders so check against either, order is not important here
+-            assert (
+-                csv_contents == "Principal,Allowed Action,Denied"
+-                " Action,Resource,Conditions\nsomePrincipalID,someAction,,a/allowed/resource,\"['someCondition',"
+-                " 'anotherCondition']\"\nsomePrincipalID,someAction,,another/allowed/resource,\"['someCondition',"
+-                " 'anotherCondition']\"\nsomePrincipalID,,someAction,a/denied/resource,\"['someCondition',"
+-                " 'anotherCondition']\"\nsomePrincipalID,,someAction,another/denied/resource,\"['someCondition',"
+-                " 'anotherCondition']\"\nsomePrincipalID,someOtherAction,,a/allowed/resource,\"['someCondition',"
+-                " 'anotherCondition']\"\nsomePrincipalID,someOtherAction,,another/allowed/resource,\"['someCondition',"
+-                " 'anotherCondition']\"\nsomePrincipalID,,someOtherAction,a/denied/resource,\"['someCondition',"
+-                " 'anotherCondition']\"\nsomePrincipalID,,someOtherAction,another/denied/resource,\"['someCondition',"
+-                " 'anotherCondition']\"\n"
+-                or "Principal,Allowed Action,Denied Action,Resource,Conditions\nsomePrincipalID,someAction,,a/allowed/resource,\"['someCondition', 'anotherCondition']\"\nsomePrincipalID,someAction,,another/allowed/resource,\"['someCondition', 'anotherCondition']\"\nsomePrincipalID,,someAction,another/denied/resource,\"['someCondition', 'anotherCondition']\"\nsomePrincipalID,,someAction,a/denied/resource,\"['someCondition', 'anotherCondition']\"\nsomePrincipalID,someOtherAction,,a/allowed/resource,\"['someCondition', 'anotherCondition']\"\nsomePrincipalID,someOtherAction,,another/allowed/resource,\"['someCondition', 'anotherCondition']\"\nsomePrincipalID,,someOtherAction,another/denied/resource,\"['someCondition', 'anotherCondition']\"\nsomePrincipalID,,someOtherAction,a/denied/resource,\"['someCondition', 'anotherCondition']\"\n"  # noqa
+-            )
++            # Check that all expected content is present
++            assert "Principal,Allowed Action,Denied Action,Resource,Conditions" in csv_contents
++            assert "somePrincipalID,someAction,,a/allowed/resource,\"['someCondition', 'anotherCondition']\"" in csv_contents
++            assert "somePrincipalID,someAction,,another/allowed/resource,\"['someCondition', 'anotherCondition']\"" in csv_contents
++            assert "somePrincipalID,,someAction,a/denied/resource,\"['someCondition', 'anotherCondition']\"" in csv_contents
++            assert "somePrincipalID,,someAction,another/denied/resource,\"['someCondition', 'anotherCondition']\"" in csv_contents
++            assert "somePrincipalID,someOtherAction,,a/allowed/resource,\"['someCondition', 'anotherCondition']\"" in csv_contents
++            assert "somePrincipalID,someOtherAction,,another/allowed/resource,\"['someCondition', 'anotherCondition']\"" in csv_contents
++            assert "somePrincipalID,,someOtherAction,a/denied/resource,\"['someCondition', 'anotherCondition']\"" in csv_contents
++            assert "somePrincipalID,,someOtherAction,another/denied/resource,\"['someCondition', 'anotherCondition']\"" in csv_contents
++            
++            # Check we have the right number of lines (1 header + 8 rows)
++            lines = csv_contents.strip().split('\\n')
++            assert len(lines) == 9
+         finally:
+             os.remove(csv_file)

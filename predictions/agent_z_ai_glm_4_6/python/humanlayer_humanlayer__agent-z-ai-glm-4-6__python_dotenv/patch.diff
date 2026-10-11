@@ -1,0 +1,342 @@
+diff --git a/examples/controlflow/controlflow_math.py b/examples/controlflow/controlflow_math.py
+index 84ed79b..db39043 100644
+--- a/examples/controlflow/controlflow_math.py
++++ b/examples/controlflow/controlflow_math.py
+@@ -1,4 +1,4 @@
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ 
+ from humanlayer import HumanLayer
+ 
+diff --git a/examples/crewai-mistral/crewai_mistral.py b/examples/crewai-mistral/crewai_mistral.py
+index 4b66d49..688567f 100644
+--- a/examples/crewai-mistral/crewai_mistral.py
++++ b/examples/crewai-mistral/crewai_mistral.py
+@@ -1,6 +1,6 @@
+ from crewai import Agent, Crew, Task
+ from crewai_tools import tool
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ 
+ load_dotenv()
+ 
+diff --git a/examples/crewai/crewai_math.py b/examples/crewai/crewai_math.py
+index 0e27e17..e673490 100644
+--- a/examples/crewai/crewai_math.py
++++ b/examples/crewai/crewai_math.py
+@@ -1,7 +1,4 @@
+-from dotenv import load_dotenv
+-
+-load_dotenv()
+-
++from humanlayer.dotenv import load_dotenv
+ from crewai import Agent, Crew, Task
+ from crewai_tools import tool
+ 
+diff --git a/examples/crewai/crewai_onboarding_agent.py b/examples/crewai/crewai_onboarding_agent.py
+index 9e049fd..bc27cff 100644
+--- a/examples/crewai/crewai_onboarding_agent.py
++++ b/examples/crewai/crewai_onboarding_agent.py
+@@ -1,7 +1,6 @@
+ from crewai import Agent, Crew, Task
+ from crewai_tools import tool
+-from dotenv import load_dotenv
+-
++from humanlayer.dotenv import load_dotenv
+ load_dotenv()
+ 
+ from humanlayer import HumanLayer
+diff --git a/examples/crewai/crewai_onboarding_agent_human_as_tool.py b/examples/crewai/crewai_onboarding_agent_human_as_tool.py
+index ff1f464..87fe7f8 100644
+--- a/examples/crewai/crewai_onboarding_agent_human_as_tool.py
++++ b/examples/crewai/crewai_onboarding_agent_human_as_tool.py
+@@ -1,7 +1,7 @@
+ from channels import dm_with_head_of_marketing
+ from crewai import Agent, Crew, Task
+ from crewai_tools import tool
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ 
+ load_dotenv()
+ 
+diff --git a/examples/griptape/01-math_example.py b/examples/griptape/01-math_example.py
+index 9246a71..6b98162 100644
+--- a/examples/griptape/01-math_example.py
++++ b/examples/griptape/01-math_example.py
+@@ -1,7 +1,4 @@
+-from dotenv import load_dotenv
+-
+-load_dotenv()
+-
++from humanlayer.dotenv import load_dotenv
+ from griptape.structures import Agent
+ from griptape.tools import WebScraperTool, FileManagerTool, PromptSummaryTool, BaseTool
+ from humanlayer import HumanLayer, ContactChannel, SlackContactChannel
+diff --git a/examples/langchain-anthropic/04-linkedin-anthropic.py b/examples/langchain-anthropic/04-linkedin-anthropic.py
+index e559de6..7e6c9d3 100644
+--- a/examples/langchain-anthropic/04-linkedin-anthropic.py
++++ b/examples/langchain-anthropic/04-linkedin-anthropic.py
+@@ -1,11 +1,10 @@
+ # This example demonstrates how to use the langchain-anthropic library to create an agent
+ # that can interact with a human to approve actions and deliver updates
+ #
+-# based on https://medium.com/@dminhk/langchain-%EF%B8%8F-tool-calling-and-tool-calling-agent-with-anthropic-467b0fb58980
++from humanlayer.dotenv import load_dotenv
+ from datetime import datetime
+ 
+ import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
+ from langchain.agents import AgentExecutor, create_tool_calling_agent
+ from langchain_anthropic import ChatAnthropic
+ from pydantic import BaseModel
+diff --git a/examples/langchain/00-math_no_approvals.py b/examples/langchain/00-math_no_approvals.py
+index 6ed782c..cb27282 100644
+--- a/examples/langchain/00-math_no_approvals.py
++++ b/examples/langchain/00-math_no_approvals.py
+@@ -1,8 +1,7 @@
+ #
+ # for comparison, a bare-bones math example
+ # with no approvals required
+-#
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain_openai import ChatOpenAI
+ 
+ from langchain.agents import AgentType, initialize_agent
+diff --git a/examples/langchain/00a-math_example_cli.py b/examples/langchain/00a-math_example_cli.py
+index d274069..92d8704 100644
+--- a/examples/langchain/00a-math_example_cli.py
++++ b/examples/langchain/00a-math_example_cli.py
+@@ -4,7 +4,7 @@
+ # via functionlayer, and HumanLayer is configured to
+ # use local / CLI mode
+ #
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain_openai import ChatOpenAI
+ 
+ from humanlayer import HumanLayer
+diff --git a/examples/langchain/01-math_example.py b/examples/langchain/01-math_example.py
+index fe808e5..1a837ba 100644
+--- a/examples/langchain/01-math_example.py
++++ b/examples/langchain/01-math_example.py
+@@ -3,7 +3,7 @@
+ # where the multiply function requires approval
+ # via humanlayer
+ #
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain_openai import ChatOpenAI
+ 
+ from humanlayer.core.approval import HumanLayer
+diff --git a/examples/langchain/02-customer_email.py b/examples/langchain/02-customer_email.py
+index 52822ac..3eb6a1c 100644
+--- a/examples/langchain/02-customer_email.py
++++ b/examples/langchain/02-customer_email.py
+@@ -1,9 +1,7 @@
+ from humanlayer import ContactChannel, SlackContactChannel
+ from langchain.agents import AgentType, initialize_agent
+ import langchain_core.tools as langchain_tools
+-from langchain_openai import ChatOpenAI
+-
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ 
+ 
+ from humanlayer.core.approval import HumanLayer
+diff --git a/examples/langchain/04-human_as_tool_linkedin.py b/examples/langchain/04-human_as_tool_linkedin.py
+index cdbc012..d84987c 100644
+--- a/examples/langchain/04-human_as_tool_linkedin.py
++++ b/examples/langchain/04-human_as_tool_linkedin.py
+@@ -1,7 +1,7 @@
+ from datetime import datetime
+ 
+ import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+ from pydantic import BaseModel
+diff --git a/examples/langchain/04-human_as_tool_linkedin_frustration.py b/examples/langchain/04-human_as_tool_linkedin_frustration.py
+index fd2488e..2ba1816 100644
+--- a/examples/langchain/04-human_as_tool_linkedin_frustration.py
++++ b/examples/langchain/04-human_as_tool_linkedin_frustration.py
+@@ -1,7 +1,7 @@
+ from datetime import datetime
+ 
+ import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+ from pydantic import BaseModel
+diff --git a/examples/langchain/04-human_as_tool_onboarding.py b/examples/langchain/04-human_as_tool_onboarding.py
+index af594f7..daa775b 100644
+--- a/examples/langchain/04-human_as_tool_onboarding.py
++++ b/examples/langchain/04-human_as_tool_onboarding.py
+@@ -4,7 +4,7 @@ from channels import (
+     dm_with_head_of_marketing,
+     dm_with_summer_intern,
+ )
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain_openai import ChatOpenAI
+ 
+ from humanlayer.core.approval import (
+diff --git a/examples/langchain/04-linkedin-experimental-slack-blocks.py b/examples/langchain/04-linkedin-experimental-slack-blocks.py
+index e4b06fd..fdec9c0 100644
+--- a/examples/langchain/04-linkedin-experimental-slack-blocks.py
++++ b/examples/langchain/04-linkedin-experimental-slack-blocks.py
+@@ -2,7 +2,7 @@ from datetime import datetime
+ from typing import Any
+ 
+ import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+ from pydantic import BaseModel
+diff --git a/examples/langchain/05-approvals_and_humans_composite.py b/examples/langchain/05-approvals_and_humans_composite.py
+index 0b616bb..80d44f5 100644
+--- a/examples/langchain/05-approvals_and_humans_composite.py
++++ b/examples/langchain/05-approvals_and_humans_composite.py
+@@ -16,7 +16,7 @@ be sent to the head of marketing.
+ """
+ 
+ import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain_openai import ChatOpenAI
+ 
+ from humanlayer import (
+diff --git a/examples/langchain/06-custom_bot_token.py b/examples/langchain/06-custom_bot_token.py
+index e7efd50..1030e1b 100644
+--- a/examples/langchain/06-custom_bot_token.py
++++ b/examples/langchain/06-custom_bot_token.py
+@@ -1,7 +1,7 @@
+ import os
+ 
+ import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain_openai import ChatOpenAI
+ 
+ from humanlayer import (
+diff --git a/examples/langchain/07-grocery-slack-blocks.py b/examples/langchain/07-grocery-slack-blocks.py
+index 9a01abf..968c8e9 100644
+--- a/examples/langchain/07-grocery-slack-blocks.py
++++ b/examples/langchain/07-grocery-slack-blocks.py
+@@ -1,8 +1,7 @@
+ from datetime import datetime
+ from typing import Any
+ 
+-import langchain_core.tools as langchain_tools
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+ from pydantic import BaseModel
+diff --git a/examples/openai_client/01-math_example.py b/examples/openai_client/01-math_example.py
+index 80530db..e7eecd2 100644
+--- a/examples/openai_client/01-math_example.py
++++ b/examples/openai_client/01-math_example.py
+@@ -1,7 +1,7 @@
+ import json
+ import logging
+ 
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from openai import OpenAI
+ 
+ from humanlayer import HumanLayer
+diff --git a/examples/openai_client/02-imperative_fetch.py b/examples/openai_client/02-imperative_fetch.py
+index 44f8c7f..e75f450 100644
+--- a/examples/openai_client/02-imperative_fetch.py
++++ b/examples/openai_client/02-imperative_fetch.py
+@@ -19,7 +19,7 @@
+ import json
+ import logging
+ 
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from openai import OpenAI
+ 
+ from humanlayer import HumanLayer
+diff --git a/examples/openai_client/03-imperative_fetch_based.py b/examples/openai_client/03-imperative_fetch_based.py
+index bc0680b..e660d06 100644
+--- a/examples/openai_client/03-imperative_fetch_based.py
++++ b/examples/openai_client/03-imperative_fetch_based.py
+@@ -35,7 +35,7 @@ import json
+ import logging
+ import time
+ 
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ from openai import OpenAI
+ 
+ from humanlayer import HumanLayer
+diff --git a/humanlayer/cli/main.py b/humanlayer/cli/main.py
+index e4e76c8..0ebce5a 100644
+--- a/humanlayer/cli/main.py
++++ b/humanlayer/cli/main.py
+@@ -1,7 +1,7 @@
+ import os
+ 
+ import click
+-from dotenv import load_dotenv
++from humanlayer.dotenv import load_dotenv
+ 
+ load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"))
+ 
+diff --git a/humanlayer/dotenv.py b/humanlayer/dotenv.py
+new file mode 100644
+index 0000000..93c21c3
+--- /dev/null
++++ b/humanlayer/dotenv.py
+@@ -0,0 +1,31 @@
++import os
++
++
++def load_dotenv(dotenv_path: str | None = None, override: bool = False) -> None:
++    """Load environment variables from a .env file into os.environ.
++
++    A minimal replacement for python-dotenv that handles the common
++    .env file format: KEY=VALUE lines, # comments, blank lines, and
++    quoted values.
++    """
++    if dotenv_path is None:
++        dotenv_path = os.path.join(os.getcwd(), ".env")
++
++    try:
++        with open(dotenv_path) as f:
++            for line in f:
++                line = line.strip()
++                if not line or line.startswith("#"):
++                    continue
++                if "=" not in line:
++                    continue
++                key, _, value = line.partition("=")
++                key = key.strip()
++                value = value.strip()
++                # Remove surrounding quotes if present
++                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
++                    value = value[1:-1]
++                if override or key not in os.environ:
++                    os.environ[key] = value
++    except FileNotFoundError:
++        pass
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..446cbf6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,10 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-slugify = "8.0.4"
++click = "8.1.7"
+ 
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"

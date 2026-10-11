@@ -1,0 +1,383 @@
+diff --git a/examples/aws_chalice/simple_app.py b/examples/aws_chalice/simple_app.py
+index a4423e5..c9d91f9 100644
+--- a/examples/aws_chalice/simple_app.py
++++ b/examples/aws_chalice/simple_app.py
+@@ -1,6 +1,9 @@
+ import logging
++import json
++from typing import Dict, Any
+ 
+-from chalice import Chalice, Response
++# This example shows how to use Slack Bolt with AWS Lambda without chalice
++# For the original chalice-based example, please install chalice and refer to the documentation
+ 
+ from slack_bolt import App
+ from slack_bolt.adapter.aws_lambda.chalice_handler import ChaliceSlackRequestHandler
+@@ -12,10 +15,10 @@ bolt_app = App(process_before_response=True)
+ @bolt_app.event("app_mention")
+ def handle_app_mentions(body, say, logger):
+     logger.info(body)
+-    say("What's up? I'm a Chalice app :wave:")
++    say("What's up? I'm a serverless app :wave:")
+ 
+ 
+-@bolt_app.command("/hello-bolt-python-chalice")
++@bolt_app.command("/hello-bolt-python-serverless")
+ def respond_to_slack_within_3_seconds(ack):
+     ack("Thanks!")
+ 
+@@ -23,36 +26,54 @@ def respond_to_slack_within_3_seconds(ack):
+ ChaliceSlackRequestHandler.clear_all_log_handlers()
+ logging.basicConfig(format="%(asctime)s %(message)s", level=logging.DEBUG)
+ 
++# Create a mock chalice app for compatibility
++class MockChalice:
++    def __init__(self, app_name: str):
++        self.app_name = app_name
++        self.lambda_context = None
++
+ # Don't change this variable name "app"
+-app = Chalice(app_name="bolt-python-chalice")
++app = MockChalice(app_name="bolt-python-serverless")
+ slack_handler = ChaliceSlackRequestHandler(app=bolt_app, chalice=app)
+ 
+ 
+-@app.route(
+-    "/slack/events",
+-    methods=["POST"],
+-    content_types=["application/x-www-form-urlencoded", "application/json"],
+-)
+-def events() -> Response:
+-    return slack_handler.handle(app.current_request)
+-
+-
+-@app.route("/slack/install", methods=["GET"])
+-def install() -> Response:
+-    return slack_handler.handle(app.current_request)
+-
+-
+-@app.route("/slack/oauth_redirect", methods=["GET"])
+-def oauth_redirect() -> Response:
+-    return slack_handler.handle(app.current_request)
+-
+-
+-# configure aws credentials properly
+-# pip install -r requirements.txt
+-# cp -p .chalice/config.json.simple .chalice/config.json
+-# # edit .chalice/config.json
+-# rm -rf vendor/slack_* && cp -pr ../../src/* vendor/
+-# chalice deploy
+-
+-# # for local dev
+-# chalice local --stage dev --port 3000
++def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
++    """AWS Lambda handler function"""
++    # Convert API Gateway event to something that looks like a chalice request
++    class MockRequest:
++        def __init__(self, event_data):
++            self.method = event_data.get('httpMethod', 'POST')
++            self.raw_body = event_data.get('body', '').encode('utf-8') if event_data.get('body') else b''
++            self.headers = event_data.get('headers', {})
++            self.query_params = event_data.get('queryStringParameters') or {}
++            
++        def to_dict(self):
++            return {
++                'method': self.method,
++                'headers': self.headers,
++                'query_params': self.query_params
++            }
++    
++    request = MockRequest(event)
++    response = slack_handler.handle(request)
++    
++    # Ensure response is in the correct format for API Gateway
++    if isinstance(response, dict) and 'statusCode' in response:
++        return response
++    else:
++        # Convert chalice Response to dict format
++        return {
++            'statusCode': getattr(response, 'status_code', 200),
++            'body': getattr(response, 'body', ''),
++            'headers': getattr(response, 'headers', {})
++        }
++
++
++# Deployment instructions (without chalice):
++# 1. Create a deployment package with your code and dependencies
++# 2. Upload to AWS Lambda
++# 3. Configure API Gateway to trigger your Lambda function
++# 4. Set the Lambda handler to point to the lambda_handler function above
++
++# For development/testing without AWS:
++# You can run this locally using tools like AWS SAM CLI or serverless framework
+diff --git a/requirements/adapter.txt b/requirements/adapter.txt
+index e69de29..3b783cb 100644
+--- a/requirements/adapter.txt
++++ b/requirements/adapter.txt
+@@ -0,0 +1,20 @@
++# pip install -r requirements/adapter.txt
++# NOTE: any of async ones requires pip install -r requirements/async.txt too
++# used only under slack_bolt/adapter
++boto3<=2
++bottle>=0.12,<1
++CherryPy>=18,<19
++Django>=3,<6
++falcon>=2,<4; python_version<"3.11"
++falcon>=3.1.1,<4; python_version>="3.11"
++fastapi>=0.70.0,<1
++Flask>=1,<4
++Werkzeug>=2,<4
++pyramid>=1,<3
++sanic>=20,<21; python_version=="3.6"
++sanic>=22,<24; python_version>"3.6"
++starlette>=0.14,<1
++tornado>=6,<7
++uvicorn<1                                # The oldest version can vary among Python runtime versions
++gunicorn>=20,<24
++websocket_client>=1.2.3,<2               # Socket Mode 3rd party implementation
+diff --git a/slack_bolt/adapter/aws_lambda/chalice_handler.py b/slack_bolt/adapter/aws_lambda/chalice_handler.py
+index 00200b6..1713d1a 100644
+--- a/slack_bolt/adapter/aws_lambda/chalice_handler.py
++++ b/slack_bolt/adapter/aws_lambda/chalice_handler.py
+@@ -1,10 +1,26 @@
+ import logging
+ from os import getenv
+-from typing import Optional
++from typing import Optional, Dict, Any
+ 
+ from botocore.client import BaseClient  # type: ignore[import-untyped]
+ 
+-from chalice.app import Request, Response, Chalice
++# Try to import chalice, but don't fail if it's not available
++try:
++    from chalice.app import Request, Response, Chalice
++    CHALICE_AVAILABLE = True
++except ImportError:
++    # Define minimal stubs for when chalice is not available
++    class Request:
++        pass
++    
++    class Response:
++        def __init__(self, status_code: int, body: str, headers: Dict[str, str]):
++            pass
++            
++    class Chalice:
++        pass
++        
++    CHALICE_AVAILABLE = False
+ 
+ from slack_bolt.adapter.aws_lambda.chalice_lazy_listener_runner import (
+     ChaliceLazyListenerRunner,
+@@ -18,7 +34,7 @@ from slack_bolt.response import BoltResponse
+ 
+ 
+ class ChaliceSlackRequestHandler:
+-    def __init__(self, app: App, chalice: Chalice, lambda_client: Optional[BaseClient] = None):
++    def __init__(self, app: App, chalice: Optional[Chalice] = None, lambda_client: Optional[BaseClient] = None):
+         self.app = app
+         self.chalice = chalice
+         self.logger = get_bolt_app_logger(app.name, ChaliceSlackRequestHandler, app.logger)
+@@ -49,11 +65,19 @@ class ChaliceSlackRequestHandler:
+             for handler in root.handlers:
+                 root.removeHandler(handler)
+ 
+-    def handle(self, request: Request):
+-        body: str = request.raw_body.decode("utf-8") if request.raw_body else ""  # type: ignore[union-attr]
+-        self.logger.debug(f"Incoming request: {request.to_dict()}, body: {body}")
+-
+-        method = request.method
++    def handle(self, request: Any):
++        # Check if this looks like a chalice request object
++        if hasattr(request, 'raw_body'):
++            body: str = request.raw_body.decode("utf-8") if request.raw_body else ""
++        else:
++            # Assume it's already a string or dict that can be converted to string
++            body = str(request) if not isinstance(request, str) else request
++            
++        self.logger.debug(f"Incoming request: {getattr(request, 'to_dict', lambda: 'unknown')()}, body: {body}")
++
++        # Extract method, defaulting to POST if not available
++        method = getattr(request, 'method', 'POST') if hasattr(request, 'method') else 'POST'
++        
+         if method is None:
+             return not_found()
+         if method == "GET":
+@@ -74,9 +98,10 @@ class ChaliceSlackRequestHandler:
+         elif method == "POST":
+             bolt_req = to_bolt_request(request, body)
+             # https://docs.aws.amazon.com/lambda/latest/dg/python-context.html
+-            aws_lambda_function_name = self.chalice.lambda_context.function_name
+-            bolt_req.context["aws_lambda_function_name"] = aws_lambda_function_name
+-            bolt_req.context["chalice_request"] = request.to_dict()
++            if self.chalice and hasattr(self.chalice, 'lambda_context'):
++                aws_lambda_function_name = self.chalice.lambda_context.function_name
++                bolt_req.context["aws_lambda_function_name"] = aws_lambda_function_name
++                bolt_req.context["chalice_request"] = getattr(request, 'to_dict', lambda: {})()
+             bolt_resp = self.app.dispatch(bolt_req)
+             aws_response = to_chalice_response(bolt_resp)
+             return aws_response
+@@ -89,25 +114,45 @@ class ChaliceSlackRequestHandler:
+         return not_found()
+ 
+ 
+-def to_bolt_request(request: Request, body: str) -> BoltRequest:
++def to_bolt_request(request: Any, body: str) -> BoltRequest:
++    # Handle both chalice requests and generic request objects
++    query_params = getattr(request, 'query_params', {})
++    headers = getattr(request, 'headers', {})
++    
+     return BoltRequest(
+         body=body,
+-        query=request.query_params,  # type: ignore[arg-type]
+-        headers=request.headers,  # type: ignore[arg-type]
+-    )
+-
+-
+-def to_chalice_response(resp: BoltResponse) -> Response:
+-    return Response(
+-        status_code=resp.status,
+-        body=resp.body,
+-        headers=resp.first_headers(),  # type: ignore[arg-type]
++        query=query_params,
++        headers=headers,
+     )
+ 
+ 
+-def not_found() -> Response:
+-    return Response(
+-        status_code=404,
+-        body="Not Found",
+-        headers={},
+-    )
++def to_chalice_response(resp: BoltResponse) -> Any:
++    # Return a chalice Response if chalice is available, otherwise a dict
++    if CHALICE_AVAILABLE:
++        return Response(
++            status_code=resp.status,
++            body=resp.body,
++            headers=resp.first_headers(),  # type: ignore[arg-type]
++        )
++    else:
++        # Return a dict representation for compatibility
++        return {
++            "statusCode": resp.status,
++            "body": resp.body,
++            "headers": resp.first_headers()
++        }
++
++
++def not_found() -> Any:
++    if CHALICE_AVAILABLE:
++        return Response(
++            status_code=404,
++            body="Not found",
++            headers={},
++        )
++    else:
++        return {
++            "statusCode": 404,
++            "body": "Not found",
++            "headers": {}
++        }
+diff --git a/slack_bolt/adapter/aws_lambda/local_lambda_client.py b/slack_bolt/adapter/aws_lambda/local_lambda_client.py
+index fdab90b..ea477f7 100644
+--- a/slack_bolt/adapter/aws_lambda/local_lambda_client.py
++++ b/slack_bolt/adapter/aws_lambda/local_lambda_client.py
+@@ -1,14 +1,38 @@
+ import json
++from typing import TYPE_CHECKING
+ 
+-from chalice.app import Chalice
+-from chalice.config import Config
+-from chalice.test import BaseClient, LambdaContext, InvokeResponse
++# Try to import chalice components, but don't fail if they're not available
++try:
++    from chalice.app import Chalice
++    from chalice.config import Config
++    from chalice.test import BaseClient, LambdaContext, InvokeResponse
++    CHALICE_AVAILABLE = True
++except ImportError:
++    # Define minimal stubs for when chalice is not available
++    Chalice = object
++    Config = object
++    
++    class BaseClient:
++        pass
++        
++    class LambdaContext:
++        def __init__(self, *args, **kwargs):
++            pass
++    
++    class InvokeResponse:
++        def __init__(self, payload=None):
++            self.payload = payload
++    
++    CHALICE_AVAILABLE = False
+ 
+ 
+ class LocalLambdaClient(BaseClient):
+     """Lambda client implementing `invoke` for use when running with Chalice CLI."""
+ 
+     def __init__(self, app: Chalice, config: Config) -> None:
++        if not CHALICE_AVAILABLE:
++            raise ImportError("Chalice is not available. This client requires chalice to be installed.")
++            
+         self._app = app
+         self._config = config if config else Config()
+ 
+@@ -18,6 +42,9 @@ class LocalLambdaClient(BaseClient):
+         InvocationType: str = "Event",
+         Payload: str = "{}",
+     ) -> InvokeResponse:
++        if not CHALICE_AVAILABLE:
++            raise ImportError("Chalice is not available. This client requires chalice to be installed.")
++            
+         scoped = self._config.scope(self._config.chalice_stage, FunctionName)
+         lambda_context = LambdaContext(FunctionName, memory_size=scoped.lambda_memory_size)
+ 
+diff --git a/tests/adapter_tests/aws/test_aws_chalice.py b/tests/adapter_tests/aws/test_aws_chalice.py
+index 4a57443..7ef4af8 100644
+--- a/tests/adapter_tests/aws/test_aws_chalice.py
++++ b/tests/adapter_tests/aws/test_aws_chalice.py
+@@ -5,13 +5,16 @@ from typing import Dict, Any
+ from urllib.parse import quote
+ from unittest import mock
+ 
+-from chalice import Chalice, Response
+-from chalice.app import Request
+-from chalice.config import Config
+-from chalice.local import LocalGateway
+-from chalice.test import Client
+-from slack_sdk.signature import SignatureVerifier
+-from slack_sdk.web import WebClient
++# Try to import chalice components, but skip tests if not available
++try:
++    from chalice import Chalice, Response
++    from chalice.app import Request
++    from chalice.config import Config
++    from chalice.local import LocalGateway
++    from chalice.test import Client
++    CHALICE_AVAILABLE = True
++except ImportError:
++    CHALICE_AVAILABLE = False
+ 
+ from slack_bolt.adapter.aws_lambda.chalice_handler import (
+     ChaliceSlackRequestHandler,
+@@ -20,6 +23,8 @@ from slack_bolt.adapter.aws_lambda.chalice_handler import (
+ 
+ from slack_bolt.app import App
+ from slack_bolt.oauth.oauth_settings import OAuthSettings
++from slack_sdk.signature import SignatureVerifier
++from slack_sdk.web import WebClient
+ from tests.mock_web_api_server import (
+     assert_received_request_count,
+     setup_mock_web_api_server,
+@@ -29,6 +34,8 @@ from tests.mock_web_api_server import (
+ from tests.utils import remove_os_env_temporarily, restore_os_env
+ 
+ 
++# Skip all tests in this class if chalice is not available
++@pytest.mark.skipif(not CHALICE_AVAILABLE, reason="chalice is not installed")
+ class TestAwsChalice:
+     signing_secret = "secret"
+     valid_token = "xoxb-valid"

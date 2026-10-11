@@ -1,0 +1,110 @@
+diff --git a/geopy/distance.py b/geopy/distance.py
+index 3499969..70e3a35 100644
+--- a/geopy/distance.py
++++ b/geopy/distance.py
+@@ -118,12 +118,18 @@ would result in a :class:`ValueError` exception.
+ """
+ from math import asin, atan2, cos, sin, sqrt
+ 
+-from geographiclib.geodesic import Geodesic
++try:
++    from geographiclib.geodesic import Geodesic
++    GEOGRAPHICLIB_INSTALLED = True
++except ImportError:
++    GEOGRAPHICLIB_INSTALLED = False
+ 
+ from geopy import units, util
+ from geopy.point import Point
+ from geopy.units import radians
+ 
++# IUGG mean earth radius in kilometers, from
++
+ # IUGG mean earth radius in kilometers, from
+ # https://en.wikipedia.org/wiki/Earth_radius#Mean_radius.  Using a
+ # sphere with this radius results in an error of up to about 0.5%.
+@@ -555,42 +561,53 @@ class geodesic(Distance):
+     def measure(self, a, b):
+         a, b = Point(a), Point(b)
+         _ensure_same_altitude(a, b)
+-        lat1, lon1 = a.latitude, a.longitude
+-        lat2, lon2 = b.latitude, b.longitude
++        
++        if GEOGRAPHICLIB_INSTALLED:
++            lat1, lon1 = a.latitude, a.longitude
++            lat2, lon2 = b.latitude, b.longitude
+ 
+-        if not (isinstance(self.geod, Geodesic) and
+-                self.geod.a == self.ELLIPSOID[0] and
+-                self.geod.f == self.ELLIPSOID[2]):
+-            self.geod = Geodesic(self.ELLIPSOID[0], self.ELLIPSOID[2])
++            if not (isinstance(self.geod, Geodesic) and
++                    self.geod.a == self.ELLIPSOID[0] and
++                    self.geod.f == self.ELLIPSOID[2]):
++                self.geod = Geodesic(self.ELLIPSOID[0], self.ELLIPSOID[2])
+ 
+-        s12 = self.geod.Inverse(lat1, lon1, lat2, lon2,
+-                                Geodesic.DISTANCE)['s12']
++            s12 = self.geod.Inverse(lat1, lon1, lat2, lon2,
++                                    Geodesic.DISTANCE)['s12']
+ 
+-        return s12
++            return s12
++        else:
++            # Fallback to great circle calculation when geographiclib is not available
++            return great_circle.measure(None, a, b)
+ 
+     def destination(self, point, bearing, distance=None):
+         point = Point(point)
+-        lat1 = point.latitude
+-        lon1 = point.longitude
+-        azi1 = bearing
+-
++        
+         if distance is None:
+             distance = self
+         if isinstance(distance, Distance):
+             distance = distance.kilometers
+ 
+-        if not (isinstance(self.geod, Geodesic) and
+-                self.geod.a == self.ELLIPSOID[0] and
+-                self.geod.f == self.ELLIPSOID[2]):
+-            self.geod = Geodesic(self.ELLIPSOID[0], self.ELLIPSOID[2])
++        if GEOGRAPHICLIB_INSTALLED:
++            lat1 = point.latitude
++            lon1 = point.longitude
++            azi1 = bearing
+ 
+-        r = self.geod.Direct(lat1, lon1, azi1, distance,
+-                             Geodesic.LATITUDE | Geodesic.LONGITUDE)
++            if not (isinstance(self.geod, Geodesic) and
++                    self.geod.a == self.ELLIPSOID[0] and
++                    self.geod.f == self.ELLIPSOID[2]):
++                self.geod = Geodesic(self.ELLIPSOID[0], self.ELLIPSOID[2])
+ 
+-        return Point(r['lat2'], r['lon2'])
++            r = self.geod.Direct(lat1, lon1, azi1, distance,
++                                 Geodesic.LATITUDE | Geodesic.LONGITUDE)
++
++            return Point(r['lat2'], r['lon2'])
++        else:
++            # Fallback to great circle calculation when geographiclib is not available
++            return great_circle.destination(None, point, bearing, distance)
+ 
+ 
+ GeodesicDistance = geodesic
+ 
+ # Set the default distance formula
+ distance = GeodesicDistance
++
+diff --git a/setup.cfg b/setup.cfg
+index b76a7c6..ad52402 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -39,7 +39,6 @@ version = attr: geopy.__version__
+ 
+ [options]
+ install_requires =
+-packages = find:
+ python_requires = >=3.7
+ 
+ [options.packages.find]

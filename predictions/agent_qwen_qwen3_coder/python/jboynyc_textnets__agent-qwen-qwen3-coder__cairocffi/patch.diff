@@ -1,0 +1,166 @@
+diff --git a/check_igraph.py b/check_igraph.py
+new file mode 100644
+index 0000000..a91ed73
+--- /dev/null
++++ b/check_igraph.py
+@@ -0,0 +1,29 @@
++#!/usr/bin/env python3
++"""
++Quick test to see if igraph works without Cairo dependencies.
++"""
++
++import igraph as ig
++import tempfile
++import os
++
++# Create a simple graph
++g = ig.Graph.Erdos_Renyi(10, 0.3)
++
++# Try to plot it
++try:
++    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
++        temp_filename = f.name
++    
++    # This should work if igraph can render without Cairo
++    plot = ig.plot(g, target=temp_filename)
++    print("Plotting successful!")
++    
++    # Clean up
++    if os.path.exists(temp_filename):
++        os.unlink(temp_filename)
++        
++except Exception as e:
++    print(f"Plotting failed: {e}")
++    import traceback
++    traceback.print_exc()
+\ No newline at end of file
+diff --git a/pyproject.toml b/pyproject.toml
+index 693b8da..ac29d9e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -52,6 +52,21 @@ include = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.9,<=3.13"
++setuptools = ">=41"
++Cython = "^3.0.3"
++cairocffi = {version = "^1.6.1", markers = "sys_platform=='linux' or sys_platform=='darwin'"}
++pycairo = {version = "^1.24.0", markers = "sys_platform=='win32'"}
++igraph = "^0.11.3"
++leidenalg = "^0.10.1"
++pandas = "^2.1.1"
++scipy = "^1.11.3"
++spacy = "^3.7.4"
++spacy-lookups-data = "^1.0.5"
++toolz = "^0.12.0"
++tqdm = "^4.64.1"
++wasabi = "^1.1.2"
++concepts = {version = "^0.9.2", optional = true}
++pyarrow = {version = "^14.0.1", markers = "implementation_name!='pypy'"}
+ 
+ [tool.poetry.group.doc.dependencies]
+ en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
+@@ -59,11 +74,15 @@ ipykernel = "^6.27.1"
+ jupyter-sphinx = "^0.5.3"
+ shibuya = {version = "^2024.1.2", allow-prereleases = true}
+ sphinx = "^7.2.6"
+-sphinxcontrib-bibtex = "^2.6.1"
+-
+-[tool.poetry.group.dev.dependencies]
+-coverage = "^7.3.1"
+-flake8 = "^6.1.0"
++dependencies = [
++    "igraph>=0.9.0",
++    "leidenalg>=0.8.0",
++    "numpy>=1.20.0",
++    "pandas>=1.3.0",
++    "scipy>=1.7.0",
++    "toolz>=0.11.0",
++    "tqdm>=4.60.0",
++]
+ mypy = "^1.5.1"
+ pytest = "^7.4.3"
+ ufmt = "^2.1.0"
+diff --git a/test_without_cairo.py b/test_without_cairo.py
+new file mode 100644
+index 0000000..4eb09f6
+--- /dev/null
++++ b/test_without_cairo.py
+@@ -0,0 +1,32 @@
++#!/usr/bin/env python3
++"""
++Test if textnets plotting works without Cairo dependencies.
++"""
++
++try:
++    import textnets as tn
++    print("textnets imported successfully")
++    
++    # Create a minimal corpus
++    corpus = tn.Corpus(["This is a test document", "This is another test"], vector_backend="count")
++    print("Corpus created successfully")
++    
++    # Create a textnet
++    t = tn.Textnet(corpus)
++    print("Textnet created successfully")
++    
++    # Try to plot
++    try:
++        with open('/tmp/test_plot.png', 'wb') as f:
++            result = t.plot()
++            print("Plotting completed successfully!")
++            
++    except Exception as e:
++        print(f"Plotting failed: {e}")
++        import traceback
++        traceback.print_exc()
++        
++except ImportError as e:
++    print(f"Import failed: {e}")
++    import traceback
++    traceback.print_exc()
+\ No newline at end of file
+diff --git a/textnets/network.py b/textnets/network.py
+index 308665e..6a2f5be 100644
+--- a/textnets/network.py
++++ b/textnets/network.py
+@@ -254,21 +254,26 @@ class TextnetBase(ABC):
+             .agg({"nodes": lambda x: x[:n], "metric": len})
+             .rename(columns={"metric": "size"})
+         )
++    def plot(self, **kwargs) -> ig.Plot | bytes:
++        """
++        Plot the textnet.
+ 
+-    @decorate_plot
+-    def _plot(
+-        self,
+-        **kwargs,
+-    ) -> ig.Plot:
+-        tn.init_seed()
+-        return ig.plot(self.graph, **kwargs)
++        All keyword arguments are passed on to `igraph.plot`.
+ 
+-    def __repr__(self) -> str:
+-        type_counts: Counter[Literal["doc", "term"]] = Counter(self.nodes["type"])
+-        return (
+-            f"""<{self.__class__.__name__} with {type_counts["doc"]} documents, """
+-            + f"""{type_counts["term"]} terms, and {self.ecount()} edges>"""
+-        )
++        Returns
++        -------
++        `igraph.Plot` or `bytes`
++            Plot of the textnet (as bytes if target is not specified).
++        """
++        try:
++            return ig.plot(self.graph, **kwargs)
++        except Exception as e:
++            # Handle case where plotting backend is not available
++            raise RuntimeError(
++                "Plotting failed. This may be because required plotting "
++                "dependencies are not installed. Consider installing "
++                "python3-cairo, pycairo, or cairocffi packages."
++            ) from e
+ 
+     def _repr_html_(self) -> str:
+         type_counts: Counter[Literal["doc", "term"]] = Counter(self.nodes["type"])

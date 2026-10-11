@@ -1,0 +1,231 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..190a58c 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,20 @@
++# Core dependencies
++Twisted>=22.10.0
++cryptography>=3.4.8
++pyopenssl>=22.0.0
++service-identity>=21.1.0
++python-dateutil>=2.8.2
++configparser>=5.2.0
++packaging>=21.0
++attrs==24.2.0
++bcrypt==4.2.0
++configparser==7.0.0
++cryptography==43.0.1
++packaging==24.1
++pyasn1_modules==0.4.0
++pyparsing==3.1.4
++python-dateutil==2.9.0.post0
++service_identity==24.1.0
++tftpy==0.8.2
++treq==23.11.0
++twisted==24.7.0
+diff --git a/src/cowrie/commands/tftp.py b/src/cowrie/commands/tftp.py
+index 53c6a73..83345c3 100644
+--- a/src/cowrie/commands/tftp.py
++++ b/src/cowrie/commands/tftp.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+-import tftpy
+-from tftpy.TftpPacketTypes import TftpPacketDAT, TftpPacketOACK
++import socket
++import struct
++import os
+ 
+ from twisted.python import log
+ 
+@@ -11,55 +12,138 @@ from cowrie.shell.customparser import CustomParser
+ 
+ commands = {}
+ 
+-
+-class Progress:
+-    def __init__(self, protocol):
+-        self.progress = 0
+-        self.out = protocol
+-
+-    def progresshook(self, pkt):
+-        if isinstance(pkt, TftpPacketDAT):
+-            self.progress += len(pkt.data)
+-            self.out.write(f"Transferred {self.progress} bytes\n")
+-        elif isinstance(pkt, TftpPacketOACK):
+-            self.out.write(f"Received OACK, options are: {pkt.options}\n")
++class TftpClient:
++    """
++    Minimal TFTP client implementation for downloading files
++    """
++    
++    # TFTP opcodes
++    OP_RRQ = 1  # Read request
++    OP_WRQ = 2  # Write request
++    OP_DATA = 3  # Data packet
++    OP_ACK = 4  # Acknowledgement
++    OP_ERROR = 5  # Error
++    
++    # TFTP error codes
++    ERR_NOT_DEFINED = 0
++    ERR_FILE_NOT_FOUND = 1
++    ERR_ACCESS_VIOLATION = 2
++    ERR_DISK_FULL = 3
++    ERR_ILLEGAL_OPERATION = 4
++    ERR_UNKNOWN_TID = 5
++    ERR_FILE_EXISTS = 6
++    ERR_NO_SUCH_USER = 7
++    
++    def __init__(self, host, port=69, timeout=5):
++        self.host = host
++        self.port = port
++        self.timeout = timeout
++        self.block_size = 512  # Standard TFTP block size
++        
++    def download(self, filename):
++        """
++        Download a file from the TFTP server
++        Returns the file content as bytes
++        """
++        # Create UDP socket
++        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
++        sock.settimeout(self.timeout)
++        
++        try:
++            # Send read request (RRQ)
++            rrq_packet = self._build_rrq(filename)
++            sock.sendto(rrq_packet, (self.host, self.port))
++            
++            # Get the server's response which will include a new port
++            data, server_addr = sock.recvfrom(516)  # Max TFTP packet size
++            
++            # Parse the response
++            opcode = struct.unpack('!H', data[:2])[0]
++            
++            if opcode == self.OP_ERROR:
++                error_code = struct.unpack('!H', data[2:4])[0]
++                error_msg = data[4:].decode('ascii', errors='ignore')
++                raise Exception(f"TFTP Error {error_code}: {error_msg}")
++            
++            elif opcode == self.OP_DATA:
++                # Extract block number and data
++                block_num = struct.unpack('!H', data[2:4])[0]
++                file_data = data[4:]
++                
++                # Send ACK for the first data packet
++                ack_packet = self._build_ack(block_num)
++                sock.sendto(ack_packet, server_addr)
++                
++                # Continue receiving data packets
++                while len(file_data) == self.block_size + 4:  # Header + data
++                    data, server_addr = sock.recvfrom(516)
++                    opcode = struct.unpack('!H', data[:2])[0]
++                    
++                    if opcode == self.OP_ERROR:
++                        error_code = struct.unpack('!H', data[2:4])[0]
++                        error_msg = data[4:].decode('ascii', errors='ignore')
++                        raise Exception(f"TFTP Error {error_code}: {error_msg}")
++                    
++                    elif opcode == self.OP_DATA:
++                        block_num = struct.unpack('!H', data[2:4])[0]
++                        file_data += data[4:]
++                        
++                        # Send ACK
++                        ack_packet = self._build_ack(block_num)
++                        sock.sendto(ack_packet, server_addr)
++                    else:
++                        raise Exception(f"Unexpected opcode: {opcode}")
++                
++                return file_data
++            else:
++                raise Exception(f"Unexpected opcode: {opcode}")
++                
++        finally:
++            sock.close()
++    
++    def _build_rrq(self, filename):
++        """Build a read request packet"""
++        # Format: opcode(2) + filename(0-terminated) + mode(0-terminated)
++        rrq = struct.pack('!H', self.OP_RRQ)
++        rrq += filename.encode('ascii') + b'\x00'
++        rrq += b'netascii' + b'\x00'  # Use netascii mode
++        return rrq
++    
++    def _build_ack(self, block_num):
++        """Build an acknowledgement packet"""
++        return struct.pack('!HH', self.OP_ACK, block_num)
+ 
+ 
+ class Command_tftp(HoneyPotCommand):
++    """
++    tftp command
++    """
+     port = 69
+     hostname = None
+     file_to_get: str
+     limit_size = CowrieConfig.getint("honeypot", "download_limit_size", fallback=0)
+ 
+     def makeTftpRetrieval(self) -> None:
+-        progresshook = Progress(self).progresshook
+-
+         self.artifactFile = Artifact(self.file_to_get)
+ 
+-        tclient = None
+-        url = ""
+-
+         try:
+-            tclient = tftpy.TftpClient(self.hostname, int(self.port))
+-
+-            # tftpy can't handle unicode string as filename
+-            # so we have to convert unicode type to str type
+-            tclient.download(str(self.file_to_get), self.artifactFile, progresshook)
+-
+-            url = "tftp://{}/{}".format(self.hostname, self.file_to_get.strip("/"))
+-
++            # Use our custom TFTP client
++            tclient = TftpClient(self.hostname, int(self.port))
++            file_data = tclient.download(self.file_to_get)
++            
++            # Write the downloaded data to the artifact file
++            with open(self.artifactFile.path, 'wb') as f:
++                f.write(file_data)
++            
++            url = f"tftp://{self.hostname}/{self.file_to_get.strip('/')}"
++            
+             self.file_to_get = self.fs.resolve_path(self.file_to_get, self.protocol.cwd)
++            
++            # Create file entry in the virtual filesystem
++            self.fs.mkfile(self.file_to_get, 0, 0, len(file_data), 33188)
+ 
+-            if hasattr(tclient.context, "metrics"):
+-                self.fs.mkfile(
+-                    self.file_to_get, 0, 0, tclient.context.metrics.bytes, 33188
+-                )
+-            else:
+-                self.fs.mkfile(self.file_to_get, 0, 0, 0, 33188)
+-
+-        except tftpy.TftpException:
+-            if tclient and tclient.context and not tclient.context.fileobj.closed:
+-                tclient.context.fileobj.close()
++        except Exception as e:
++            log.msg(f"TFTP download failed: {e}")
+ 
+         self.artifactFile.close()
+ 
+@@ -87,10 +171,9 @@ class Command_tftp(HoneyPotCommand):
+             )
+             self.fs.chown(
+                 self.file_to_get, self.protocol.user.uid, self.protocol.user.gid
+-            )
++)
+ 
+     def start(self) -> None:
+-        parser = CustomParser(self)
+         parser.prog = "tftp"
+         parser.add_argument("hostname", nargs="?", default=None)
+         parser.add_argument("-c", nargs=2)
+@@ -130,5 +213,4 @@ class Command_tftp(HoneyPotCommand):
+         self.exit()
+ 
+ 
+-commands["/usr/bin/tftp"] = Command_tftp
+ commands["tftp"] = Command_tftp

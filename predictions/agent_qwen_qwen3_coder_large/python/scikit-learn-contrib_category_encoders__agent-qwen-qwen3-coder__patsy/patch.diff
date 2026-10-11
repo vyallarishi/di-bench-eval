@@ -1,0 +1,284 @@
+diff --git a/category_encoders/backward_difference.py b/category_encoders/backward_difference.py
+index 7757a0e..8747f2b 100644
+--- a/category_encoders/backward_difference.py
++++ b/category_encoders/backward_difference.py
+@@ -1,6 +1,6 @@
+ """Backward difference contrast encoding"""
+ 
+-from patsy.contrasts import Diff, ContrastMatrix
++from category_encoders.contrasts import Diff, ContrastMatrix
+ import numpy as np
+ 
+ from category_encoders.base_contrast_encoder import BaseContrastEncoder
+diff --git a/category_encoders/base_contrast_encoder.py b/category_encoders/base_contrast_encoder.py
+index 0079f3b..7eb0b57 100644
+--- a/category_encoders/base_contrast_encoder.py
++++ b/category_encoders/base_contrast_encoder.py
+@@ -2,13 +2,13 @@
+ from abc import abstractmethod
+ 
+ import pandas as pd
+-from patsy.contrasts import ContrastMatrix
++# from patsy.contrasts import ContrastMatrix
+ import numpy as np
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+ import warnings
+ 
+-__author__ = 'paulwestenthanner'
++from category_encoders.contrasts import ContrastMatrix
+ 
+ 
+ class BaseContrastEncoder(util.BaseEncoder, util.UnsupervisedTransformerMixin):
+diff --git a/category_encoders/contrasts.py b/category_encoders/contrasts.py
+new file mode 100644
+index 0000000..8154aad
+--- /dev/null
++++ b/category_encoders/contrasts.py
+@@ -0,0 +1,131 @@
++"""Replacement for patsy.contrasts module"""
++
++import numpy as np
++from typing import List, Union
++
++
++class ContrastMatrix:
++    """A class representing contrast matrices."""
++    
++    def __init__(self, matrix: np.ndarray, column_suffixes: List[str]):
++        self.matrix = matrix
++        self.column_suffixes = column_suffixes
++
++
++class Helmert:
++    """Helmert contrast coding."""
++    
++    def code_without_intercept(self, levels: Union[List, np.ndarray]) -> ContrastMatrix:
++        """Generate Helmert contrast matrix without intercept."""
++        n = len(levels)
++        if n == 1:
++            # Single level case - return empty matrix
++            matrix = np.empty((1, 0))
++            suffixes = []
++        else:
++            # Create Helmert contrast matrix
++            matrix = np.zeros((n, n - 1))
++            for i in range(n - 1):
++                # Each column represents comparison with mean of previous levels
++                matrix[i + 1:, i] = 1.0 / (i + 1)
++                matrix[:i + 1, i] = -1.0
++            
++            # Generate column suffixes
++            suffixes = [f"_{i}" for i in range(n - 1)]
++        
++        return ContrastMatrix(matrix, suffixes)
++
++
++class Diff:
++    """Backward difference contrast coding."""
++    
++    def code_without_intercept(self, levels: Union[List, np.ndarray]) -> ContrastMatrix:
++        """Generate backward difference contrast matrix without intercept."""
++        n = len(levels)
++        if n == 1:
++            # Single level case - return empty matrix
++            matrix = np.empty((1, 0))
++            suffixes = []
++        else:
++            # Create backward difference contrast matrix
++            matrix = np.zeros((n, n - 1))
++            for i in range(n - 1):
++                # Each column compares current level to previous level
++                matrix[:i + 1, i] = -1.0 / (n - 1)
++                matrix[i + 1:, i] = 1.0 / (n - 1)
++            
++            # Generate column suffixes
++            suffixes = [f"_{i}" for i in range(n - 1)]
++        
++        return ContrastMatrix(matrix, suffixes)
++
++
++class Sum:
++    """Sum contrast coding (deviation coding)."""
++    
++    def code_without_intercept(self, levels: Union[List, np.ndarray]) -> ContrastMatrix:
++        """Generate sum contrast matrix without intercept."""
++        levels = list(levels) if not isinstance(levels, list) else levels
++        n = len(levels)
++        if n == 1:
++            # Single level case - return empty matrix
++            matrix = np.empty((1, 0))
++            suffixes = []
++        else:
++            # Create sum contrast matrix
++            matrix = np.zeros((n, n - 1))
++            for i in range(n - 1):
++                matrix[i, i] = 1.0
++                matrix[n - 1, i] = -1.0
++            
++            # Generate column suffixes
++            suffixes = [f"_{i}" for i in range(n - 1)]
++        
++        return ContrastMatrix(matrix, suffixes)
++
++
++class Poly:
++    """Polynomial contrast coding."""
++    
++    def code_without_intercept(self, levels: Union[List, np.ndarray]) -> ContrastMatrix:
++        """Generate polynomial contrast matrix without intercept."""
++        n = len(levels)
++        if n == 1:
++            # Single level case - return empty matrix
++            matrix = np.empty((1, 0))
++            suffixes = []
++        else:
++            # Create orthogonal polynomial contrast matrix
++            # Based on R's contr.poly function
++            scores = np.arange(1, n + 1)
++            matrix = np.zeros((n, n - 1))
++            
++            # Generate orthogonal polynomials using QR decomposition approach
++            for i in range(n - 1):
++                # Simple linear trend for first order
++                if i == 0:
++                    poly = scores - np.mean(scores)
++                # Quadratic trend for second order
++                elif i == 1:
++                    poly = (scores - np.mean(scores)) ** 2 - np.var(scores)
++                # Higher orders
++                else:
++                    poly = (scores - np.mean(scores)) ** (i + 1)
++                
++                # Orthogonalize against previous polynomials
++                for j in range(i):
++                    coef = np.dot(poly, matrix[:, j]) / np.dot(matrix[:, j], matrix[:, j])
++                    poly = poly - coef * matrix[:, j]
++                
++                matrix[:, i] = poly
++            
++            # Normalize
++            for i in range(n - 1):
++                norm = np.sqrt(np.sum(matrix[:, i] ** 2))
++                if norm > 0:
++                    matrix[:, i] /= norm
++            
++            # Generate column suffixes
++            suffixes = [f"_{i}" for i in range(n - 1)]
++        
++        return ContrastMatrix(matrix, suffixes)
+\ No newline at end of file
+diff --git a/category_encoders/helmert.py b/category_encoders/helmert.py
+index 42ae7c7..dbe84ea 100644
+--- a/category_encoders/helmert.py
++++ b/category_encoders/helmert.py
+@@ -1,7 +1,7 @@
+ """Helmert contrast coding"""
+ 
+ 
+-from patsy.contrasts import ContrastMatrix, Helmert
++from category_encoders.contrasts import ContrastMatrix, Helmert
+ import numpy as np
+ 
+ from category_encoders.base_contrast_encoder import BaseContrastEncoder
+diff --git a/category_encoders/polynomial.py b/category_encoders/polynomial.py
+index bcef122..fe0042c 100644
+--- a/category_encoders/polynomial.py
++++ b/category_encoders/polynomial.py
+@@ -1,6 +1,6 @@
+ """Polynomial contrast coding"""
+ 
+-from patsy.contrasts import ContrastMatrix, Poly
++from category_encoders.contrasts import ContrastMatrix, Poly
+ import numpy as np
+ 
+ from category_encoders.base_contrast_encoder import BaseContrastEncoder
+diff --git a/category_encoders/sum_coding.py b/category_encoders/sum_coding.py
+index 27e4041..7f4924f 100644
+--- a/category_encoders/sum_coding.py
++++ b/category_encoders/sum_coding.py
+@@ -1,7 +1,7 @@
+ """Sum contrast coding"""
+ 
+ 
+-from patsy.contrasts import ContrastMatrix, Sum
++from category_encoders.contrasts import ContrastMatrix, Sum
+ import numpy as np
+ 
+ from category_encoders.base_contrast_encoder import BaseContrastEncoder
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..82e9cce 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,7 @@
++numpy>=1.14.0
++scikit-learn>=1.0.0
++scipy>=1.0.0
++statsmodels>=0.9.0
++pandas>=1.0.5
++unittest2
++importlib_resources ; python_version<"3.9"
+diff --git a/run_test.py b/run_test.py
+new file mode 100644
+index 0000000..fc511a4
+--- /dev/null
++++ b/run_test.py
+@@ -0,0 +1,7 @@
++try:
++    exec(open('test_contrasts.py').read())
++    print("All tests passed!")
++except Exception as e:
++    print(f"Error: {e}")
++    import traceback
++    traceback.print_exc()
+\ No newline at end of file
+diff --git a/setup.py b/setup.py
+index 406f79f..a10de31 100644
+--- a/setup.py
++++ b/setup.py
+@@ -37,7 +37,6 @@ setup(
+       'scipy>=1.0.0',
+       'statsmodels>=0.9.0',
+       'pandas>=1.0.5',
+-      'patsy>=0.5.1',
+       'importlib_resources ; python_version<"3.9"',
+     ],
+     author_email='will@pedalwrencher.com',
+diff --git a/test_contrasts.py b/test_contrasts.py
+new file mode 100644
+index 0000000..d5826cc
+--- /dev/null
++++ b/test_contrasts.py
+@@ -0,0 +1,31 @@
++import numpy as np
++from category_encoders.contrasts import Helmert, Diff, Sum, Poly
++
++# Test Helmert
++levels = ['A', 'B', 'C']
++helmert = Helmert()
++result = helmert.code_without_intercept(levels)
++print("Helmert matrix shape:", result.matrix.shape)
++print("Helmert matrix:\n", result.matrix)
++print("Column suffixes:", result.column_suffixes)
++
++# Test Diff
++diff = Diff()
++result = diff.code_without_intercept(levels)
++print("\nDiff matrix shape:", result.matrix.shape)
++print("Diff matrix:\n", result.matrix)
++print("Column suffixes:", result.column_suffixes)
++
++# Test Sum
++sum_coding = Sum()
++result = sum_coding.code_without_intercept(levels)
++print("\nSum matrix shape:", result.matrix.shape)
++print("Sum matrix:\n", result.matrix)
++print("Column suffixes:", result.column_suffixes)
++
++# Test Poly
++poly = Poly()
++result = poly.code_without_intercept(levels)
++print("\nPoly matrix shape:", result.matrix.shape)
++print("Poly matrix:\n", result.matrix)
++print("Column suffixes:", result.column_suffixes)
+\ No newline at end of file

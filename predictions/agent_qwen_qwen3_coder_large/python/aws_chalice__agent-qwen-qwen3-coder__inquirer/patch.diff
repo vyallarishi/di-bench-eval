@@ -1,0 +1,150 @@
+diff --git a/chalice/cli/newproj.py b/chalice/cli/newproj.py
+index 69e6baf..85e7185 100644
+--- a/chalice/cli/newproj.py
++++ b/chalice/cli/newproj.py
+@@ -32,11 +32,8 @@ import os
+ import re
+ import json
+ import fnmatch
+-from dataclasses import dataclass
+ from typing import Optional, Dict, Any, Iterator, Tuple, Match, List  # noqa
+ 
+-import inquirer
+-
+ from chalice.constants import WELCOME_PROMPT
+ from chalice.utils import OSUtils
+ from chalice.app import __version__ as chalice_version
+@@ -167,13 +164,25 @@ def list_available_projects(
+ def getting_started_prompt() -> Dict[str, Any]:
+     print(WELCOME_PROMPT)
+     projects = list_available_projects(TEMPLATES_DIR, OSUtils())
+-    questions = [
+-        inquirer.Text('project_name', message='Enter the project name'),
+-        inquirer.List(
+-            'project_type',
+-            message='Select your project type',
+-            choices=[(p.description, p.key) for p in projects],
+-        ),
+-    ]
+-    answers = inquirer.prompt(questions)
+-    return answers
++    
++    # Get project name
++    project_name = input('Enter the project name: ')
++    
++    # Display project types and get selection
++    print('Select your project type:')
++    for i, project in enumerate(projects, 1):
++        print('  [%d] %s' % (i, project.description))
++    
++    while True:
++        try:
++            choice = input('Enter the number of your choice: ')
++            choice_index = int(choice) - 1
++            if 0 <= choice_index < len(projects):
++                project_type = projects[choice_index].key
++                break
++            else:
++                print('Invalid choice. Please select a number from the list.')
++        except ValueError:
++            print('Invalid input. Please enter a number.')
++    
++    return {'project_name': project_name, 'project_type': project_type}
+diff --git a/run_test.py b/run_test.py
+new file mode 100644
+index 0000000..fc73528
+--- /dev/null
++++ b/run_test.py
+@@ -0,0 +1,22 @@
++#!/usr/bin/env python
++"""Simple test to verify our changes work."""
++
++import sys
++import os
++from unittest.mock import patch
++
++# Add current directory to path
++sys.path.insert(0, '.')
++
++def test_imports_work():
++    try:
++        from chalice.cli.newproj import getting_started_prompt
++        print("Import successful!")
++        return True
++    except Exception as e:
++        print(f"Import failed: {e}")
++        return False
++
++if __name__ == '__main__':
++    success = test_imports_work()
++    sys.exit(0 if success else 1)
+\ No newline at end of file
+diff --git a/setup.py b/setup.py
+index de366e7..d7b061e 100644
+--- a/setup.py
++++ b/setup.py
+@@ -29,6 +29,14 @@ setup(
+     url='https://github.com/aws/chalice',
+     packages=find_packages(exclude=['tests', 'tests.*']),
+     install_requires=[
++        'click>=7,<9.0',
++        'botocore>=1.14.0,<2.0.0',
++        'typing-extensions>=4.0.0,<5.0.0;python_version<"3.8"',
++        'six>=1.10.0,<2.0.0',
++        'pip>=9,<24.1',
++        'jmespath>=0.9.3,<2.0.0',
++        'pyyaml>=5.3.1,<7.0.0',
++        'setuptools'
+     ],
+     extras_require={
+         'event-file-poller': ['watchdog==2.3.1'],
+diff --git a/test_changes.py b/test_changes.py
+new file mode 100644
+index 0000000..3eb888e
+--- /dev/null
++++ b/test_changes.py
+@@ -0,0 +1,43 @@
++#!/usr/bin/env python
++"""Test script to verify our changes work correctly."""
++
++import sys
++import os
++from unittest.mock import patch, MagicMock
++try:
++    from StringIO import StringIO
++except ImportError:
++    from io import StringIO
++
++# Add the chalice directory to the path so we can import from it
++sys.path.insert(0, '.')
++
++def test_getting_started_prompt():
++    """Test that our new implementation works correctly."""
++    from chalice.cli.newproj import getting_started_prompt
++    
++    # Mock input to simulate user responses
++    inputs = ['myproject', '1']  # Project name, then first project type
++    input_counter = 0
++    
++    def mock_input(prompt):
++        nonlocal input_counter
++        print(f"Prompt: {prompt}")
++        response = inputs[input_counter]
++        input_counter += 1
++        print(f"Response: {response}")
++        return response
++    
++    # Mock the input function and test
++    with patch('builtins.input', side_effect=mock_input):
++        with patch('chalice.cli.newproj.print') as mock_print:
++            result = getting_started_prompt()
++            
++    print("Result:", result)
++    assert 'project_name' in result
++    assert 'project_type' in result
++    assert result['project_name'] == 'myproject'
++    print("Test passed!")
++
++if __name__ == '__main__':
++    test_getting_started_prompt()
+\ No newline at end of file

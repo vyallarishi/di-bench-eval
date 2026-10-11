@@ -1,0 +1,129 @@
+diff --git a/jupyter_console/_traitlets.py b/jupyter_console/_traitlets.py
+new file mode 100644
+index 0000000..ab16e88
+--- /dev/null
++++ b/jupyter_console/_traitlets.py
+@@ -0,0 +1,25 @@
++"""Compatibility shim for traitlets.
++
++This module re-exports the traitlets symbols used throughout jupyter_console.
++traitlets is available as a transitive dependency via jupyter_core and
++jupyter_client, so we do not declare it as a direct dependency.
++"""
++
++from traitlets import (  # noqa: F401
++    Any,
++    Bool,
++    CBool,
++    Dict,
++    DottedObjectName,
++    Enum,
++    Float,
++    Instance,
++    Integer,
++    List,
++    Unicode,
++    observe,
++)
++from traitlets.config import boolean_flag, catch_config_error  # noqa: F401
++from traitlets.config.application import Application  # noqa: F401
++from traitlets.config.configurable import Configurable  # noqa: F401
++from traitlets.config.singleton import SingletonConfigurable  # noqa: F401
+diff --git a/jupyter_console/app.py b/jupyter_console/app.py
+index b68b4d7..ed24080 100644
+--- a/jupyter_console/app.py
++++ b/jupyter_console/app.py
+@@ -12,10 +12,10 @@ from __future__ import print_function
+ import signal
+ import sys
+ 
+-from traitlets import (
++from jupyter_console._traitlets import (
+     Dict, Any
+ )
+-from traitlets.config import catch_config_error, boolean_flag
++from jupyter_console._traitlets import catch_config_error, boolean_flag
+ 
+ from jupyter_core.application import JupyterApp, base_aliases, base_flags
+ from jupyter_client.consoleapp import (
+diff --git a/jupyter_console/completer.py b/jupyter_console/completer.py
+index 8130a78..9a16c68 100644
+--- a/jupyter_console/completer.py
++++ b/jupyter_console/completer.py
+@@ -1,6 +1,6 @@
+ # -*- coding: utf-8 -*-
+ """Adapt readline completer interface to make ZMQ request."""
+-
++from jupyter_console._traitlets import Configurable
+ # Copyright (c) IPython Development Team.
+ # Distributed under the terms of the Modified BSD License.
+ 
+diff --git a/jupyter_console/ptshell.py b/jupyter_console/ptshell.py
+index 12fb38b..daf6a82 100644
+--- a/jupyter_console/ptshell.py
++++ b/jupyter_console/ptshell.py
+@@ -19,7 +19,7 @@ from typing import Dict as DictType, Any as AnyType
+ 
+ from zmq import ZMQError
+ from IPython.core import page
+-from traitlets import (
++from jupyter_console._traitlets import (
+     Bool,
+     Integer,
+     Float,
+@@ -30,7 +30,7 @@ from traitlets import (
+     Instance,
+     Any,
+ )
+-from traitlets.config import SingletonConfigurable
++from jupyter_console._traitlets import SingletonConfigurable
+ 
+ from .completer import ZMQCompleter
+ from .zmqhistory import ZMQHistoryManager
+diff --git a/jupyter_console/tests/test_console.py b/jupyter_console/tests/test_console.py
+index 83b5ee6..b4b212c 100644
+--- a/jupyter_console/tests/test_console.py
++++ b/jupyter_console/tests/test_console.py
+@@ -12,7 +12,7 @@ from subprocess import check_output
+ from flaky import flaky
+ import pytest
+ 
+-from traitlets.tests.utils import check_help_all_output
++from jupyter_console._traitlets import DottedObjectName
+ 
+ 
+ should_skip = sys.platform == "win32" or sys.version_info < (3,8) or sys.version_info[:2] == (3, 10)  # noqa
+diff --git a/jupyter_console/zmqhistory.py b/jupyter_console/zmqhistory.py
+index 877d94f..0e65f85 100644
+--- a/jupyter_console/zmqhistory.py
++++ b/jupyter_console/zmqhistory.py
+@@ -12,7 +12,7 @@
+ # -----------------------------------------------------------------------------
+ 
+ from IPython.core.history import HistoryAccessorBase
+-from traitlets import Dict, List
++from jupyter_console._traitlets import Dict, List
+ 
+ from queue import Empty  # Py 3
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 7345665..3cabf53 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -31,8 +31,14 @@ classifiers = [
+     "Programming Language :: Python :: 3.10",
+     "Programming Language :: Python :: 3.11",
+ ]
+-dependencies = []
+-
++dependencies = [
++    "ipykernel>=6.14",
++    "ipython",
++    "jupyter_client>=7.0.0",
++    "prompt_toolkit>=3.0",
++    "pyzmq",
++    "jupyter_core",
++]
+ [project.optional-dependencies]
+ test = [
+     "pexpect",

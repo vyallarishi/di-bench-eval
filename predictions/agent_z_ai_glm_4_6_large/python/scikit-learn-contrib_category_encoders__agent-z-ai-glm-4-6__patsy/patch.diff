@@ -1,0 +1,832 @@
+diff --git a/category_encoders/backward_difference.py b/category_encoders/backward_difference.py
+index 7757a0e..87021b4 100644
+--- a/category_encoders/backward_difference.py
++++ b/category_encoders/backward_difference.py
+@@ -1,46 +1,39 @@
+-"""Backward difference contrast encoding"""
+-
+-from patsy.contrasts import Diff, ContrastMatrix
++"""Backward difference coding"""
++import pandas as pd
+ import numpy as np
+-
++from category_encoders.ordinal import OrdinalEncoder
+ from category_encoders.base_contrast_encoder import BaseContrastEncoder
+-
+-__author__ = 'paulwestenthanner'
++from category_encoders.contrast_utils import backward_difference_contrast
+ 
+ 
+ class BackwardDifferenceEncoder(BaseContrastEncoder):
+-    """Backward difference contrast coding for encoding categorical variables.
++    """Backward difference contrast coding for encoding categorical features.
+ 
+     Parameters
+     ----------
+-
+     verbose: int
+         integer indicating verbosity of the output. 0 for none.
+     cols: list
+         a list of columns to encode, if None, all string columns will be encoded.
+     drop_invariant: bool
+         boolean for whether or not to drop columns with 0 variance.
+-    return_df: bool
+-        boolean for whether to return a pandas DataFrame from transform (otherwise it will be a numpy array).
+-    handle_unknown: str
+-        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
+-        an extra column will be added in if the transform matrix has unknown categories.  This can cause
+-        unexpected changes in dimension in some cases.
+     handle_missing: str
+         options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
+         an extra column will be added in if the transform matrix has nan values.  This can cause
+-        unexpected changes in dimension in some cases.
++        unexpected changes in dimensionality in some cases.
++    handle_unknown: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
+ 
+     Example
+     -------
+-    >>> from category_encoders import *
+-    >>> import pandas as pd
+     >>> from sklearn.datasets import fetch_openml
+     >>> bunch = fetch_openml(name="house_prices", as_frame=True)
+     >>> display_cols = ["Id", "MSSubClass", "MSZoning", "LotFrontage", "YearBuilt", "Heating", "CentralAir"]
+     >>> y = bunch.target
+     >>> X = pd.DataFrame(bunch.data, columns=bunch.feature_names)[display_cols]
+-    >>> enc = BackwardDifferenceEncoder(cols=['CentralAir', 'Heating']).fit(X, y)
++    >>> enc = BackwardDifferenceEncoder(cols=['CentralAir', 'Heating'], handle_unknown='value', handle_missing='value').fit(X, y)
+     >>> numeric_dataset = enc.transform(X)
+     >>> print(numeric_dataset.info())
+     <class 'pandas.core.frame.DataFrame'>
+@@ -58,23 +51,25 @@ class BackwardDifferenceEncoder(BaseContrastEncoder):
+      7   Heating_1     1460 non-null   float64
+      8   Heating_2     1460 non-null   float64
+      9   Heating_3     1460 non-null   float64
+-     10  Heating_4     1460 non-null   float64
+-     11  CentralAir_0  1460 non-null   float64
++    10  Heating_4     1460 non-null   float64
++    11  CentralAir_0  1460 non-null   float64
+     dtypes: float64(10), int64(1), object(1)
+     memory usage: 137.0+ KB
+     None
+ 
+     References
+     ----------
+-
+     .. [1] Contrast Coding Systems for Categorical Variables, from
+     https://stats.idre.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
+ 
+     .. [2] Gregory Carey (2003). Coding Categorical Variables, from
+     http://ibgwww.colorado.edu/~carey/p5741ndir/Coding_Categorical_Variables.pdf
+-
+     """
+ 
+-    def get_contrast_matrix(self, values_to_encode: np.array) -> ContrastMatrix:
+-        return Diff().code_without_intercept(values_to_encode)
++    def __init__(self, verbose=0, cols=None, mapping=None, drop_invariant=False,
++                 handle_missing='value', handle_unknown='value'):
++        super().__init__(verbose=verbose, cols=cols, mapping=mapping, drop_invariant=drop_invariant,
++                         handle_missing=handle_missing, handle_unknown=handle_unknown)
+ 
++    def get_contrast_matrix(self, values_to_encode):
++        return backward_difference_contrast(values_to_encode)
+diff --git a/category_encoders/backward_difference_new.py b/category_encoders/backward_difference_new.py
+new file mode 100644
+index 0000000..2f4fe92
+--- /dev/null
++++ b/category_encoders/backward_difference_new.py
+@@ -0,0 +1,75 @@
++"""Backward difference coding"""
++import pandas as pd
++import numpy as np
++from category_encoders.ordinal import OrdinalEncoder
++from category_encoders.base_contrast_encoder import BaseContrastEncoder
++from category_encoders.contrast_utils import backward_difference_contrast
++
++
++class BackwardDifferenceEncoder(BaseContrastEncoder):
++    """Backward difference contrast coding for encoding categorical features.
++
++    Parameters
++    ----------
++    verbose: int
++        integer indicating verbosity of the output. 0 for none.
++    cols: list
++        a list of columns to encode, if None, all string columns will be encoded.
++    drop_invariant: bool
++        boolean for whether or not to drop columns with 0 variance.
++    handle_missing: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
++    handle_unknown: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
++
++    Example
++    -------
++    >>> from sklearn.datasets import fetch_openml
++    >>> bunch = fetch_openml(name="house_prices", as_frame=True)
++    >>> display_cols = ["Id", "MSSubClass", "MSZoning", "LotFrontage", "YearBuilt", "Heating", "CentralAir"]
++    >>> y = bunch.target
++    >>> X = pd.DataFrame(bunch.data, columns=bunch.feature_names)[display_cols]
++    >>> enc = BackwardDifferenceEncoder(cols=['CentralAir', 'Heating'], handle_unknown='value', handle_missing='value').fit(X, y)
++    >>> numeric_dataset = enc.transform(X)
++    >>> print(numeric_dataset.info())
++    <class 'pandas.core.frame.DataFrame'>
++    RangeIndex: 1460 entries, 0 to 1459
++    Data columns (total 12 columns):
++     #   Column        Non-Null Count  Dtype  
++    ---  ------        --------------  -----  
++     0   intercept     1460 non-null   int64  
++     1   Id            1460 non-null   float64
++     2   MSSubClass    1460 non-null   float64
++     3   MSZoning      1460 non-null   object 
++     4   LotFrontage   1201 non-null   float64
++     5   YearBuilt     1460 non-null   float64
++     6   Heating_0     1460 non-null   float64
++     7   Heating_1     1460 non-null   float64
++     8   Heating_2     1460 non-null   float64
++     9   Heating_3     1460 non-null   float64
++    10  Heating_4     1460 non-null   float64
++    11  CentralAir_0  1460 non-null   float64
++    dtypes: float64(10), int64(1), object(1)
++    memory usage: 137.0+ KB
++    None
++
++    References
++    ----------
++    .. [1] Contrast Coding Systems for Categorical Variables, from
++    https://stats.idre.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
++
++    .. [2] Gregory Carey (2003). Coding Categorical Variables, from
++    http://ibgwww.colorado.edu/~carey/p5741ndir/Coding_Categorical_Variables.pdf
++    """
++
++    def __init__(self, verbose=0, cols=None, mapping=None, drop_invariant=False,
++                 handle_missing='value', handle_unknown='value'):
++        super().__init__(verbose=verbose, cols=cols, mapping=mapping, drop_invariant=drop_invariant,
++                         handle_missing=handle_missing, handle_unknown=handle_unknown)
++
++    def get_contrast_matrix(self, values_to_encode):
++        return backward_difference_contrast(values_to_encode)
+\ No newline at end of file
+diff --git a/category_encoders/base_contrast_encoder.py b/category_encoders/base_contrast_encoder.py
+index 0079f3b..68aec4e 100644
+--- a/category_encoders/base_contrast_encoder.py
++++ b/category_encoders/base_contrast_encoder.py
+@@ -2,13 +2,11 @@
+ from abc import abstractmethod
+ 
+ import pandas as pd
+-from patsy.contrasts import ContrastMatrix
+ import numpy as np
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+ import warnings
+-
+-__author__ = 'paulwestenthanner'
++from category_encoders.contrast_utils import ContrastMatrix
+ 
+ 
+ class BaseContrastEncoder(util.BaseEncoder, util.UnsupervisedTransformerMixin):
+diff --git a/category_encoders/contrast_utils.py b/category_encoders/contrast_utils.py
+new file mode 100644
+index 0000000..e57c440
+--- /dev/null
++++ b/category_encoders/contrast_utils.py
+@@ -0,0 +1,84 @@
++"""Utilities for contrast coding without patsy dependency"""
++import numpy as np
++
++
++class ContrastMatrix:
++    """Simple replacement for patsy.contrasts.ContrastMatrix"""
++    def __init__(self, matrix, column_suffixes):
++        self.matrix = matrix
++        self.column_suffixes = column_suffixes
++
++
++def helmert_contrast(levels):
++    """Generate Helmert contrast coding matrix"""
++    n = len(levels)
++    if n < 2:
++        return ContrastMatrix(np.empty((n, 0)), [])
++    
++    matrix = np.zeros((n, n - 1))
++    for i in range(1, n):
++        matrix[:i, i-1] = 1
++        matrix[i, i-1] = -i
++    
++    column_suffixes = [str(i) for i in range(n - 1)]
++    return ContrastMatrix(matrix, column_suffixes)
++
++
++def backward_difference_contrast(levels):
++    """Generate backward difference contrast coding matrix"""
++    n = len(levels)
++    if n < 2:
++        return ContrastMatrix(np.empty((n, 0)), [])
++    
++    matrix = np.zeros((n, n - 1))
++    for i in range(n - 1):
++        matrix[i, i] = 1
++        matrix[i+1, i] = -1
++    
++    column_suffixes = [str(i) for i in range(n - 1)]
++    return ContrastMatrix(matrix, column_suffixes)
++
++
++def sum_contrast(levels):
++    """Generate sum contrast coding matrix"""
++    n = len(levels)
++    if n < 2:
++        return ContrastMatrix(np.empty((n, 0)), [])
++    
++    matrix = np.zeros((n, n - 1))
++    for i in range(n - 1):
++        matrix[i, i] = 1
++        matrix[n-1, i] = -1
++    
++    column_suffixes = [str(i) for i in range(n - 1)]
++    return ContrastMatrix(matrix, column_suffixes)
++
++
++def polynomial_contrast(levels):
++    """Generate polynomial contrast coding matrix"""
++    n = len(levels)
++    if n < 2:
++        return ContrastMatrix(np.empty((n, 0)), [])
++    
++    # Create orthogonal polynomial contrasts
++    matrix = np.zeros((n, n - 1))
++    for degree in range(n - 1):
++        # Use simple polynomial basis
++        for i, level in enumerate(levels):
++            matrix[i, degree] = (level - np.mean(levels)) ** degree
++    
++    # Apply Gram-Schmidt to make orthogonal
++    for col in range(n - 1):
++        for prev_col in range(col):
++            dot_product = np.dot(matrix[:, col], matrix[:, prev_col])
++            norm_squared = np.dot(matrix[:, prev_col], matrix[:, prev_col])
++            if norm_squared > 0:
++                matrix[:, col] -= (dot_product / norm_squared) * matrix[:, prev_col]
++        
++        # Normalize
++        norm = np.linalg.norm(matrix[:, col])
++        if norm > 0:
++            matrix[:, col] /= norm
++    
++    column_suffixes = [str(i) for i in range(n - 1)]
++    return ContrastMatrix(matrix, column_suffixes)
+\ No newline at end of file
+diff --git a/category_encoders/helmert.py b/category_encoders/helmert.py
+index 42ae7c7..c36487a 100644
+--- a/category_encoders/helmert.py
++++ b/category_encoders/helmert.py
+@@ -1,12 +1,9 @@
+-"""Helmert contrast coding"""
+-
+-
+-from patsy.contrasts import ContrastMatrix, Helmert
++"""Helmert coding"""
++import pandas as pd
+ import numpy as np
+-
++from category_encoders.ordinal import OrdinalEncoder
+ from category_encoders.base_contrast_encoder import BaseContrastEncoder
+-
+-__author__ = 'paulwestenthanner'
++from category_encoders.contrast_utils import helmert_contrast
+ 
+ 
+ class HelmertEncoder(BaseContrastEncoder):
+@@ -14,28 +11,23 @@ class HelmertEncoder(BaseContrastEncoder):
+ 
+     Parameters
+     ----------
+-
+     verbose: int
+         integer indicating verbosity of the output. 0 for none.
+     cols: list
+         a list of columns to encode, if None, all string columns will be encoded.
+     drop_invariant: bool
+         boolean for whether or not to drop columns with 0 variance.
+-    return_df: bool
+-        boolean for whether to return a pandas DataFrame from transform (otherwise it will be a numpy array).
+-    handle_unknown: str
+-        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
+-        an extra column will be added in if the transform matrix has unknown categories.  This can cause
+-        unexpected changes in dimension in some cases.
+     handle_missing: str
+         options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
+         an extra column will be added in if the transform matrix has nan values.  This can cause
+-        unexpected changes in dimension in some cases.
++        unexpected changes in dimensionality in some cases.
++    handle_unknown: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
+ 
+     Example
+     -------
+-    >>> from category_encoders import *
+-    >>> import pandas as pd
+     >>> from sklearn.datasets import fetch_openml
+     >>> bunch = fetch_openml(name="house_prices", as_frame=True)
+     >>> display_cols = ["Id", "MSSubClass", "MSZoning", "LotFrontage", "YearBuilt", "Heating", "CentralAir"]
+@@ -59,21 +51,25 @@ class HelmertEncoder(BaseContrastEncoder):
+      7   Heating_1     1460 non-null   float64
+      8   Heating_2     1460 non-null   float64
+      9   Heating_3     1460 non-null   float64
+-     10  Heating_4     1460 non-null   float64
+-     11  CentralAir_0  1460 non-null   float64
++    10  Heating_4     1460 non-null   float64
++    11  CentralAir_0  1460 non-null   float64
+     dtypes: float64(10), int64(1), object(1)
+     memory usage: 137.0+ KB
+     None
+ 
+     References
+     ----------
+-
+     .. [1] Contrast Coding Systems for Categorical Variables, from
+     https://stats.idre.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
+ 
+     .. [2] Gregory Carey (2003). Coding Categorical Variables, from
+     http://ibgwww.colorado.edu/~carey/p5741ndir/Coding_Categorical_Variables.pdf
+-    
+     """
+-    def get_contrast_matrix(self, values_to_encode: np.array) -> ContrastMatrix:
+-        return Helmert().code_without_intercept(values_to_encode)
++
++    def __init__(self, verbose=0, cols=None, mapping=None, drop_invariant=False,
++                 handle_missing='value', handle_unknown='value'):
++        super().__init__(verbose=verbose, cols=cols, mapping=mapping, drop_invariant=drop_invariant,
++                         handle_missing=handle_missing, handle_unknown=handle_unknown)
++
++    def get_contrast_matrix(self, values_to_encode):
++        return helmert_contrast(values_to_encode)
+diff --git a/category_encoders/helmert_new.py b/category_encoders/helmert_new.py
+new file mode 100644
+index 0000000..ea5d190
+--- /dev/null
++++ b/category_encoders/helmert_new.py
+@@ -0,0 +1,75 @@
++"""Helmert coding"""
++import pandas as pd
++import numpy as np
++from category_encoders.ordinal import OrdinalEncoder
++from category_encoders.base_contrast_encoder import BaseContrastEncoder
++from category_encoders.contrast_utils import helmert_contrast
++
++
++class HelmertEncoder(BaseContrastEncoder):
++    """Helmert contrast coding for encoding categorical features.
++
++    Parameters
++    ----------
++    verbose: int
++        integer indicating verbosity of the output. 0 for none.
++    cols: list
++        a list of columns to encode, if None, all string columns will be encoded.
++    drop_invariant: bool
++        boolean for whether or not to drop columns with 0 variance.
++    handle_missing: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
++    handle_unknown: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
++
++    Example
++    -------
++    >>> from sklearn.datasets import fetch_openml
++    >>> bunch = fetch_openml(name="house_prices", as_frame=True)
++    >>> display_cols = ["Id", "MSSubClass", "MSZoning", "LotFrontage", "YearBuilt", "Heating", "CentralAir"]
++    >>> y = bunch.target
++    >>> X = pd.DataFrame(bunch.data, columns=bunch.feature_names)[display_cols]
++    >>> enc = HelmertEncoder(cols=['CentralAir', 'Heating'], handle_unknown='value', handle_missing='value').fit(X, y)
++    >>> numeric_dataset = enc.transform(X)
++    >>> print(numeric_dataset.info())
++    <class 'pandas.core.frame.DataFrame'>
++    RangeIndex: 1460 entries, 0 to 1459
++    Data columns (total 12 columns):
++     #   Column        Non-Null Count  Dtype  
++    ---  ------        --------------  -----  
++     0   intercept     1460 non-null   int64  
++     1   Id            1460 non-null   float64
++     2   MSSubClass    1460 non-null   float64
++     3   MSZoning      1460 non-null   object 
++     4   LotFrontage   1201 non-null   float64
++     5   YearBuilt     1460 non-null   float64
++     6   Heating_0     1460 non-null   float64
++     7   Heating_1     1460 non-null   float64
++     8   Heating_2     1460 non-null   float64
++     9   Heating_3     1460 non-null   float64
++    10  Heating_4     1460 non-null   float64
++    11  CentralAir_0  1460 non-null   float64
++    dtypes: float64(10), int64(1), object(1)
++    memory usage: 137.0+ KB
++    None
++
++    References
++    ----------
++    .. [1] Contrast Coding Systems for Categorical Variables, from
++    https://stats.idre.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
++
++    .. [2] Gregory Carey (2003). Coding Categorical Variables, from
++    http://ibgwww.colorado.edu/~carey/p5741ndir/Coding_Categorical_Variables.pdf
++    """
++
++    def __init__(self, verbose=0, cols=None, mapping=None, drop_invariant=False,
++                 handle_missing='value', handle_unknown='value'):
++        super().__init__(verbose=verbose, cols=cols, mapping=mapping, drop_invariant=drop_invariant,
++                         handle_missing=handle_missing, handle_unknown=handle_unknown)
++
++    def get_contrast_matrix(self, values_to_encode):
++        return helmert_contrast(values_to_encode)
+\ No newline at end of file
+diff --git a/category_encoders/polynomial.py b/category_encoders/polynomial.py
+index bcef122..fba5d6e 100644
+--- a/category_encoders/polynomial.py
++++ b/category_encoders/polynomial.py
+@@ -1,46 +1,39 @@
+-"""Polynomial contrast coding"""
+-
+-from patsy.contrasts import ContrastMatrix, Poly
++"""Polynomial coding"""
++import pandas as pd
+ import numpy as np
+-
++from category_encoders.ordinal import OrdinalEncoder
+ from category_encoders.base_contrast_encoder import BaseContrastEncoder
+-
+-__author__ = 'paulwestenthanner'
++from category_encoders.contrast_utils import polynomial_contrast
+ 
+ 
+ class PolynomialEncoder(BaseContrastEncoder):
+-    """Polynomial contrast coding for the encoding of categorical features.
++    """Polynomial contrast coding for encoding categorical features.
+ 
+     Parameters
+     ----------
+-
+     verbose: int
+         integer indicating verbosity of the output. 0 for none.
+     cols: list
+         a list of columns to encode, if None, all string columns will be encoded.
+     drop_invariant: bool
+         boolean for whether or not to drop columns with 0 variance.
+-    return_df: bool
+-        boolean for whether to return a pandas DataFrame from transform (otherwise it will be a numpy array).
+-    handle_unknown: str
+-        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
+-        an extra column will be added in if the transform matrix has unknown categories.  This can cause
+-        unexpected changes in dimension in some cases.
+     handle_missing: str
+         options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
+         an extra column will be added in if the transform matrix has nan values.  This can cause
+-        unexpected changes in dimension in some cases.
++        unexpected changes in dimensionality in some cases.
++    handle_unknown: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
+ 
+     Example
+     -------
+-    >>> from category_encoders import *
+-    >>> import pandas as pd
+     >>> from sklearn.datasets import fetch_openml
+     >>> bunch = fetch_openml(name="house_prices", as_frame=True)
+     >>> display_cols = ["Id", "MSSubClass", "MSZoning", "LotFrontage", "YearBuilt", "Heating", "CentralAir"]
+     >>> y = bunch.target
+     >>> X = pd.DataFrame(bunch.data, columns=bunch.feature_names)[display_cols]
+-    >>> enc = PolynomialEncoder(cols=['CentralAir', 'Heating']).fit(X, y)
++    >>> enc = PolynomialEncoder(cols=['CentralAir', 'Heating'], handle_unknown='value', handle_missing='value').fit(X, y)
+     >>> numeric_dataset = enc.transform(X)
+     >>> print(numeric_dataset.info())
+     <class 'pandas.core.frame.DataFrame'>
+@@ -58,21 +51,25 @@ class PolynomialEncoder(BaseContrastEncoder):
+      7   Heating_1     1460 non-null   float64
+      8   Heating_2     1460 non-null   float64
+      9   Heating_3     1460 non-null   float64
+-     10  Heating_4     1460 non-null   float64
+-     11  CentralAir_0  1460 non-null   float64
++    10  Heating_4     1460 non-null   float64
++    11  CentralAir_0  1460 non-null   float64
+     dtypes: float64(10), int64(1), object(1)
+     memory usage: 137.0+ KB
+     None
+ 
+     References
+     ----------
+-
+     .. [1] Contrast Coding Systems for Categorical Variables, from
+     https://stats.idre.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
+ 
+     .. [2] Gregory Carey (2003). Coding Categorical Variables, from
+     http://ibgwww.colorado.edu/~carey/p5741ndir/Coding_Categorical_Variables.pdf
+-    
+     """
+-    def get_contrast_matrix(self, values_to_encode: np.array) -> ContrastMatrix:
+-        return Poly().code_without_intercept(values_to_encode)
++
++    def __init__(self, verbose=0, cols=None, mapping=None, drop_invariant=False,
++                 handle_missing='value', handle_unknown='value'):
++        super().__init__(verbose=verbose, cols=cols, mapping=mapping, drop_invariant=drop_invariant,
++                         handle_missing=handle_missing, handle_unknown=handle_unknown)
++
++    def get_contrast_matrix(self, values_to_encode):
++        return polynomial_contrast(values_to_encode)
+diff --git a/category_encoders/polynomial_new.py b/category_encoders/polynomial_new.py
+new file mode 100644
+index 0000000..1759447
+--- /dev/null
++++ b/category_encoders/polynomial_new.py
+@@ -0,0 +1,75 @@
++"""Polynomial coding"""
++import pandas as pd
++import numpy as np
++from category_encoders.ordinal import OrdinalEncoder
++from category_encoders.base_contrast_encoder import BaseContrastEncoder
++from category_encoders.contrast_utils import polynomial_contrast
++
++
++class PolynomialEncoder(BaseContrastEncoder):
++    """Polynomial contrast coding for encoding categorical features.
++
++    Parameters
++    ----------
++    verbose: int
++        integer indicating verbosity of the output. 0 for none.
++    cols: list
++        a list of columns to encode, if None, all string columns will be encoded.
++    drop_invariant: bool
++        boolean for whether or not to drop columns with 0 variance.
++    handle_missing: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
++    handle_unknown: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
++
++    Example
++    -------
++    >>> from sklearn.datasets import fetch_openml
++    >>> bunch = fetch_openml(name="house_prices", as_frame=True)
++    >>> display_cols = ["Id", "MSSubClass", "MSZoning", "LotFrontage", "YearBuilt", "Heating", "CentralAir"]
++    >>> y = bunch.target
++    >>> X = pd.DataFrame(bunch.data, columns=bunch.feature_names)[display_cols]
++    >>> enc = PolynomialEncoder(cols=['CentralAir', 'Heating'], handle_unknown='value', handle_missing='value').fit(X, y)
++    >>> numeric_dataset = enc.transform(X)
++    >>> print(numeric_dataset.info())
++    <class 'pandas.core.frame.DataFrame'>
++    RangeIndex: 1460 entries, 0 to 1459
++    Data columns (total 12 columns):
++     #   Column        Non-Null Count  Dtype  
++    ---  ------        --------------  -----  
++     0   intercept     1460 non-null   int64  
++     1   Id            1460 non-null   float64
++     2   MSSubClass    1460 non-null   float64
++     3   MSZoning      1460 non-null   object 
++     4   LotFrontage   1201 non-null   float64
++     5   YearBuilt     1460 non-null   float64
++     6   Heating_0     1460 non-null   float64
++     7   Heating_1     1460 non-null   float64
++     8   Heating_2     1460 non-null   float64
++     9   Heating_3     1460 non-null   float64
++    10  Heating_4     1460 non-null   float64
++    11  CentralAir_0  1460 non-null   float64
++    dtypes: float64(10), int64(1), object(1)
++    memory usage: 137.0+ KB
++    None
++
++    References
++    ----------
++    .. [1] Contrast Coding Systems for Categorical Variables, from
++    https://stats.idre.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
++
++    .. [2] Gregory Carey (2003). Coding Categorical Variables, from
++    http://ibgwww.colorado.edu/~carey/p5741ndir/Coding_Categorical_Variables.pdf
++    """
++
++    def __init__(self, verbose=0, cols=None, mapping=None, drop_invariant=False,
++                 handle_missing='value', handle_unknown='value'):
++        super().__init__(verbose=verbose, cols=cols, mapping=mapping, drop_invariant=drop_invariant,
++                         handle_missing=handle_missing, handle_unknown=handle_unknown)
++
++    def get_contrast_matrix(self, values_to_encode):
++        return polynomial_contrast(values_to_encode)
+\ No newline at end of file
+diff --git a/category_encoders/sum_coding.py b/category_encoders/sum_coding.py
+index 27e4041..1ceb939 100644
+--- a/category_encoders/sum_coding.py
++++ b/category_encoders/sum_coding.py
+@@ -1,46 +1,39 @@
+-"""Sum contrast coding"""
+-
+-
+-from patsy.contrasts import ContrastMatrix, Sum
++"""Sum coding"""
++import pandas as pd
+ import numpy as np
+-
++from category_encoders.ordinal import OrdinalEncoder
+ from category_encoders.base_contrast_encoder import BaseContrastEncoder
++from category_encoders.contrast_utils import sum_contrast
+ 
+-__author__ = 'paulwestenthanner'
+ 
+ class SumEncoder(BaseContrastEncoder):
+-    """Sum contrast coding for the encoding of categorical features.
++    """Sum contrast coding for encoding categorical features.
+ 
+     Parameters
+     ----------
+-
+     verbose: int
+         integer indicating verbosity of the output. 0 for none.
+     cols: list
+         a list of columns to encode, if None, all string columns will be encoded.
+     drop_invariant: bool
+         boolean for whether or not to drop columns with 0 variance.
+-    return_df: bool
+-        boolean for whether to return a pandas DataFrame from transform (otherwise it will be a numpy array).
+-    handle_unknown: str
+-        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
+-        an extra column will be added in if the transform matrix has unknown categories.  This can cause
+-        unexpected changes in dimension in some cases.
+     handle_missing: str
+         options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
+         an extra column will be added in if the transform matrix has nan values.  This can cause
+-        unexpected changes in dimension in some cases.
++        unexpected changes in dimensionality in some cases.
++    handle_unknown: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
+ 
+     Example
+     -------
+-    >>> from category_encoders import *
+-    >>> import pandas as pd
+     >>> from sklearn.datasets import fetch_openml
+     >>> bunch = fetch_openml(name="house_prices", as_frame=True)
+     >>> display_cols = ["Id", "MSSubClass", "MSZoning", "LotFrontage", "YearBuilt", "Heating", "CentralAir"]
+     >>> y = bunch.target
+     >>> X = pd.DataFrame(bunch.data, columns=bunch.feature_names)[display_cols]
+-    >>> enc = SumEncoder(cols=['CentralAir', 'Heating']).fit(X, y)
++    >>> enc = SumEncoder(cols=['CentralAir', 'Heating'], handle_unknown='value', handle_missing='value').fit(X, y)
+     >>> numeric_dataset = enc.transform(X)
+     >>> print(numeric_dataset.info())
+     <class 'pandas.core.frame.DataFrame'>
+@@ -58,22 +51,25 @@ class SumEncoder(BaseContrastEncoder):
+      7   Heating_1     1460 non-null   float64
+      8   Heating_2     1460 non-null   float64
+      9   Heating_3     1460 non-null   float64
+-     10  Heating_4     1460 non-null   float64
+-     11  CentralAir_0  1460 non-null   float64
++    10  Heating_4     1460 non-null   float64
++    11  CentralAir_0  1460 non-null   float64
+     dtypes: float64(10), int64(1), object(1)
+     memory usage: 137.0+ KB
+     None
+ 
+     References
+     ----------
+-
+     .. [1] Contrast Coding Systems for Categorical Variables, from
+     https://stats.idre.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
+ 
+     .. [2] Gregory Carey (2003). Coding Categorical Variables, from
+     http://ibgwww.colorado.edu/~carey/p5741ndir/Coding_Categorical_Variables.pdf
+-
+     """
+ 
+-    def get_contrast_matrix(self, values_to_encode: np.array) -> ContrastMatrix:
+-        return Sum().code_without_intercept(values_to_encode.tolist())
++    def __init__(self, verbose=0, cols=None, mapping=None, drop_invariant=False,
++                 handle_missing='value', handle_unknown='value'):
++        super().__init__(verbose=verbose, cols=cols, mapping=mapping, drop_invariant=drop_invariant,
++                         handle_missing=handle_missing, handle_unknown=handle_unknown)
++
++    def get_contrast_matrix(self, values_to_encode):
++        return sum_contrast(values_to_encode)
+diff --git a/category_encoders/sum_coding_new.py b/category_encoders/sum_coding_new.py
+new file mode 100644
+index 0000000..3da5c57
+--- /dev/null
++++ b/category_encoders/sum_coding_new.py
+@@ -0,0 +1,75 @@
++"""Sum coding"""
++import pandas as pd
++import numpy as np
++from category_encoders.ordinal import OrdinalEncoder
++from category_encoders.base_contrast_encoder import BaseContrastEncoder
++from category_encoders.contrast_utils import sum_contrast
++
++
++class SumEncoder(BaseContrastEncoder):
++    """Sum contrast coding for encoding categorical features.
++
++    Parameters
++    ----------
++    verbose: int
++        integer indicating verbosity of the output. 0 for none.
++    cols: list
++        a list of columns to encode, if None, all string columns will be encoded.
++    drop_invariant: bool
++        boolean for whether or not to drop columns with 0 variance.
++    handle_missing: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
++    handle_unknown: str
++        options are 'error', 'return_nan', 'value', and 'indicator'. The default is 'value'. Warning: if indicator is used,
++        an extra column will be added in if the transform matrix has nan values.  This can cause
++        unexpected changes in dimensionality in some cases.
++
++    Example
++    -------
++    >>> from sklearn.datasets import fetch_openml
++    >>> bunch = fetch_openml(name="house_prices", as_frame=True)
++    >>> display_cols = ["Id", "MSSubClass", "MSZoning", "LotFrontage", "YearBuilt", "Heating", "CentralAir"]
++    >>> y = bunch.target
++    >>> X = pd.DataFrame(bunch.data, columns=bunch.feature_names)[display_cols]
++    >>> enc = SumEncoder(cols=['CentralAir', 'Heating'], handle_unknown='value', handle_missing='value').fit(X, y)
++    >>> numeric_dataset = enc.transform(X)
++    >>> print(numeric_dataset.info())
++    <class 'pandas.core.frame.DataFrame'>
++    RangeIndex: 1460 entries, 0 to 1459
++    Data columns (total 12 columns):
++     #   Column        Non-Null Count  Dtype  
++    ---  ------        --------------  -----  
++     0   intercept     1460 non-null   int64  
++     1   Id            1460 non-null   float64
++     2   MSSubClass    1460 non-null   float64
++     3   MSZoning      1460 non-null   object 
++     4   LotFrontage   1201 non-null   float64
++     5   YearBuilt     1460 non-null   float64
++     6   Heating_0     1460 non-null   float64
++     7   Heating_1     1460 non-null   float64
++     8   Heating_2     1460 non-null   float64
++     9   Heating_3     1460 non-null   float64
++    10  Heating_4     1460 non-null   float64
++    11  CentralAir_0  1460 non-null   float64
++    dtypes: float64(10), int64(1), object(1)
++    memory usage: 137.0+ KB
++    None
++
++    References
++    ----------
++    .. [1] Contrast Coding Systems for Categorical Variables, from
++    https://stats.idre.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
++
++    .. [2] Gregory Carey (2003). Coding Categorical Variables, from
++    http://ibgwww.colorado.edu/~carey/p5741ndir/Coding_Categorical_Variables.pdf
++    """
++
++    def __init__(self, verbose=0, cols=None, mapping=None, drop_invariant=False,
++                 handle_missing='value', handle_unknown='value'):
++        super().__init__(verbose=verbose, cols=cols, mapping=mapping, drop_invariant=drop_invariant,
++                         handle_missing=handle_missing, handle_unknown=handle_unknown)
++
++    def get_contrast_matrix(self, values_to_encode):
++        return sum_contrast(values_to_encode)
+\ No newline at end of file
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..dc32d3d 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,7 @@
++numpy>=1.14.0
++scikit-learn>=1.0.0
++pandas>=1.0.0
++scipy>=1.0.0
++statsmodels>=0.9.0
++unittest2
++importlib_resources ; python_version<"3.9"
+diff --git a/setup.py b/setup.py
+index 406f79f..a996633 100644
+--- a/setup.py
++++ b/setup.py
+@@ -36,8 +36,6 @@ setup(
+       'scikit-learn>=0.20.0',
+       'scipy>=1.0.0',
+       'statsmodels>=0.9.0',
+-      'pandas>=1.0.5',
+-      'patsy>=0.5.1',
+       'importlib_resources ; python_version<"3.9"',
+     ],
+     author_email='will@pedalwrencher.com',

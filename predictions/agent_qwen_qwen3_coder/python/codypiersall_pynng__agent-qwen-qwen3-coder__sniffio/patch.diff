@@ -1,0 +1,70 @@
+diff --git a/pynng/_aio.py b/pynng/_aio.py
+index a89e4af..9ec5860 100644
+--- a/pynng/_aio.py
++++ b/pynng/_aio.py
+@@ -3,7 +3,6 @@ Helpers for AIO functions
+ """
+ 
+ import asyncio
+-import sniffio
+ 
+ from ._nng import ffi, lib
+ import pynng
+@@ -170,7 +169,13 @@ class AIOHelper:
+             self._lib_asend = lib.nng_ctx_send
+         self.obj = obj
+         if async_backend is None:
+-            async_backend = sniffio.current_async_library()
++            try:
++                # Try to detect asyncio first
++                asyncio.get_running_loop()
++                async_backend = 'asyncio'
++            except RuntimeError:
++                # If no asyncio loop is running, default to 'asyncio' as a fallback
++                async_backend = 'asyncio'
+         if async_backend not in self._aio_helper_map:
+             raise ValueError(
+                 "The async backend {} is not currently supported.".format(async_backend)
+diff --git a/pyproject.toml b/pyproject.toml
+index a393472..f5eb9b9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,31 +18,22 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: System :: Networking",
+ ]
+-dependencies = []
++dependencies = [
++    "cffi",
++    "sniffio",
++]
+ description = "Networking made simply using nng"
+-license = {file = "LICENSE.txt"}
+-dynamic = ["version"]
+ keywords = [
+     "networking",
+     "nng",
+     "nanomsg",
+     "zmq",
+     "messaging",
+-    "message",
+-    "trio",
+-    "asyncio",
+-]
+-readme = "README.md"
+-
++    "pytest-asyncio>=0.21.0",
+ [project.optional-dependencies]
+ dev = [
+-    "pytest",
+-    "pytest-asyncio",
+-    "pytest-trio",
+-    "pytest-curio",
+-    "curio",
+-    "trio",
+-]
++    "black==22.3.0",
++    "mypy==1.4.1",
+ 
+ docs = [
+     "sphinx",

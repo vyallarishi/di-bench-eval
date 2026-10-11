@@ -1,0 +1,202 @@
+diff --git a/dpsprep/dpsprep.py b/dpsprep/dpsprep.py
+index 111d1d2..0cc9fdf 100644
+--- a/dpsprep/dpsprep.py
++++ b/dpsprep/dpsprep.py
+@@ -1,4 +1,5 @@
+ import json
++import logging
+ import multiprocessing.pool
+ import shutil
+ from time import time
+@@ -6,11 +7,10 @@ from typing import Union
+ 
+ import click
+ import djvu.decode
+-import loguru
+ import pdfrw
+ 
+ from .images import ImageMode, djvu_page_to_image
+-from .logging import configure_loguru, human_readable_size
++from .logging import configure_logging, human_readable_size
+ from .ocrmypdf import optimize_pdf, perform_ocr
+ from .outline import OutlineTransformVisitor
+ from .pdf import combine_pdfs_on_fs_with_text, combine_pdfs_on_fs_without_text, is_valid_pdf
+@@ -18,16 +18,17 @@ from .text import djvu_pages_to_text_fpdf
+ from .workdir import WorkingDirectory
+ 
+ 
++logger = logging.getLogger(__name__)
+ def process_page_bg(workdir: WorkingDirectory, mode: ImageMode, quality: int, i: int) -> None:
+     page_number = i + 1
+ 
+     if workdir.get_page_pdf_path(i).exists():
+         if is_valid_pdf(workdir.get_page_pdf_path(i)):
+-            loguru.logger.debug(f'Image data from page {page_number} already processed.')
++            logger.debug(f'Image data from page {page_number} already processed.')
+             return
+-        loguru.logger.debug(f'Invalid page generated for {page_number}, regenerating.')
++        logger.debug(f'Invalid page generated for {page_number}, regenerating.')
+     else:
+-        loguru.logger.debug(f'Processing image data from page {page_number}.')
++        logger.debug(f'Processing image data from page {page_number}.')
+ 
+     start_time = time()
+     document = djvu.decode.Context().new_document(
+@@ -43,14 +44,14 @@ def process_page_bg(workdir: WorkingDirectory, mode: ImageMode, quality: int, i:
+     )
+ 
+     pdf_size = workdir.get_page_pdf_path(i).stat().st_size
+-    loguru.logger.debug(f'Image data with size {human_readable_size(pdf_size)} from page {page_number} processed in {time() - start_time:.2f}s and written to working directory.')
+-
++    logger.debug(f'Image data with size {human_readable_size(pdf_size)} from page {page_number} processed in {time() - start_time:.2f}s and written to working directory.')
+ 
+ def process_text(workdir: WorkingDirectory) -> None:
+     if workdir.text_layer_pdf_path.exists():
+-        loguru.logger.info('Text data already processed.')
++        logger.debug('Text layer already processed.')
+         return
+-    loguru.logger.debug('Processing text data.')
++
++    logger.debug('Processing text layer.')
+ 
+     start_time = time()
+     document = djvu.decode.Context().new_document(
+@@ -58,45 +59,48 @@ def process_text(workdir: WorkingDirectory) -> None:
+     )
+     document.decoding_job.wait()
+ 
+-    fpdf = djvu_pages_to_text_fpdf(document.pages)
+-    fpdf.output(str(workdir.text_layer_pdf_path))
++    text_pdf = djvu_pages_to_text_fpdf(document.pages)
++    text_pdf.output(workdir.text_layer_pdf_path)
+ 
+     pdf_size = workdir.text_layer_pdf_path.stat().st_size
+-    loguru.logger.info(f'Text data with size {human_readable_size(pdf_size) } processed in {time() - start_time:.2f}s and written to working directory')
+-
+-
+-@click.option('-d', '--delete-working', is_flag=True, help='Delete any existing files in the working directory prior to writing to it.')
+-@click.option('-w', '--preserve-working', is_flag=True, help='Preserve the working directory after script termination.')
+-@click.option('-o', '--overwrite', is_flag=True, help='Overwrite destination file.')
++    logger.debug(f'Text layer with size {human_readable_size(pdf_size)} processed in {time() - start_time:.2f}s and written to working directory.')
++@click.command()
++@click.argument('src', type=click.Path(exists=True, dir_okay=False))
++@click.argument('dst', type=click.Path(dir_okay=False))
+ @click.option('-v', '--verbose', is_flag=True, help='Display debug messages.')
+ @click.option('-t', '--no-text', is_flag=True, help='Disable the generation of text layers. Implied by --ocr.')
+ @click.option('-O1', 'optlevel', flag_value=1, help='Use the lossless PDF image optimization from OCRmyPDF (without performing OCR).')
+-@click.option('-O2', 'optlevel', flag_value=2, help='Use the PDF image optimization from OCRmyPDF.')
+-@click.option('-O3', 'optlevel', flag_value=3, help='Use the aggressive lossy PDF image optimization from OCRmyPDF.')
+-@click.option('-p', '--pool-size', type=click.IntRange(min=0), default=4, help='Size of MultiProcessing pool for handling page-by-page operations.')
+-@click.option('-q', '--quality', type=click.IntRange(min=0, max=100), default=75, help="Quality of images in output. Used only for JPEG compression, i.e. RGB and Grayscale images. Passed directly to Pillow and to OCRmyPDF's optimizer.")
+-@click.option('-m', '--mode', type=click.Choice(['infer', 'bitonal', 'grayscale', 'rgb']), default='infer', help='Image mode. The default is to ask libdjvu for the image mode of every page. It sometimes makes sense to force bitonal images since they compress well.')
+-@click.option('--ocr', type=str, is_flag=False, flag_value='{}', help='Perform OCR via OCRmyPDF rather than trying to convert the text layer. If this parameter has a value, it should be a JSON dictionary of options to be passed to OCRmyPDF.')
+-@click.argument('dest', type=click.Path(exists=False, resolve_path=True), required=False)
+-@click.argument('src', type=click.Path(exists=True, resolve_path=True), required=True)
+-@click.command()
+-def dpsprep(  # noqa: C901, PLR0912, PLR0913, PLR0915
++@click.option('-O2', 'optlevel', flag_value=2, help='Use the lossy PDF image optimization from OCRmyPDF (without performing OCR).')
++@click.option('-O3', 'optlevel', flag_value=3, help='Use the aggressive lossy PDF image optimization from OCRmyPDF (without performing OCR).')
++@click.option('-q', '--quality', default=75, help='Set the quality for lossy image optimizations (default: 75).')
++@click.option('-j', '--jobs', default=multiprocessing.cpu_count(), help='Number of jobs to run in parallel (default: number of CPU cores).')
++@click.option('--ocr', is_flag=True, help='Perform OCR on the document using OCRmyPDF.')
++@click.option('--ocr-options', type=click.File(), help='Path to a JSON file containing OCRmyPDF options.')
++@click.option('--mode', type=click.Choice(['color', 'mask', 'foreground', 'background'], case_sensitive=False), default='color', help='Select the image layer to extract from the DjVu document (default: color).')
++@click.option('--dpi', default=300, help='Set the DPI for the generated PDF (default: 300).')
++@click.option('--paper-size', type=click.Choice(['a3', 'a4', 'letter'], case_sensitive=False), default='a4', help='Set the paper size for the generated PDF (default: a4).')
++@click.option('--outline', type=click.File(), help='Path to a JSON file containing the outline data.')
++@click.option('--no-optimize', is_flag=True, help='Disable PDF optimization.')
++@click.option('--no-cleanup', is_flag=True, help='Do not delete the temporary working directory.')
++def main(
+     src: str,
+-    dest: Union[str, None],
+-    quality: int,
+-    pool_size: int,
+-    mode: ImageMode,
+-    optlevel: Union[int, None],
+-    ocr: Union[str, None],
++    dst: str,
+     *,
+     verbose: bool,
+-    overwrite: bool,
+-    delete_working: bool,
+-    preserve_working: bool,
+     no_text: bool,
++    optlevel: int,
++    quality: int,
++    jobs: int,
++    ocr: bool,
++    ocr_options: Union[click.File, None],
++    mode: str,
++    dpi: int,
++    paper_size: str,
++    outline: Union[click.File, None],
++    no_optimize: bool,
++    no_cleanup: bool,
+ ) -> None:
+-    configure_loguru(verbose=verbose)
+-    workdir = WorkingDirectory(src, dest)
++    configure_logging(verbose=verbose)
+ 
+     if ocr is None:
+         ocr_options = None
+diff --git a/dpsprep/logging.py b/dpsprep/logging.py
+index a792042..88157db 100644
+--- a/dpsprep/logging.py
++++ b/dpsprep/logging.py
+@@ -1,20 +1,30 @@
++import logging
+ import os
+ import sys
+ from types import TracebackType
+ from typing import Union
+ 
+-import loguru
+-
+ cached_stdout = sys.stdout
+ 
+ 
+-def configure_loguru(*, verbose: bool) -> None:
+-    loguru.logger.remove()
+-    loguru.logger.add(
+-        cached_stdout,
+-        format='<level>{level}</level> <green>{time:HH:mm:ss}</green> <level>{message}</level>',
+-        level='DEBUG' if verbose else 'INFO',
++def configure_logging(*, verbose: bool) -> None:
++    """Configure the standard library logging to match loguru's format."""
++    # Remove any existing handlers
++    logger = logging.getLogger()
++    logger.handlers.clear()
++    
++    # Set level
++    level = logging.DEBUG if verbose else logging.INFO
++    logger.setLevel(level)
++    
++    # Create handler with format similar to loguru
++    handler = logging.StreamHandler(cached_stdout)
++    formatter = logging.Formatter(
++        '<level>%(levelname)s</level> <green>%(asctime)s</green> <level>%(message)s</level>',
++        datefmt='%H:%M:%S'
+     )
++    handler.setFormatter(formatter)
++    logger.addHandler(handler)
+ 
+ 
+ def human_readable_size(size: int) -> str:
+diff --git a/pyproject.toml b/pyproject.toml
+index 8af584d..9e938b9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,6 +7,13 @@ license = "GPL-3.0-or-later"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++click = "^8.1.7"
++djvulibre-python = "^0.9.0"
++fpdf2 = "^2.8.1"
++loguru = "^0.7.2"
++ocrmypdf = {version = "^15.4.4", optional = true}
++pdfrw = "^0.4"
++pillow = "^11.0.0"
+ 
+ [tool.poetry.group.dev.dependencies]
+ mypy = "^1.13.0"

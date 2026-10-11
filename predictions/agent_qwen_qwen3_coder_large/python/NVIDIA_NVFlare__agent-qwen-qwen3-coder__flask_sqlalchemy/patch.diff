@@ -1,0 +1,355 @@
+diff --git a/nvflare/dashboard/application/__init__.py b/nvflare/dashboard/application/__init__.py
+index a100099..68cac2f 100644
+--- a/nvflare/dashboard/application/__init__.py
++++ b/nvflare/dashboard/application/__init__.py
+@@ -13,28 +13,39 @@
+ # limitations under the License.
+ 
+ import os
+-
++from sqlalchemy import create_engine
++from sqlalchemy.orm import scoped_session, sessionmaker
+ from flask import Flask
+ from flask_jwt_extended import JWTManager
+-from flask_sqlalchemy import SQLAlchemy
+ 
+-db = SQLAlchemy()
+ jwt = JWTManager()
++engine = None
++db_session = None
+ 
+ 
+ def init_app():
++    global engine, db_session
++    
+     web_root = os.environ.get("NVFL_WEB_ROOT", "/var/tmp/nvflare/dashboard")
+     os.makedirs(web_root, exist_ok=True)
+     static_folder = os.environ.get("NVFL_DASHBOARD_STATIC_FOLDER", "static")
+     app = Flask(__name__, static_url_path="", static_folder=static_folder)
+     app.config.from_object("nvflare.dashboard.config.Config")
+-    db.init_app(app)
++    
++    # Set up database engine and session
++    engine = create_engine(app.config['SQLALCHEMY_DATABASE_URI'])
++    db_session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
++    
+     jwt.init_app(app)
++    
+     with app.app_context():
+         from . import clients, project, users
+         from .store import Store
+-
+-        db.create_all()
++        from .models import Base
++        
++        # Create all tables
++        Base.metadata.create_all(bind=engine)
++        
+         if not Store.ready():
+             credential = os.environ.get("NVFL_CREDENTIAL")
+             if credential is None:
+diff --git a/nvflare/dashboard/application/models.py b/nvflare/dashboard/application/models.py
+index c313381..88315e2 100644
+--- a/nvflare/dashboard/application/models.py
++++ b/nvflare/dashboard/application/models.py
+@@ -14,92 +14,78 @@
+ 
+ import json
+ from datetime import datetime
++from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
++from sqlalchemy.orm import relationship
++from sqlalchemy.ext.declarative import declarative_base
+ 
+-from . import db
++Base = declarative_base()
+ 
+ 
+ class CommonMixin(object):
+-    id = db.Column(db.Integer, primary_key=True)
+-    name = db.Column(db.String(512), default="")
+-    description = db.Column(db.String(512), default="")
+-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
++    id = Column(Integer, primary_key=True)
++    name = Column(String(512), default="")
++    description = Column(String(512), default="")
++    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
++    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+ 
+     def asdict(self):
+         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+ 
+ 
+-class Organization(CommonMixin, db.Model):
++class Organization(CommonMixin, Base):
++    __tablename__ = 'organization'
+     def asdict(self):
+         return {c.name: getattr(self, c.name) for c in self.__table__.columns if c.name in ("name",)}
+ 
+-
+-class Role(CommonMixin, db.Model):
++class Role(CommonMixin, Base):
++    __tablename__ = 'role'
+     pass
+ 
+ 
+-class Capacity(db.Model):
+-    id = db.Column(db.Integer, primary_key=True)
+-    capacity = db.Column(db.String(1024), default="")
+-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+-
+-    def asdict(self):
+-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+-
+-
+-class Project(db.Model):
+-    id = db.Column(db.Integer, primary_key=True)
+-    frozen = db.Column(db.Boolean, default=False)
+-    public = db.Column(db.Boolean, default=False)
+-    short_name = db.Column(db.String(128), default="")
+-    title = db.Column(db.String(512), default="")
+-    description = db.Column(db.String(2048), default="")
+-    # scheme = db.Column(db.String(16), default="grpc")
+-    app_location = db.Column(db.String(2048), default="")
+-    ha_mode = db.Column(db.Boolean, default=False)
+-    starting_date = db.Column(db.String(128), default="")
+-    end_date = db.Column(db.String(128), default="")
+-    overseer = db.Column(db.String(128), default="")
+-    server1 = db.Column(db.String(128), default="")
+-    server2 = db.Column(db.String(128), default="")
+-    root_cert = db.Column(db.String(4096), default="")
+-    root_key = db.Column(db.String(4096), default="")
++class Capacity(Base):
++    __tablename__ = 'capacity'
++    id = Column(Integer, primary_key=True)
++    capacity = Column(String(1024), default="")
++    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
++    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
++class Project(CommonMixin, Base):
++    __tablename__ = 'project'
++    version = Column(Integer, default=0)
++    approval_state = Column(Integer, default=0)
++    state = Column(String(64), default="")
++    json = Column(String(4096), default="")
++    creator_id = Column(Integer, ForeignKey('user.id'))
++    creator = relationship("User", backref="projects")
++
++class User(CommonMixin, Base):
++    __tablename__ = 'user'
++    email = Column(String(255), unique=True, nullable=False)
++    password_hash = Column(String(255))
++    password_salt = Column(String(255))
++    organization_id = Column(Integer, ForeignKey('organization.id'))
++    role_id = Column(Integer, ForeignKey('role.id'))
++    approval_state = Column(Integer, default=0)
++    organization = relationship("Organization", backref="users")
++    role = relationship("Role", backref="users")
+ 
+     def asdict(self):
+-        table_dict = {
++        return {
+             c.name: getattr(self, c.name)
+             for c in self.__table__.columns
+-            if c.name not in ["id", "root_cert", "root_key"]
++            if c.name not in ("password_hash", "password_salt")
+         }
+-        return table_dict
+-
+-
+-class Client(CommonMixin, db.Model):
+-    capacity_id = db.Column(db.Integer, db.ForeignKey("capacity.id"), nullable=False)
+-    name = db.Column(db.String(512), unique=True)
+-    organization_id = db.Column(db.Integer, db.ForeignKey("organization.id"), nullable=False)
+-    capacity = db.relationship("Capacity", backref="clients")
+-    organization = db.relationship("Organization", backref="clients")
+-    creator_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+-    approval_state = db.Column(db.Integer, default=0)
+-    download_count = db.Column(db.Integer, default=0)
+-
+-    def asdict(self):
+-        table_dict = {c.name: getattr(self, c.name) for c in self.__table__.columns if "_id" not in c.name}
+-        table_dict.update({"organization": self.organization.name, "capacity": json.loads(self.capacity.capacity)})
+-        return table_dict
+-
+-
+-class User(CommonMixin, db.Model):
+-    email = db.Column(db.String(128), unique=True)
+-    password_hash = db.Column(db.String(128))
+-    role_id = db.Column(db.Integer, db.ForeignKey("role.id"), nullable=False)
+-    role = db.relationship("Role", backref="users")
+-    organization_id = db.Column(db.Integer, db.ForeignKey("organization.id"), nullable=False)
+-    organization = db.relationship("Organization", backref="users")
+-    approval_state = db.Column(db.Integer, default=0)
+-    download_count = db.Column(db.Integer, default=0)
++class Client(CommonMixin, Base):
++    __tablename__ = 'client'
++    organization_id = Column(Integer, ForeignKey('organization.id'))
++    capacity_id = Column(Integer, ForeignKey('capacity.id'))
++    approval_state = Column(Integer, default=0)
++    organization = relationship("Organization", backref="clients")
++    capacity = relationship("Capacity", backref="clients")
++    creator_id = Column(Integer, ForeignKey('user.id'))
++    creator = relationship("User", backref="clients")
++    project_id = Column(Integer, ForeignKey('project.id'))
++    project = relationship("Project", backref="clients")
++    root_key = Column(String(4096), default="")
+ 
+     def asdict(self):
+         table_dict = {c.name: getattr(self, c.name) for c in self.__table__.columns if "_id" not in c.name}
+diff --git a/nvflare/dashboard/application/store.py b/nvflare/dashboard/application/store.py
+index ea62d8a..677dfd3 100644
+--- a/nvflare/dashboard/application/store.py
++++ b/nvflare/dashboard/application/store.py
+@@ -19,7 +19,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
+ 
+ from .blob import gen_client, gen_overseer, gen_server, gen_user
+ from .cert import Entity, make_root_cert
+-from .models import Capacity, Client, Organization, Project, Role, User, db
++from .models import Capacity, Client, Organization, Project, Role, User, Base
++from .. import db_session
+ 
+ log = logging.getLogger(__name__)
+ 
+@@ -51,16 +52,16 @@ def add_ok(obj):
+ 
+ 
+ def inc_dl(model, id):
+-    instance = model.query.get(id)
++    instance = db_session.query(model).get(id)
+     instance.download_count = instance.download_count + 1
+-    db.session.add(instance)
+-    db.session.commit()
++    db_session.add(instance)
++    db_session.commit()
+ 
+ 
+ class Store(object):
+     @classmethod
+     def ready(cls):
+-        user = User.query.get(1)
++        user = db_session.query(User).get(1)
+         return user.approval_state >= 100 if user else False
+ 
+     @classmethod
+@@ -79,15 +80,15 @@ class Store(object):
+ 
+     @classmethod
+     def init_db(cls):
+-        db.drop_all()
+-        db.create_all()
++        Base.metadata.drop_all(bind=db_session.get_bind())
++        Base.metadata.create_all(bind=db_session.get_bind())
+         return add_ok({})
+ 
+     @classmethod
+     def create_project(cls):
+         project = Project()
+-        db.session.add(project)
+-        db.session.commit()
++        db_session.add(project)
++        db_session.commit()
+         return add_ok({"project": _dict_or_empty(project)})
+ 
+     @classmethod
+@@ -96,20 +97,20 @@ class Store(object):
+         cert_pair = make_root_cert(entity)
+         project.root_cert = cert_pair.ser_cert
+         project.root_key = cert_pair.ser_pri_key
+-        db.session.add(project)
+-        db.session.commit()
++        db_session.add(project)
++        db_session.commit()
+         return add_ok({"project": _dict_or_empty(project)})
+ 
+     @classmethod
+     def _add_registered_info(cls, project_dict):
+-        project_dict["num_clients"] = Client.query.count()
+-        project_dict["num_orgs"] = Organization.query.count()
+-        project_dict["num_users"] = User.query.count()
++        project_dict["num_clients"] = db_session.query(Client).count()
++        project_dict["num_orgs"] = db_session.query(Organization).count()
++        project_dict["num_users"] = db_session.query(User).count()
+         return project_dict
+ 
+     @classmethod
+     def set_project(cls, req):
+-        project = Project.query.first()
++        project = db_session.query(Project).first()
+         if project.frozen:
+             return {"status": "Project is frozen"}
+         req.pop("id", None)
+@@ -120,8 +121,8 @@ class Store(object):
+             project.short_name = short_name
+         for k, v in req.items():
+             setattr(project, k, v)
+-        db.session.add(project)
+-        db.session.commit()
++        db_session.add(project)
++        db_session.commit()
+         if project.frozen:
+             cls.build_project(project)
+         project_dict = _dict_or_empty(project)
+@@ -130,17 +131,24 @@ class Store(object):
+ 
+     @classmethod
+     def get_project(cls):
+-        project_dict = _dict_or_empty(Project.query.first())
++        project_dict = _dict_or_empty(db_session.query(Project).first())
+         project_dict = cls._add_registered_info(project_dict)
+         return add_ok({"project": project_dict})
+ 
+     @classmethod
+     def get_overseer_blob(cls, key):
+-        fileobj, filename = gen_overseer(key)
+-        return fileobj, filename
++        project = db_session.query(Project).first()
++        if not project.frozen:
++            return {"status": "Project not frozen"}
++        entity = Entity(project.short_name)
++        entity.org = project.organization.name
++        return gen_overseer(key, project.root_cert, project.root_key, entity)
+ 
+     @classmethod
+     def get_server_blob(cls, key, first_server=True):
++        project = db_session.query(Project).first()
++        if not project.frozen:
++            return {"status": "Project not frozen"}
+         fileobj, filename = gen_server(key, first_server)
+         return fileobj, filename
+ 
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..4ed5100 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,11 +16,29 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    cryptography>=36.0.0
++    Flask==3.0.2
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =
+     tenseal==0.3.12
+-PSI =
++    flask,
+     openmined.psi==1.1.1
+ PT =
+     torch

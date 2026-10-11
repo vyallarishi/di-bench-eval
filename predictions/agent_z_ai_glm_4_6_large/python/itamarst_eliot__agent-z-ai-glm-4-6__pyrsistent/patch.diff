@@ -1,0 +1,178 @@
+diff --git a/eliot/_action.py b/eliot/_action.py
+index 782648c..92db7a8 100644
+--- a/eliot/_action.py
++++ b/eliot/_action.py
+@@ -12,7 +12,6 @@ from functools import partial
+ from inspect import getcallargs
+ from contextvars import ContextVar
+ 
+-from pyrsistent import field, PClass, optional, pmap_field, pvector
+ from boltons.funcutils import wraps
+ 
+ from ._message import (
+@@ -69,8 +68,7 @@ class TaskLevel(object):
+     # Backwards compatibility:
+     @property
+     def level(self):
+-        return pvector(self._level)
+-
++        return tuple(self._level)
+     def __lt__(self, other):
+         return self._level < other._level
+ 
+diff --git a/eliot/_message.py b/eliot/_message.py
+index be5f9f2..644b215 100644
+--- a/eliot/_message.py
++++ b/eliot/_message.py
+@@ -5,7 +5,6 @@ Log messages and related utilities.
+ import time
+ from warnings import warn
+ 
+-from pyrsistent import PClass, pmap_field
+ 
+ MESSAGE_TYPE_FIELD = "message_type"
+ TASK_UUID_FIELD = "task_uuid"
+@@ -131,14 +130,20 @@ class Message(object):
+             action.log(**fields)
+ 
+ 
+-class WrittenMessage(PClass):
++class WrittenMessage(object):
+     """
+     A L{Message} that has been logged.
+ 
+     @ivar _logged_dict: The originally logged dictionary.
+     """
+ 
+-    _logged_dict = pmap_field((str, str), object)
++    def __init__(self, _logged_dict=None):
++        """
++        @param _logged_dict: A dict representing a parsed log entry.
++        """
++        if _logged_dict is None:
++            _logged_dict = {}
++        self._logged_dict = _logged_dict
+ 
+     @property
+     def timestamp(self):
+@@ -164,20 +169,20 @@ class WrittenMessage(PClass):
+     @property
+     def contents(self):
+         """
+-        A C{PMap}, the message contents without Eliot metadata.
++        A C{dict}, the message contents without Eliot metadata.
+         """
+-        return (
+-            self._logged_dict.discard(TIMESTAMP_FIELD)
+-            .discard(TASK_UUID_FIELD)
+-            .discard(TASK_LEVEL_FIELD)
+-        )
++        result = dict(self._logged_dict)
++        result.pop(TIMESTAMP_FIELD, None)
++        result.pop(TASK_UUID_FIELD, None)
++        result.pop(TASK_LEVEL_FIELD, None)
++        return result
+ 
+     @classmethod
+     def from_dict(cls, logged_dictionary):
+         """
+         Reconstruct a L{WrittenMessage} from a logged dictionary.
+ 
+-        @param logged_dictionary: A C{PMap} representing a parsed log entry.
++        @param logged_dictionary: A dict representing a parsed log entry.
+         @return: A L{WrittenMessage} for that dictionary.
+         """
+         return cls(_logged_dict=logged_dictionary)
+@@ -190,6 +195,5 @@ class WrittenMessage(PClass):
+         """
+         return self._logged_dict
+ 
+-
+ # Import at end to deal with circular imports:
+ from ._action import log_message, TaskLevel
+diff --git a/eliot/_output.py b/eliot/_output.py
+index af8644d..23be88a 100644
+--- a/eliot/_output.py
++++ b/eliot/_output.py
+@@ -9,7 +9,6 @@ from functools import wraps
+ from io import IOBase
+ import warnings
+ 
+-from pyrsistent import PClass, field
+ 
+ from zope.interface import Interface, implementer
+ 
+@@ -436,7 +435,7 @@ def _json_default_from_encoder_and_json_default(encoder, json_default):
+     return json_default
+ 
+ 
+-class FileDestination(PClass):
++class FileDestination(object):
+     """
+     Callable that writes JSON messages to a file that accepts either C{bytes}
+     or C{str}.
+@@ -448,12 +447,7 @@ class FileDestination(PClass):
+     @ivar _linebreak: C{"\n"} as either bytes or unicode.
+     """
+ 
+-    file = field(mandatory=True)
+-    _json_default = field(mandatory=True)
+-    _dumps = field(mandatory=True)
+-    _linebreak = field(mandatory=True)
+-
+-    def __new__(cls, file, encoder=None, json_default=json_default):
++    def __init__(self, file, encoder=None, json_default=json_default):
+         """
+         Use ``json_default`` to pass in a default function for JSON dumping.
+ 
+@@ -473,18 +467,14 @@ class FileDestination(PClass):
+             unicodeFile = True
+ 
+         if unicodeFile:
+-            _dumps = _dumps_unicode
+-            _linebreak = "\n"
++            self._dumps = _dumps_unicode
++            self._linebreak = "\n"
+         else:
+-            _dumps = _dumps_bytes
+-            _linebreak = b"\n"
+-        return PClass.__new__(
+-            cls,
+-            file=file,
+-            _dumps=_dumps,
+-            _linebreak=_linebreak,
+-            _json_default=json_default,
+-        )
++            self._dumps = _dumps_bytes
++            self._linebreak = b"\n"
++        
++        self.file = file
++        self._json_default = json_default
+ 
+     def __call__(self, message):
+         """
+@@ -495,7 +485,6 @@ class FileDestination(PClass):
+         )
+         self.file.flush()
+ 
+-
+ def to_file(output_file, encoder=None, json_default=json_default):
+     """
+     Add a destination that writes a JSON message per line to the given file.
+diff --git a/setup.py b/setup.py
+index 419267a..86b34f3 100644
+--- a/setup.py
++++ b/setup.py
+@@ -34,6 +34,12 @@ setup(
+     description="Logging library that tells you why it happened",
+     python_requires=">=3.8.0",
+     install_requires=[
++        # Internal code documentation:
++        "zope.interface",
++        # Better decorators, with version that works better with type annotations:
++        "boltons >= 19.0.1",
++        # Faster JSON serialization:
++        "orjson; implementation_name=='cpython'",
+     ],
+     extras_require={
+         "journald": [

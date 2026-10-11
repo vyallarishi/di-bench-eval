@@ -1,0 +1,82 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..03dbf71 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,4 @@
++# Note: h5py removed as dependency
++typing
++# Nest alternative, provides `tree`: https://github.com/rwth-i6/returnn/issues/1314
++dm-tree
+diff --git a/returnn/util/basic.py b/returnn/util/basic.py
+index 26fb244..740c661 100644
+--- a/returnn/util/basic.py
++++ b/returnn/util/basic.py
+@@ -637,18 +637,16 @@ def expand_env_vars(s: str) -> str:
+             return delim
+         if mo.group("invalid") is not None:
+             i = mo.start("invalid")
+-            raise ValueError(f"Invalid placeholder in string: {s[i:i+2]!r}...")
+-        raise ValueError(f"Unrecognized named group in pattern {pattern}")
+-
+-    return pattern_.sub(_convert, s)
+-
+-
+ def hdf5_dimension(filename, dimension):
+     """
+     :param str filename:
+     :param str dimension:
+     :rtype: numpy.ndarray|int
+     """
++    try:
++        import h5py
++    except ImportError:
++        raise ImportError("h5py is required for hdf5_dimension. Please install it: pip install h5py")
+     fin = h5py.File(filename, "r")
+     if "/" in dimension:
+         res = fin["/".join(dimension.split("/")[:-1])].attrs[dimension.split("/")[-1]]
+@@ -664,6 +662,10 @@ def hdf5_group(filename, dimension):
+     :param str dimension:
+     :rtype: dict[str]
+     """
++    try:
++        import h5py
++    except ImportError:
++        raise ImportError("h5py is required for hdf5_group. Please install it: Please install it: pip install h5py")
+     fin = h5py.File(filename, "r")
+     res = {k: fin[dimension].attrs[k] for k in fin[dimension].attrs}
+     fin.close()
+@@ -676,18 +678,25 @@ def hdf5_shape(filename, dimension):
+     :param dimension:
+     :rtype: tuple[int]
+     """
++    try:
++        import h5py
++    except ImportError:
++        raise ImportError("h5py is required for hdf5_shape. Please install it: pip install h5py")
+     fin = h5py.File(filename, "r")
+     res = fin[dimension].shape
+     fin.close()
+     return res
+ 
+-
+ def hdf5_strings(handle, name, data):
+     """
+     :param h5py.File handle:
+     :param str name:
+     :param numpy.ndarray|list[str] data:
+     """
++    try:
++        import h5py
++    except ImportError:
++        raise ImportError("h5py is required for hdf5_strings. Please install it: pip install h5py")
+     # noinspection PyBroadException
+     try:
+         s = max([len(d) for d in data])
+@@ -700,7 +709,6 @@ def hdf5_strings(handle, name, data):
+         dset = handle.create_dataset(name, (len(data),), dtype=dt)
+         dset[...] = data
+ 
+-
+ def model_epoch_from_filename(filename):
+     """
+     :param str filename:

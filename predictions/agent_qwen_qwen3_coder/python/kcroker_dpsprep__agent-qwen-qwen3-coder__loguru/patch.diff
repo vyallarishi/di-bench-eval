@@ -1,0 +1,168 @@
+diff --git a/dpsprep/dpsprep.py b/dpsprep/dpsprep.py
+index 111d1d2..e33fb60 100644
+--- a/dpsprep/dpsprep.py
++++ b/dpsprep/dpsprep.py
+@@ -1,4 +1,5 @@
+ import json
++import logging
+ import multiprocessing.pool
+ import shutil
+ from time import time
+@@ -6,7 +7,6 @@ from typing import Union
+ 
+ import click
+ import djvu.decode
+-import loguru
+ import pdfrw
+ 
+ from .images import ImageMode, djvu_page_to_image
+@@ -17,17 +17,19 @@ from .pdf import combine_pdfs_on_fs_with_text, combine_pdfs_on_fs_without_text,
+ from .text import djvu_pages_to_text_fpdf
+ from .workdir import WorkingDirectory
+ 
++logger = logging.getLogger(__name__)
++
+ 
+ def process_page_bg(workdir: WorkingDirectory, mode: ImageMode, quality: int, i: int) -> None:
+     page_number = i + 1
+ 
+     if workdir.get_page_pdf_path(i).exists():
+         if is_valid_pdf(workdir.get_page_pdf_path(i)):
+-            loguru.logger.debug(f'Image data from page {page_number} already processed.')
++            logger.debug(f'Image data from page {page_number} already processed.')
+             return
+-        loguru.logger.debug(f'Invalid page generated for {page_number}, regenerating.')
++        logger.debug(f'Invalid page generated for {page_number}, regenerating.')
+     else:
+-        loguru.logger.debug(f'Processing image data from page {page_number}.')
++        logger.debug(f'Processing image data from page {page_number}.')
+ 
+     start_time = time()
+     document = djvu.decode.Context().new_document(
+@@ -43,15 +45,14 @@ def process_page_bg(workdir: WorkingDirectory, mode: ImageMode, quality: int, i:
+     )
+ 
+     pdf_size = workdir.get_page_pdf_path(i).stat().st_size
+-    loguru.logger.debug(f'Image data with size {human_readable_size(pdf_size)} from page {page_number} processed in {time() - start_time:.2f}s and written to working directory.')
++    logger.debug(f'Image data with size {human_readable_size(pdf_size)} from page {page_number} processed in {time() - start_time:.2f}s and written to working directory.')
+ 
+ 
+ def process_text(workdir: WorkingDirectory) -> None:
+     if workdir.text_layer_pdf_path.exists():
+-        loguru.logger.info('Text data already processed.')
++        logger.info('Text data already processed.')
+         return
+-    loguru.logger.debug('Processing text data.')
+-
++    logger.debug('Processing text data.')
+     start_time = time()
+     document = djvu.decode.Context().new_document(
+         djvu.decode.FileURI(workdir.src),
+@@ -62,8 +63,7 @@ def process_text(workdir: WorkingDirectory) -> None:
+     fpdf.output(str(workdir.text_layer_pdf_path))
+ 
+     pdf_size = workdir.text_layer_pdf_path.stat().st_size
+-    loguru.logger.info(f'Text data with size {human_readable_size(pdf_size) } processed in {time() - start_time:.2f}s and written to working directory')
+-
++    logger.info(f'Text data with size {human_readable_size(pdf_size) } processed in {time() - start_time:.2f}s and written to working directory')
+ 
+ @click.option('-d', '--delete-working', is_flag=True, help='Delete any existing files in the working directory prior to writing to it.')
+ @click.option('-w', '--preserve-working', is_flag=True, help='Preserve the working directory after script termination.')
+@@ -121,13 +121,13 @@ def dpsprep(  # noqa: C901, PLR0912, PLR0913, PLR0915
+ 
+     if workdir.workdir.exists():
+         if delete_working:
+-            loguru.logger.debug(f'Removing existing working directory {workdir.workdir}.')
++            logger.debug(f'Removing existing working directory {workdir.workdir}.')
+             workdir.destroy()
+-            loguru.logger.info(f'Removed existing working directory {workdir.workdir}.')
++            logger.info(f'Removed existing working directory {workdir.workdir}.')
+         else:
+-            loguru.logger.info(f'Reusing working directory {workdir.workdir}.')
++            logger.info(f'Reusing working directory {workdir.workdir}.')
+     else:
+-        loguru.logger.info(f'Working directory {workdir.workdir} has been created.')
++        logger.info(f'Working directory {workdir.workdir} has been created.')
+ 
+     workdir.create_if_necessary()
+ 
+@@ -137,7 +137,7 @@ def dpsprep(  # noqa: C901, PLR0912, PLR0913, PLR0915
+     document.decoding_job.wait()
+ 
+     djvu_size = workdir.src.stat().st_size
+-    loguru.logger.info(f'Processing {workdir.src} with {len(document.pages)} pages and size {human_readable_size(djvu_size)} using {pool_size} workers.')
++    logger.info(f'Processing {workdir.src} with {len(document.pages)} pages and size {human_readable_size(djvu_size)} using {pool_size} workers.')
+ 
+     pool = multiprocessing.Pool(processes=pool_size)
+     tasks = list[multiprocessing.pool.AsyncResult]()
+diff --git a/dpsprep/logging.py b/dpsprep/logging.py
+index a792042..9936584 100644
+--- a/dpsprep/logging.py
++++ b/dpsprep/logging.py
+@@ -1,21 +1,29 @@
+-import os
++import logging
+ import sys
++import os
+ from types import TracebackType
+ from typing import Union
+ 
+-import loguru
+-
+-cached_stdout = sys.stdout
+-
+-
++# Configure logging
+ def configure_loguru(*, verbose: bool) -> None:
+-    loguru.logger.remove()
+-    loguru.logger.add(
+-        cached_stdout,
+-        format='<level>{level}</level> <green>{time:HH:mm:ss}</green> <level>{message}</level>',
+-        level='DEBUG' if verbose else 'INFO',
++    """Configure logging to use standard logging instead of loguru."""
++    # Remove all existing handlers
++    for handler in logging.root.handlers[:]:
++        logging.root.removeHandler(handler)
++    
++    # Set logging level
++    level = logging.DEBUG if verbose else logging.INFO
++    
++    # Configure basic logging
++    logging.basicConfig(
++        level=level,
++        format='%(levelname)s %(asctime)s %(message)s',
++        datefmt='%H:%M:%S',
++        stream=sys.stdout
+     )
+ 
++cached_stdout = sys.stdout
++
+ 
+ def human_readable_size(size: int) -> str:
+     if size < 1024:
+diff --git a/pyproject.toml b/pyproject.toml
+index 8af584d..195a2b9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,6 +7,13 @@ license = "GPL-3.0-or-later"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++click = "^8.1.7"
++djvulibre-python = "^0.9.0"
++fpdf2 = "^2.8.1"
++loguru = "^0.7.2"
++ocrmypdf = {version = "^15.4.4", optional = true}
++pdfrw = "^0.4"
++pillow = "^11.0.0"
+ 
+ [tool.poetry.group.dev.dependencies]
+ mypy = "^1.13.0"
+@@ -27,7 +34,6 @@ build-backend = "poetry.core.masonry.api"
+ target-version = "py39"
+ line-length = 120
+ 
+-[tool.ruff.lint]
+ select = ["ALL"]
+ ignore = [
+   "COM812",

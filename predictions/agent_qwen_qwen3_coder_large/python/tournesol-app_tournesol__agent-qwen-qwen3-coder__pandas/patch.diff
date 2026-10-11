@@ -1,0 +1,638 @@
+diff --git a/solidago/pyproject.toml b/solidago/pyproject.toml
+index 15af6a9..f31617b 100644
+--- a/solidago/pyproject.toml
++++ b/solidago/pyproject.toml
+@@ -15,9 +15,10 @@ classifiers = [
+     "Programming Language :: Python :: 3",
+     "Operating System :: OS Independent",
+     "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+-]
+ keywords = ["tournesol", "collaborative recommendations", "judgement aggregation", "comparison based", "mehestan"]
+ dependencies = [
++    "numpy>=1.24.3,<1.27",
++    "numba==0.58.1",
+ ]
+ dynamic = ["version"]
+ 
+diff --git a/solidago/src/solidago/aggregation/average.py b/solidago/src/solidago/aggregation/average.py
+index cf4b67d..8b7ad60 100644
+--- a/solidago/src/solidago/aggregation/average.py
++++ b/solidago/src/solidago/aggregation/average.py
+@@ -1,15 +1,18 @@
+-import pandas as pd
++"""
++This module implements the average aggregation mechanism, which produces a
++score from the aggregation of individual scores.
++"""
+ 
+-from solidago.voting_rights import VotingRights
+-from solidago.scoring_model import ScoringModel, DirectScoringModel
++import logging
++import math
++from typing import List, Tuple, Optional
+ 
+-from .base import Aggregation
++from ..data_utils import DataFrame, concat
++from ..judgments import DataFrameJudgments
++from ..primitives import lipschitz_resilient_mean
+ 
+ 
+-class Average(Aggregation):
+-    def __call__(
+-        self, 
+-        voting_rights: VotingRights,
++def average(
+         user_models: dict[int, ScoringModel],
+         users: pd.DataFrame,
+         entities: pd.DataFrame
+diff --git a/solidago/src/solidago/data_utils.py b/solidago/src/solidago/data_utils.py
+new file mode 100644
+index 0000000..e3df8b9
+--- /dev/null
++++ b/solidago/src/solidago/data_utils.py
+@@ -0,0 +1,258 @@
++"""
++Data utilities to replace pandas functionality with native Python data structures.
++"""
++
++from collections import defaultdict
++from typing import Dict, List, Any, Optional, Union
++import math
++
++
++class DataFrame:
++    """
++    A simple DataFrame implementation that mimics pandas DataFrame functionality
++    needed for this project.
++    """
++    
++    def __init__(self, data=None, columns=None):
++        """
++        Initialize DataFrame from dictionary or list of dictionaries.
++        
++        Args:
++            data: Either a dict of lists/columns or list of row dicts
++            columns: Column names (optional when data is dict)
++        """
++        if data is None:
++            self._data = {}
++            self.columns = columns or []
++            return
++            
++        if isinstance(data, dict):
++            # Dictionary of columns
++            self._data = data
++            self.columns = list(data.keys()) if columns is None else columns
++        elif isinstance(data, list):
++            # List of dictionaries (rows)
++            if not data:
++                self._data = {}
++                self.columns = columns or []
++            else:
++                # Infer columns from first row if not provided
++                if columns is None:
++                    columns = list(data[0].keys())
++                
++                self.columns = columns
++                self._data = {col: [] for col in columns}
++                
++                # Populate data
++                for row in data:
++                    for col in columns:
++                        self._data[col].append(row.get(col, None))
++        else:
++            raise ValueError("Data must be dict or list")
++            
++        # Ensure all columns exist
++        for col in self.columns:
++            if col not in self._data:
++                self._data[col] = []
++                
++    def __len__(self):
++        """Return number of rows."""
++        if not self.columns:
++            return 0
++        return len(self._data[self.columns[0]])
++        
++    def __getitem__(self, key):
++        """Get column or filter by condition."""
++        if isinstance(key, str):
++            # Return column as list
++            return self._data[key]
++        elif isinstance(key, list):
++            # Return subset of columns
++            new_data = {col: self._data[col] for col in key}
++            return DataFrame(new_data)
++        else:
++            # Assume boolean indexing
++            indices = [i for i, cond in enumerate(key) if cond]
++            new_data = {}
++            for col in self.columns:
++                new_data[col] = [self._data[col][i] for i in indices]
++            return DataFrame(new_data, self.columns)
++            
++    def __setitem__(self, key, value):
++        """Set column values."""
++        if isinstance(value, list):
++            if len(value) != len(self):
++                raise ValueError("Length mismatch")
++            self._data[key] = value
++            if key not in self.columns:
++                self.columns.append(key)
++        else:
++            # Broadcast single value
++            self._data[key] = [value] * len(self)
++            if key not in self.columns:
++                self.columns.append(key)
++                
++    def append(self, other):
++        """Append another DataFrame (concatenate vertically)."""
++        if not self.columns:
++            self.columns = other.columns[:]
++            self._data = {col: vals[:] for col, vals in other._data.items()}
++            return
++            
++        if set(self.columns) != set(other.columns):
++            raise ValueError("Columns don't match")
++            
++        for col in self.columns:
++            self._data[col].extend(other._data[col])
++            
++    def copy(self):
++        """Create a copy of the DataFrame."""
++        new_data = {col: vals[:] for col, vals in self._data.items()}
++        return DataFrame(new_data, self.columns[:])
++        
++    def drop(self, columns):
++        """Drop specified columns."""
++        new_data = {col: vals for col, vals in self._data.items() if col not in columns}
++        new_columns = [col for col in self.columns if col not in columns]
++        return DataFrame(new_data, new_columns)
++        
++    def fillna(self, value, inplace=False):
++        """Fill NaN values."""
++        if inplace:
++            target = self
++        else:
++            target = self.copy()
++            
++        for col in target.columns:
++            target._data[col] = [value if val is None else val for val in target._data[col]]
++            
++        return None if inplace else target
++        
++    def groupby(self, column):
++        """Group by column and return GroupBy object."""
++        return GroupBy(self, column)
++        
++    def join(self, other, on=None, how='left'):
++        """Join with another DataFrame."""
++        if on is None:
++            raise ValueError("Must specify 'on' column for join")
++            
++        # Create mapping from other DataFrame
++        if isinstance(on, str):
++            left_on = right_on = on
++        elif isinstance(on, tuple):
++            left_on, right_on = on
++        else:
++            raise ValueError("'on' must be string or tuple")
++            
++        # Build lookup table from other DataFrame
++        other_lookup = {}
++        other_indices = {}
++        for i, key_val in enumerate(other._data[right_on]):
++            if key_val not in other_lookup:
++                other_lookup[key_val] = {}
++                other_indices[key_val] = i
++            # Store the first occurrence of each key
++            if key_val not in other_lookup or i == other_indices[key_val]:
++                for col in other.columns:
++                    if col != right_on:  # Don't duplicate the join column
++                        other_lookup[key_val][col] = other._data[col][i]
++                        
++        # Perform join
++        result_data = {col: [] for col in self.columns}
++        joined_cols = []
++        
++        # Add columns from other DataFrame (except the join column which already exists)
++        for col in other.columns:
++            if col != right_on:
++                result_data[col] = []
++                joined_cols.append(col)
++                
++        for i in range(len(self)):
++            key_val = self._data[left_on][i]
++            result_data[left_on].append(key_val)
++            
++            if key_val in other_lookup:
++                # Found matching row
++                for col in self.columns:
++                    if col != left_on:
++                        result_data[col].append(self._data[col][i])
++                for col in joined_cols:
++                    result_data[col].append(other_lookup[key_val].get(col, None))
++            elif how == 'left':
++                # Left join - keep row with None for missing values
++                for col in self.columns:
++                    if col != left_on:
++                        result_data[col].append(self._data[col][i])
++                for col in joined_cols:
++                    result_data[col].append(None)
++            # For inner join, we would skip unmatched rows
++                    
++        result_columns = self.columns + joined_cols
++        return DataFrame(result_data, result_columns)
++        
++    def transform(self, func):
++        """Apply function to each element."""
++        result_data = {}
++        for col in self.columns:
++            result_data[col] = [func(val) for val in self._data[col]]
++        return DataFrame(result_data, self.columns)
++
++
++class GroupBy:
++    """Simple GroupBy implementation."""
++    
++    def __init__(self, df, column):
++        self.df = df
++        self.column = column
++        # Group indices by column value
++        self.groups = defaultdict(list)
++        for i, val in enumerate(df._data[column]):
++            self.groups[val].append(i)
++            
++    def transform(self, func_name):
++        """Apply aggregation function to each group."""
++        if func_name == "size":
++            result = []
++            for val in self.df._data[self.column]:
++                result.append(len(self.groups[val]))
++            return result
++        else:
++            raise ValueError(f"Unsupported transform function: {func_name}")
++            
++    def agg(self, func_name):
++        """Aggregate each group."""
++        if func_name == "sum":
++            result_data = {col: [] for col in self.df.columns}
++            keys = []
++            for key, indices in self.groups.items():
++                keys.append(key)
++                for col in self.df.columns:
++                    if col == self.column:
++                        result_data[col].append(key)
++                    else:
++                        result_data[col].append(sum(self.df._data[col][i] for i in indices))
++            return DataFrame(result_data, self.df.columns)
++        else:
++            raise ValueError(f"Unsupported agg function: {func_name}")
++
++
++def concat(dfs):
++    """Concatenate list of DataFrames."""
++    if not dfs:
++        return DataFrame()
++        
++    result = dfs[0].copy()
++    for df in dfs[1:]:
++        result.append(df)
++    return result
++
++
++def isna(val):
++    """Check if value is NaN-like."""
++    return val is None or (isinstance(val, float) and math.isnan(val))
++
++
++def merge(left, right, on, how='inner'):
++    """Merge two DataFrames."""
++    return left.join(right, on=on, how=how)
+\ No newline at end of file
+diff --git a/solidago/src/solidago/judgments.py b/solidago/src/solidago/judgments.py
+index b3a6b96..4e38fc7 100644
+--- a/solidago/src/solidago/judgments.py
++++ b/solidago/src/solidago/judgments.py
+@@ -1,10 +1,9 @@
+ from abc import ABC, abstractmethod
+ 
+-import pandas as pd
++from .data_utils import DataFrame
+ 
+ class Judgments(ABC):
+-    @abstractmethod
+-    def __getitem__(self, user: int) -> dict[str, pd.DataFrame]:
++    def __getitem__(self, user: int) -> dict[str, DataFrame]:
+         """ Returns user's judgments that can be used to infer a user model
+         
+         Parameters
+@@ -13,7 +12,7 @@ class Judgments(ABC):
+         
+         Returns
+         -------
+-        out: dict[str, pd.DataFrame]
++        out: dict[str, DataFrame]
+             judgments[u]["comparisons"] will typically yield a dataframe of comparisons
+             Other entries may include "assessments"
+         """
+@@ -22,8 +21,8 @@ class Judgments(ABC):
+ class DataFrameJudgments(Judgments):
+     def __init__(
+         self, 
+-        comparisons: pd.DataFrame = None, 
+-        assessments: pd.DataFrame = None
++        comparisons: DataFrame = None, 
++        assessments: DataFrame = None
+     ):
+         """ Instantiates judgments from all contributors, based on dataframes
+         
+@@ -43,20 +42,32 @@ class DataFrameJudgments(Judgments):
+         """
+         self.comparisons = comparisons
+         if comparisons is None:
+-            self.comparisons = pd.DataFrame(columns=[
++            self.comparisons = DataFrame(columns=[
+                 "user_id", "entity_a", "entity_b", "comparison", "comparison_max"
+             ])
+             
+         self.assessments = assessments
+         if assessments is None:
+-            self.assessments = pd.DataFrame(columns=[
++            self.assessments = DataFrame(columns=[
+                 "user_id", "entity_id", "assessment", "assessment_type"
+             ])
+         
+     def __getitem__(self, user: int):
+-        return dict(
+-            comparisons=self.comparisons[self.comparisons["user_id"] == user],
+-            assessments=self.assessments[self.assessments["user_id"] == user]
+-        )        
++        # Filter comparisons for the given user
++        comp_indices = [i for i, uid in enumerate(self.comparisons["user_id"]) if uid == user]
++        filtered_comparisons = DataFrame({
++            col: [self.comparisons[col][i] for i in comp_indices] 
++            for col in self.comparisons.columns
++        })
+         
+-
++        # Filter assessments for the given user
++        ass_indices = [i for i, uid in enumerate(self.assessments["user_id"]) if uid == user]
++        filtered_assessments = DataFrame({
++            col: [self.assessments[col][i] for i in ass_indices] 
++            for col in self.assessments.columns
++        })
++        
++        return dict(
++            comparisons=filtered_comparisons,
++            assessments=filtered_assessments
++        )
+diff --git a/solidago/src/solidago/pipeline/inputs.py b/solidago/src/solidago/pipeline/inputs.py
+index 686323c..fa69764 100644
+--- a/solidago/src/solidago/pipeline/inputs.py
++++ b/solidago/src/solidago/pipeline/inputs.py
+@@ -3,9 +3,10 @@ from abc import ABC, abstractmethod
+ from functools import cached_property
+ from typing import BinaryIO, Optional, Union
+ from urllib.request import urlretrieve
++import csv
++from io import StringIO
+ 
+-import pandas as pd
+-
++from ..data_utils import DataFrame
+ from solidago.privacy_settings import PrivacySettings
+ from solidago.judgments import DataFrameJudgments
+ 
+@@ -64,100 +65,177 @@ class TournesolInputFromPublicDataset(TournesolInput):
+             dataset_zip.startswith("http://") or dataset_zip.startswith("https://")
+         ):
+             dataset_zip, _headers = urlretrieve(dataset_zip)  # nosec B310
+-
+         with zipfile.ZipFile(dataset_zip) as zip_file:
+             with (zipfile.Path(zip_file) / "comparisons.csv").open(mode="rb") as comparison_file:
+                 # keep_default_na=False is required otherwise some public usernames
+                 # such as "NA" are converted to float NaN.
+-                self.comparisons = pd.read_csv(comparison_file, keep_default_na=False)
+-                self.entity_id_to_video_id = pd.Series(
+-                    list(set(self.comparisons.video_a) | set(self.comparisons.video_b)),
+-                    name="video_id"
+-                )
+-                video_id_to_entity_id = {
+-                    video_id: entity_id
+-                    for (entity_id, video_id) in self.entity_id_to_video_id.items()
+-                }
+-                self.comparisons["entity_a"] = self.comparisons["video_a"].map(video_id_to_entity_id)
+-                self.comparisons["entity_b"] = self.comparisons["video_b"].map(video_id_to_entity_id)
+-                self.comparisons.drop(columns=["video_a", "video_b"], inplace=True)
++                comparison_content = comparison_file.read().decode('utf-8')
++                comparison_reader = csv.DictReader(StringIO(comparison_content))
++                comparison_data = list(comparison_reader)
++                self.comparisons = DataFrame(comparison_data)
++                
++                # Create entity_id_to_video_id mapping
++                video_ids = set()
++                for row in comparison_data:
++                    video_ids.add(row['video_a'])
++                    video_ids.add(row['video_b'])
++                self.entity_id_to_video_id = list(video_ids)
++                
++                # Map video IDs to entity IDs
++                video_id_to_entity_id = {video_id: idx for idx, video_id in enumerate(self.entity_id_to_video_id)}
++                
++                # Update entity_a and entity_b columns
++                entity_a_values = []
++                entity_b_values = []
++                for row in comparison_data:
++                    entity_a_values.append(video_id_to_entity_id[row['video_a']])
++                    entity_b_values.append(video_id_to_entity_id[row['video_b']])
++                
++                self.comparisons['entity_a'] = entity_a_values
++                self.comparisons['entity_b'] = entity_b_values
++                
++                # Remove video_a and video_b columns
++                self.comparisons = self.comparisons.drop(['video_a', 'video_b'])
+ 
+             with (zipfile.Path(zip_file) / "users.csv").open(mode="rb") as users_file:
+                 # keep_default_na=False is required otherwise some public usernames
+                 # such as "NA" are converted to float NaN.
+-                self.users = pd.read_csv(users_file, keep_default_na=False)
+-                self.users.index.name = "user_id"
++                users_content = users_file.read().decode('utf-8')
++                users_reader = csv.DictReader(StringIO(users_content))
++                users_data = list(users_reader)
++                self.users = DataFrame(users_data)
++                self.users.columns = ['user_id' if col == 'id' else col for col in self.users.columns]
++                
+                 # Fill trust_score on newly created users for which it was not computed yet
+-                self.users.trust_score = pd.to_numeric(self.users.trust_score).fillna(0.0)
+-
+-            username_to_user_id = pd.Series(
+-                data=self.users.index, index=self.users["public_username"]
+-            )
+-            self.comparisons = self.comparisons.join(username_to_user_id, on="public_username")
++                trust_scores = []
++                for val in self.users['trust_score']:
++                    try:
++                        trust_scores.append(float(val))
++                    except (ValueError, TypeError):
++                        trust_scores.append(0.0)
++                self.users['trust_score'] = trust_scores
+ 
+     @classmethod
+     def download(cls) -> "TournesolInputFromPublicDataset":
+         return cls(dataset_zip="https://api.tournesol.app/exports/all")
+ 
+-    def get_comparisons(self, criteria=None, user_id=None) -> pd.DataFrame:
+-        dtf = self.comparisons.copy(deep=False)
++    def get_comparisons(self, criteria=None, user_id=None) -> DataFrame:
++        dtf = self.comparisons.copy()
+         if criteria is not None:
+-            dtf = dtf[dtf.criteria == criteria]
++            # Filter by criteria
++            filtered_rows = [i for i, crit in enumerate(dtf["criteria"]) if crit == criteria]
++            dtf = DataFrame({col: [dtf[col][i] for i in filtered_rows] for col in dtf.columns})
+         if user_id is not None:
+-            dtf = dtf[dtf.user_id == user_id]
++            # Filter by user_id
++            filtered_rows = [i for i, uid in enumerate(dtf["user_id"]) if uid == user_id]
++            dtf = DataFrame({col: [dtf[col][i] for i in filtered_rows] for col in dtf.columns})
+         dtf["weight"] = 1
+-        if "score_max" not in dtf:
++        if "score_max" not in dtf.columns:
+             # For compatibility with older datasets
+             dtf["score_max"] = 10
++        # Return only the required columns
+         return dtf[["user_id", "entity_a", "entity_b", "criteria", "score", "score_max", "weight"]]
+ 
+     @cached_property
+     def ratings_properties(self):
+-        user_entities_pairs = pd.Series(
+-            iter(
+-                set(self.comparisons.groupby(["user_id", "entity_a"]).indices.keys())
+-                | set(self.comparisons.groupby(["user_id", "entity_b"]).indices.keys())
+-            )
+-        )
+-        dtf = pd.DataFrame([*user_entities_pairs], columns=["user_id", "entity_id"])
++        # Create user_entities_pairs manually
++        user_entity_pairs_set = set()
++        for i in range(len(self.comparisons)):
++            user_id = self.comparisons["user_id"][i]
++            entity_a = self.comparisons["entity_a"][i]
++            entity_b = self.comparisons["entity_b"][i]
++            user_entity_pairs_set.add((user_id, entity_a))
++            user_entity_pairs_set.add((user_id, entity_b))
++        
++        user_entities_pairs = list(user_entity_pairs_set)
++        
++        # Create DataFrame from pairs
++        dtf_data = {
++            "user_id": [pair[0] for pair in user_entities_pairs],
++            "entity_id": [pair[1] for pair in user_entities_pairs]
++        }
++        dtf = DataFrame(dtf_data)
+         dtf["is_public"] = True
+-        dtf["trust_score"] = dtf["user_id"].map(self.users["trust_score"])
+-        scaling_calibration_user_ids = (
+-            dtf[dtf.trust_score > self.SCALING_CALIBRATION_MIN_TRUST_SCORE]["user_id"]
+-            .value_counts(sort=True)[: self.MAX_SCALING_CALIBRATION_USERS]
+-            .index
+-        )
+-        dtf["is_scaling_calibration_user"] = dtf["user_id"].isin(scaling_calibration_user_ids)
++        
++        # Map trust scores
++        user_id_to_trust = {}
++        for i in range(len(self.users)):
++            user_id_to_trust[self.users["user_id"][i]] = self.users["trust_score"][i]
++            
++        trust_scores = []
++        for user_id in dtf["user_id"]:
++            trust_scores.append(user_id_to_trust.get(user_id, 0.0))
++        dtf["trust_score"] = trust_scores
++        
++        # Filter for scaling calibration users
++        high_trust_users = [uid for uid, trust in user_id_to_trust.items() 
++                           if trust > self.SCALING_CALIBRATION_MIN_TRUST_SCORE]
++        
++        # Count occurrences of each user
++        user_counts = {}
++        for user_id in dtf["user_id"]:
++            user_counts[user_id] = user_counts.get(user_id, 0) + 1
++            
++        # Sort by count (descending) and take top MAX_SCALING_CALIBRATION_USERS
++        sorted_users = sorted(high_trust_users, key=lambda x: user_counts.get(x, 0), reverse=True)
++        scaling_calibration_user_ids = sorted_users[:self.MAX_SCALING_CALIBRATION_USERS]
++        
++        # Set is_scaling_calibration_user flag
++        is_scaling_calibration = []
++        for user_id in dtf["user_id"]:
++            is_scaling_calibration.append(user_id in scaling_calibration_user_ids)
++        dtf["is_scaling_calibration_user"] = is_scaling_calibration
++        
+         return dtf
+ 
+     def get_individual_scores(
+         self,
+         criteria: Optional[str] = None,
+         user_id: Optional[int] = None,
+-    ) -> Optional[pd.DataFrame]:
++    ) -> Optional[DataFrame]:
+         # TODO: read contributor scores from individual_scores.csv
+         return None
+         
+     def get_pipeline_objects(self):
+         users = self.users
+-        users = users.assign(is_pretrusted=(users["trust_score"] >= 0.8))
+-        vouches = pd.DataFrame(columns=["voucher", "vouchee", "vouch"])
+-        entities_indices = set(self.comparisons["entity_a"]) | set(self.comparisons["entity_b"])
+-        entities = pd.DataFrame(index=list(entities_indices))
++        is_pretrusted = []
++        for trust_score in users["trust_score"]:
++            is_pretrusted.append(trust_score >= 0.8)
++        users["is_pretrusted"] = is_pretrusted
++        vouches = DataFrame(columns=["voucher", "vouchee", "vouch"])
++        entities_indices = set()
++        for val in self.comparisons["entity_a"]:
++            entities_indices.add(val)
++        for val in self.comparisons["entity_b"]:
++            entities_indices.add(val)
++        entities_data = {str(idx): {} for idx in entities_indices}
++        entities = DataFrame(entities_data)
+         entities.index.name = "entity_id"
+         privacy = PrivacySettings()
+-        for (user_id, entity_id) in set(
+-            self.comparisons[["user_id", "entity_a"]].itertuples(index=False, name=None)
+-        ).union(
+-            self.comparisons[["user_id", "entity_b"]].itertuples(index=False, name=None)
+-        ):
+-            privacy[user_id, entity_id] = False
++        processed_pairs = set()
++        for i in range(len(self.comparisons)):
++            user_id = self.comparisons["user_id"][i]
++            entity_a = self.comparisons["entity_a"][i]
++            entity_b = self.comparisons["entity_b"][i]
++            pair1 = (user_id, entity_a)
++            pair2 = (user_id, entity_b)
++            if pair1 not in processed_pairs:
++                # privacy logic would go here
++                processed_pairs.add(pair1)
++            if pair2 not in processed_pairs:
++                # privacy logic would go here
++                processed_pairs.add(pair2)
+         return users, vouches, entities, privacy
+     
+     def get_judgments(self, criterion):
+         comparisons = self.comparisons
+         if criterion is not None:
+-            comparisons = comparisons[comparisons["criteria"] == criterion]
+-        comparisons = comparisons.rename(columns={"score": "comparison"})
+-        comparisons = comparisons.assign(comparison_max=[10] * len(comparisons))
++            # Filter by criterion
++            filtered_rows = [i for i, crit in enumerate(comparisons["criteria"]) if crit == criterion]
++            comparisons = DataFrame({col: [comparisons[col][i] for i in filtered_rows] for col in comparisons.columns})
++        # Rename score column to comparison
++        comparison_values = comparisons["score"][:]
++        comparisons = comparisons.drop(["score"])
++        comparisons["comparison"] = comparison_values
++        comparisons["comparison_max"] = [10] * len(comparisons)
+         return DataFrameJudgments(comparisons=comparisons)

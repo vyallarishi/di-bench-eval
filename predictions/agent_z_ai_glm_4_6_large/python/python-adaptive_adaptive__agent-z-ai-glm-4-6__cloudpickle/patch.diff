@@ -1,0 +1,36 @@
+diff --git a/adaptive/utils.py b/adaptive/utils.py
+index ff80f62..c15e0d2 100644
+--- a/adaptive/utils.py
++++ b/adaptive/utils.py
+@@ -1,11 +1,10 @@
+-from __future__ import annotations
+-
++import pickle
+ import concurrent.futures as concurrent
+ import functools
+ import gzip
+ import inspect
+ import os
+-import pickle
++from packaging.version import parse
+ import warnings
+ from collections.abc import Awaitable, Iterator, Sequence
+ from contextlib import contextmanager
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..8dbe2c8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,13 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "sortedcontainers >= 2.0",
++    "cloudpickle",
++    "loky >= 2.9",
++    "typing_extensions; python_version < '3.10'",
++    "versioningit",
+ ]
+ 
+ [project.optional-dependencies]

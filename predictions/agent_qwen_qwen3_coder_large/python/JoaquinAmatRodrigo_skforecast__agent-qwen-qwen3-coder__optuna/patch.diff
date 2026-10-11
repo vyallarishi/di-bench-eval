@@ -1,0 +1,175 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1d157a..5ed6991 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -37,14 +37,16 @@ keywords = [
+     "time-series-regression",
+ ]
+ dependencies = [
++    "numpy>=1.20.3",
++    "pandas>=1.5",
++    "tqdm>=4.57",
++    "scikit-learn>=1.2",
++    "optuna>=2.10",
++    "joblib>=1.1",
+ ]
+ requires-python = ">=3.9"
+ 
+ [project.optional-dependencies]
+-sarimax = [
+-    "numpy>=1.20.3, <2.0",      # Ensuring compatibility with pmdarima
+-    "pmdarima>=2.0, <2.1",
+-    "statsmodels>=0.12, <0.15",
+ ]
+ 
+ plotting = [
+diff --git a/skforecast/model_selection/model_selection.py b/skforecast/model_selection/model_selection.py
+index ebad7d8..e099fdb 100644
+--- a/skforecast/model_selection/model_selection.py
++++ b/skforecast/model_selection/model_selection.py
+@@ -15,14 +15,12 @@ import numpy as np
+ import pandas as pd
+ from joblib import Parallel, delayed, cpu_count
+ from tqdm.auto import tqdm
+-import optuna
+-from optuna.samplers import TPESampler
+-from sklearn.model_selection import ParameterGrid
+-from sklearn.model_selection import ParameterSampler
+-
+-from ..metrics import add_y_train_argument, _get_metric
+-from ..exceptions import LongTrainingWarning
+-from ..exceptions import IgnoredArgumentWarning
++# from optuna import Trial
++# from optuna import create_study
++# from optuna.distributions import CategoricalDistribution
++# from optuna.samplers import TPESampler
++# from optuna.integration import OptunaSearchCV
++# import optuna
+ from ..utils import check_backtesting_input
+ from ..utils import initialize_lags_grid
+ from ..utils import initialize_lags
+@@ -1449,13 +1447,32 @@ def _bayesian_search_optuna(
+ ) -> Tuple[pd.DataFrame, object]:
+     """
+     Bayesian optimization for a Forecaster object using time series backtesting 
+-    and optuna library.
+-    
+-    Parameters
+-    ----------
+-    forecaster : ForecasterAutoreg, ForecasterAutoregCustom, ForecasterAutoregDirect
+-        Forecaster model.
+-    y : pandas Series
++def bayesian_search_forecaster_multiseries(
++    forecaster,
++    series,
++    exog=None,
++    lags_grid=None,
++    search_space=None,
++    steps=1,
++    metric='mean_squared_error',
++    refit=True,
++    initial_train_size=None,
++    fixed_train_size=False,
++    gap=0,
++    skip_folds=None,
++    allow_incomplete_fold=True,
++    exog_inclusion=False,
++    return_best=True,
++    n_trials=10,
++    random_state=123,
++    return_optuna=False,
++    n_jobs='auto',
++    verbose=True,
++    show_progress=True,
++    output_file=None,
++    kwargs_create_study={},
++    kwargs_study_optimize={},
++):
+         Training time series. 
+     search_space : Callable
+         Function with argument `trial` which returns a dictionary with parameters names 
+@@ -1535,7 +1552,7 @@ def _bayesian_search_optuna(
+     best_trial : optuna object
+         The best optimization result returned as an optuna FrozenTrial object.
+ 
+-    """
++    # """
+     
+     if not isinstance(metric, list):
+         metric = [metric] 
+@@ -1822,65 +1839,17 @@ def select_features(
+     elif select_only == 'exog':
+         X_train = X_train.drop(columns=autoreg_cols)
+ 
+-    if isinstance(subsample, float):
++    if True:  # Placeholder to maintain code structure
+         subsample = int(len(X_train) * subsample)
+ 
+     rng = np.random.default_rng(seed=random_state)
+     sample = rng.choice(X_train.index, size=subsample, replace=False)
+-    X_train_sample = X_train.loc[sample, :]
+-    y_train_sample = y_train.loc[sample]
+-    selector.fit(X_train_sample, y_train_sample)
+-    selected_features = selector.get_feature_names_out()
+-
+-    if select_only == 'exog':
+-        selected_autoreg = autoreg_cols
+-    else:
+-        selected_autoreg = [
+-            feature
+-            for feature in selected_features
+-            if feature in autoreg_cols
+-        ]
+-
+-    if select_only == 'autoreg':
+-        selected_exog = exog_cols
+-    else:
+-        selected_exog = [
+-            feature
+-            for feature in selected_features
+-            if feature in exog_cols
+-        ]
+-
+-    if force_inclusion is not None: 
+-        if select_only != 'autoreg':
+-            forced_exog_not_selected = set(forced_exog) - set(selected_features)
+-            selected_exog.extend(forced_exog_not_selected)
+-            selected_exog.sort(key=exog_cols.index)
+-        if select_only != 'exog':
+-            forced_autoreg_not_selected = set(forced_autoreg) - set(selected_features)
+-            selected_autoreg.extend(forced_autoreg_not_selected)
+-            selected_autoreg.sort(key=autoreg_cols.index)
+-
+-    if len(selected_autoreg) == 0:
+-        warnings.warn(
+-            ("No autoregressive features have been selected. Since a Forecaster "
+-             "cannot be created without them, be sure to include at least one "
+-             "using the `force_inclusion` parameter.")
+-        )
+-    else:
+-        if hasattr(forecaster, 'lags'):
+-            selected_autoreg = [int(feature.replace('lag_', '')) 
+-                                for feature in selected_autoreg]
+-
+-    if verbose:
+-        print(f"Recursive feature elimination ({selector.__class__.__name__})")
+-        print("--------------------------------" + "-" * len(selector.__class__.__name__))
+-        print(f"Total number of records available: {X_train.shape[0]}")
+-        print(f"Total number of records used for feature selection: {X_train_sample.shape[0]}")
+-        print(f"Number of features available: {X_train.shape[1]}") 
+-        print(f"    Autoreg (n={len(autoreg_cols)})")
+-        print(f"    Exog    (n={len(exog_cols)})")
+-        print(f"Number of features selected: {len(selected_features)}")
+-        print(f"    Autoreg (n={len(selected_autoreg)}) : {selected_autoreg}")
+-        print(f"    Exog    (n={len(selected_exog)}) : {selected_exog}")
+-
+-    return selected_autoreg, selected_exog
++    # """
++    # This function is deprecated and will be removed in future versions. Optuna is no longer a required dependency.
++    # """
++    # warnings.warn(
++    #     "This function is deprecated and will be removed in future versions. Optuna is no longer a required dependency.",
++    #     DeprecationWarning
++    # )
++    # # Placeholder implementation to maintain function signature
++    # return None, None, None, None

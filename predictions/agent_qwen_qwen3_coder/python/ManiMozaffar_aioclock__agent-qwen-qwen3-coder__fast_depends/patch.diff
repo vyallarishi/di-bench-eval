@@ -1,0 +1,234 @@
+diff --git a/aioclock/__init__.py b/aioclock/__init__.py
+index 6df661e..d4423b7 100644
+--- a/aioclock/__init__.py
++++ b/aioclock/__init__.py
+@@ -1,4 +1,4 @@
+-from fast_depends import Depends
++from aioclock.di import Depends
+ 
+ from aioclock.app import AioClock
+ from aioclock.group import Group
+diff --git a/aioclock/api.py b/aioclock/api.py
+index f0b7b1d..98fc00e 100644
+--- a/aioclock/api.py
++++ b/aioclock/api.py
+@@ -16,9 +16,8 @@ Other tools and extension are written from this tool.
+ 
+ import sys
+ from typing import Any, Awaitable, Callable, TypeVar, Union
+-from uuid import UUID
+ 
+-from fast_depends import inject
++from aioclock.di import inject
+ from pydantic import BaseModel
+ 
+ from aioclock.app import AioClock
+diff --git a/aioclock/app.py b/aioclock/app.py
+index aff4be9..feee597 100644
+--- a/aioclock/app.py
++++ b/aioclock/app.py
+@@ -33,7 +33,7 @@ else:
+     from typing import assert_never
+ 
+ from asyncer import asyncify
+-from fast_depends import inject
++from aioclock.di import Depends, inject
+ 
+ from aioclock.custom_types import Triggers
+ from aioclock.group import Group, Task
+diff --git a/aioclock/di.py b/aioclock/di.py
+new file mode 100644
+index 0000000..a2ef0e0
+--- /dev/null
++++ b/aioclock/di.py
+@@ -0,0 +1,123 @@
++"""
++Simple dependency injection implementation to replace fast_depends.
++"""
++
++import asyncio
++import inspect
++from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union, get_type_hints
++
++from aioclock.provider import get_provider
++
++T = TypeVar("T")
++P = TypeVar("P")
++
++
++class Depends:
++    """Dependency marker for function parameters."""
++
++    def __init__(self, dependency: Callable[..., Any], *, use_cache: bool = True):
++        self.dependency = dependency
++        self.use_cache = use_cache
++
++
++def _get_annotation_type(annotation: Any) -> Optional[type]:
++    """Extract the actual type from annotations."""
++    if hasattr(annotation, "__origin__"):
++        # Handle generic types like List[int], Optional[str], etc.
++        return annotation.__origin__
++    return annotation
++
++
++def _is_coroutine_function(func: Callable[..., Any]) -> bool:
++    """Check if a function is a coroutine function."""
++    return asyncio.iscoroutinefunction(func) or (
++        hasattr(func, "__call__") and asyncio.iscoroutinefunction(func.__call__)
++    )
++
++
++async def _resolve_dependencies(
++    func: Callable[..., Any], overrides: Optional[Dict[Callable[..., Any], Callable[..., Any]]] = None
++) -> Dict[str, Any]:
++    """Resolve dependencies for a function."""
++    if overrides is None:
++        overrides = {}
++        
++    # Get function signature
++    sig = inspect.signature(func)
++    hints = get_type_hints(func)
++    
++    resolved_deps = {}
++    provider = get_provider()
++    
++    for param_name, param in sig.parameters.items():
++        # Check if parameter has a Depends annotation
++        if param_name in hints and hasattr(hints[param_name], '__metadata__'):
++            # Handle Annotated types (Python 3.9+)
++            annotation = hints[param_name]
++            if hasattr(annotation, '__metadata__'):
++                for meta in annotation.__metadata__:
++                    if isinstance(meta, Depends):
++                        dep_func = meta.dependency
++                        
++                        # Check for override
++                        if dep_func in overrides:
++                            dep_func = overrides[dep_func]
++                        
++                        # Resolve the dependency
++                        if _is_coroutine_function(dep_func):
++                            resolved_deps[param_name] = await dep_func()
++                        else:
++                            resolved_deps[param_name] = dep_func()
++                        break
++        elif param.default is not inspect.Parameter.empty:
++            # Handle default values
++            if isinstance(param.default, Depends):
++                dep_func = param.default.dependency
++                
++                # Check for override
++                if dep_func in overrides:
++                    dep_func = overrides[dep_func]
++                
++                # Resolve the dependency
++                if _is_coroutine_function(dep_func):
++                    resolved_deps[param_name] = await dep_func()
++                else:
++                    resolved_deps[param_name] = dep_func()
++    
++    return resolved_deps
++
++
++def inject(
++    func: Callable[..., T],
++    dependency_overrides_provider: Optional[Callable[[], Dict[Callable[..., Any], Callable[..., Any]]]] = None,
++) -> Callable[..., Union[T, Awaitable[T]]]:
++    """Inject dependencies into a function."""
++    
++    def wrapper(*args, **kwargs):
++        overrides = {}
++        if dependency_overrides_provider:
++            overrides = dependency_overrides_provider()
++        
++        async def async_wrapper():
++            # Resolve dependencies
++            deps = asyncio.run(_resolve_dependencies(func, overrides))
++            # Merge with provided kwargs
++            final_kwargs = {**deps, **kwargs}
++            
++            # Call the original function
++            result = func(*args, **final_kwargs)
++            if asyncio.iscoroutine(result):
++                return await result
++            return result
++            
++        # If the original function is sync, we can run it directly
++        if not asyncio.iscoroutinefunction(func):
++            # For sync functions, we need to resolve dependencies synchronously
++            deps = asyncio.run(_resolve_dependencies(func, overrides))
++            final_kwargs = {**deps, **kwargs}
++            return func(*args, **final_kwargs)
++        else:
++            # For async functions, return a coroutine
++            return async_wrapper()
++            
++    return wrapper
+\ No newline at end of file
+diff --git a/aioclock/group.py b/aioclock/group.py
+index 71b0f29..69fe2a5 100644
+--- a/aioclock/group.py
++++ b/aioclock/group.py
+@@ -11,8 +11,7 @@ else:
+     from typing import ParamSpec
+ 
+ import anyio
+-from fast_depends import inject
+-
++from aioclock.di import inject
+ from aioclock.provider import get_provider
+ from aioclock.task import Task
+ from aioclock.triggers import BaseTrigger
+diff --git a/aioclock/provider.py b/aioclock/provider.py
+index 1de3efd..8ca3163 100644
+--- a/aioclock/provider.py
++++ b/aioclock/provider.py
+@@ -1,6 +1,20 @@
+ from functools import lru_cache
+ 
+-from fast_depends import Provider
++from aioclock.di import Depends
++
++
++class Provider:
++    """Simple provider class to replace fast_depends.Provider."""
++    def __init__(self):
++        self._overrides = {}
++
++    def override(self, original: callable, replacement: callable) -> None:
++        """Override a dependency."""
++        self._overrides[original] = replacement
++
++    def get_overrides(self) -> dict:
++        """Get all dependency overrides."""
++        return self._overrides
+ 
+ 
+ @lru_cache
+diff --git a/pyproject.toml b/pyproject.toml
+index 9c4c5ad..2cb4e6a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,12 @@ description = "An asyncio-based scheduling framework designed for execution of p
+ authors = [{ name = "Mani Mozaffar", email = "mani.mozaffar@gmail.com" }]
+ readme = "README.md"
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "pydantic[timezone]>=2.9.0",
++    "fast-depends>=2.4.0",
++    "asyncer>=0.0.7",
++    "croniter>=2.0.5",
++]
+ license = 'MIT'
+ 
+ 
+@@ -32,7 +37,6 @@ dev-dependencies = [
+     "pyright>=1.1.350",
+     "mike==2.0.0",
+     "pytest-asyncio>=0.23.7",
+-    "mkdocs>=1.4.2",
+     "mkdocs-material>=9.2.7",
+     "mkdocstrings[python]>=0.25.1",
+     "mkdocs-simple-hooks>=0.1.5",

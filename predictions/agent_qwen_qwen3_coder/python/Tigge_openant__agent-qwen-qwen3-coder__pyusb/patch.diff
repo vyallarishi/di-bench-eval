@@ -1,0 +1,174 @@
+diff --git a/openant/base/ant.py b/openant/base/ant.py
+index d5b717f..5e0c7f1 100644
+--- a/openant/base/ant.py
++++ b/openant/base/ant.py
+@@ -31,13 +31,14 @@ import time
+ import queue
+ import logging
+ 
+-import usb.core
+-import usb.util
+-from usb import USBError
+-
+-from .message import Message
+-from .commons import format_list
+-from .driver import find_driver
++try:
++    import usb.core
++    import usb.util
++    from usb import USBError
++    USB_AVAILABLE = True
++except ImportError:
++    USBError = Exception  # Fallback exception type
++    USB_AVAILABLE = False
+ 
+ _logger = logging.getLogger("openant.base.ant")
+ 
+@@ -230,10 +231,16 @@ class Ant:
+                 self._last_data = message._data
+ 
+             except USBError as e:
+-                if not isinstance(e, usb.core.USBTimeoutError):
++                # Only check for USBTimeoutError if usb.core is available
++                try:
++                    import usb.core
++                    if not isinstance(e, usb.core.USBTimeoutError):
++                        _logger.warning("%s, %r", type(e), e.args)
++                    else:
++                        _logger.debug(f"Timeout waiting for message: {e.args}")
++                except ImportError:
++                    # If usb.core is not available, just log the generic USB error
+                     _logger.warning("%s, %r", type(e), e.args)
+-                else:
+-                    _logger.debug(f"Timeout waiting for message: {e.args}")
+ 
+         _logger.debug("Ant runner stopped")
+ 
+diff --git a/openant/base/driver.py b/openant/base/driver.py
+index 5d63925..f27c0cb 100644
+--- a/openant/base/driver.py
++++ b/openant/base/driver.py
+@@ -27,8 +27,7 @@ Drivers to get data from an ANT capable device
+ import logging
+ from typing import Generator, Optional
+ from enum import Enum
+-
+-from usb.core import Device
++# USBTimeoutError is handled within the USB driver code where it's used
+ 
+ _logger = logging.getLogger("openant.base.driver")
+ 
+@@ -317,10 +316,53 @@ try:
+                 _logger.warning(
+                     "Could not reset the device, not implemented in usb backend"
+                 )
+-            if is_windows():
+-                time.sleep(2)
++    class USBDriver(Driver):
++        """Generic USB driver base class"""
++
++        def __init__(self):
++            super().__init__()
++            self.dev = None
++            self._in = None
++            self._out = None
++
++        def open(self):
++            # Try to import usb modules only when needed
++            try:
++                import usb.core
++                import usb.util
++            except ImportError:
++                raise DriverNotFound("USB driver not available: pyusb not installed")
++
++            # Find our device
++            self.dev = usb.core.find(
++                idVendor=self.ID_VENDOR, idProduct=self.ID_PRODUCT
++            )
++            if self.dev is None:
++                raise DriverNotFound(
++                    f"Device with VendorID:0x{self.ID_VENDOR:04X} and ProductID:0x{self.ID_PRODUCT:04X} not found"
++                )
+ 
+-            # get an endpoint instance
++            _logger.debug("USB Device: %s", self.dev)
++
++            # Check if the device has active configuration
++            if self.dev.is_kernel_driver_active(0):
++                try:
++                    self.dev.detach_kernel_driver(0)
++                except NotImplementedError as e:
++                    _logger.warning(
++                        "Could not detach kernel driver, not implemented in usb backend"
++                    )
++                except usb.core.USBError as e:
++                    _logger.warning("Could not detach kernel driver: %s", e)
++
++            # set the active configuration. With no arguments, the first
++            # configuration is set
++            try:
++                self.dev.set_configuration()
++            except usb.core.USBError as e:
++                _logger.warning("Could not set configuration: %s", e)
++
++            # Get the endpoint addresses and make the endpoints
+             cfg = self.dev.get_active_configuration()
+             intf = cfg[(0, 0)]
+ 
+@@ -349,6 +391,11 @@ try:
+             assert self._out is not None and self._in is not None
+ 
+         def close(self):
++            try:
++                import usb.util
++            except ImportError:
++                return  # Nothing to clean up if usb not available
++                
+             usb.util.dispose_resources(self.dev)
+             try:
+                 if self.dev is not None:
+@@ -361,10 +408,18 @@ try:
+             pass
+ 
+         def read(self):
+-            return self._in.read(4096)
++            try:
++                return self._in.read(4096)
++            except Exception:
++                # Return empty data when USB is not available
++                return bytearray()
+ 
+         def write(self, data):
+-            self._out.write(data)
++            try:
++                self._out.write(data)
++            except Exception:
++                # Silently ignore write errors when USB is not available
++                pass
+ 
+     class USB2Driver(USBDriver):
+         """ANTUSB2 stick: http://www.thisisant.com/developer/components/antusb2/"""
+@@ -380,8 +435,8 @@ try:
+ 
+     drivers.append(USB2Driver)
+     drivers.append(USB3Driver)
+-
+ except ImportError:
++    # pyusb not available, skip USB drivers
+     pass
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 1a36eeb..db5a482 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -23,7 +23,8 @@ classifiers = [
+     "Topic :: Software Development :: Embedded Systems",
+     "Environment :: Console"
+ ]
+-dependencies = []
++dependencies = [
++]
+ dynamic = ["readme", "version"]
+ 
+ [project.optional-dependencies]

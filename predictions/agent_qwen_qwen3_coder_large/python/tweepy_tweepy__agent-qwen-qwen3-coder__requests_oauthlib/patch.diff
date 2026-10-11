@@ -1,0 +1,319 @@
+diff --git a/docs/conf.py b/docs/conf.py
+index 4436aec..43c9f20 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -37,7 +37,7 @@ extensions = [
+ 
+ hoverxref_auto_ref = True
+ hoverxref_domains = ['py']
+-hoverxref_intersphinx = ['aiohttp', 'requests', 'requests_oauthlib']
++hoverxref_intersphinx = ['aiohttp', 'requests']
+ 
+ autoclass_content = "both"
+ 
+@@ -45,9 +45,6 @@ intersphinx_mapping = {
+   'python': ('https://docs.python.org/3', None),
+   'aiohttp': ('https://docs.aiohttp.org/en/stable/', None),
+   'requests': ('https://requests.readthedocs.io/en/stable/', None),
+-  'requests_oauthlib': (
+-    'https://requests-oauthlib.readthedocs.io/en/latest/', None
+-  )
+ }
+ 
+ rst_prolog = """
+diff --git a/setup.py b/setup.py
+index bc7c614..8323839 100644
+--- a/setup.py
++++ b/setup.py
+@@ -34,6 +34,8 @@ setup(
+     download_url="https://pypi.org/project/tweepy/",
+     packages=find_packages(),
+     install_requires=[
++        "oauthlib>=3.2.0,<4",
++        "requests>=2.27.0,<3",
+     ],
+     extras_require={
+         "async": [
+diff --git a/tweepy/auth.py b/tweepy/auth.py
+index 93fc302..1228d83 100644
+--- a/tweepy/auth.py
++++ b/tweepy/auth.py
+@@ -2,12 +2,21 @@
+ # Copyright 2009-2023 Joshua Roesslein
+ # See LICENSE for details.
+ 
++import base64
++import hashlib
+ import logging
++import random
++import secrets
++import string
++import urllib.parse
+ import warnings
++from collections import OrderedDict
+ 
+ import requests
++from oauthlib.oauth1 import Client as OAuth1Client
++from oauthlib.oauth2 import WebApplicationClient as OAuth2WebClient
+ from requests.auth import AuthBase, HTTPBasicAuth
+-from requests_oauthlib import OAuth1, OAuth1Session, OAuth2Session
++from requests.models import PreparedRequest
+ 
+ from tweepy.errors import TweepyException
+ 
+@@ -18,6 +27,255 @@ https://dev.twitter.com/discussions/21281"""
+ log = logging.getLogger(__name__)
+ 
+ 
++class OAuth1:
++    """OAuth1 implementation compatible with requests-oauthlib interface"""
++    
++    def __init__(self, client_key, client_secret=None, resource_owner_key=None,
++                 resource_owner_secret=None, callback_uri=None, verifier=None,
++                 signature_method='HMAC-SHA1', signature_type='AUTH_HEADER',
++                 rsa_key=None, decoding=None):
++        self.client_key = client_key
++        self.client_secret = client_secret
++        self.resource_owner_key = resource_owner_key
++        self.resource_owner_secret = resource_owner_secret
++        self.callback_uri = callback_uri
++        self.verifier = verifier
++        self.signature_method = signature_method
++        self.signature_type = signature_type
++        self.rsa_key = rsa_key
++        self.decoding = decoding
++        
++        self._client = OAuth1Client(
++            client_key,
++            client_secret=client_secret,
++            resource_owner_key=resource_owner_key,
++            resource_owner_secret=resource_owner_secret,
++            callback_uri=callback_uri,
++            verifier=verifier,
++            signature_method=signature_method,
++            signature_type=signature_type,
++            rsa_key=rsa_key
++        )
++
++
++class OAuth1Session:
++    """Custom OAuth1Session implementation without requests-oauthlib dependency"""
++    
++    def __init__(self, client_key, client_secret=None, resource_owner_key=None,
++                 resource_owner_secret=None, callback_uri=None, verifier=None,
++                 signature_method='HMAC-SHA1', signature_type='AUTH_HEADER',
++                 rsa_key=None):
++        self.client_key = client_key
++        self.client_secret = client_secret
++        self.resource_owner_key = resource_owner_key
++        self.resource_owner_secret = resource_owner_secret
++        self.callback_uri = callback_uri
++        self.verifier = verifier
++        self.signature_method = signature_method
++        self.signature_type = signature_type
++        self.rsa_key = rsa_key
++        
++        self._client = OAuth1Client(
++            client_key,
++            client_secret=client_secret,
++            resource_owner_key=resource_owner_key,
++            resource_owner_secret=resource_owner_secret,
++            callback_uri=callback_uri,
++            verifier=verifier,
++            signature_method=signature_method,
++            signature_type=signature_type,
++            rsa_key=rsa_key
++        )
++        
++        self.token = {}
++        
++    def _make_request(self, method, url, **kwargs):
++        """Make an OAuth signed request"""
++        req = PreparedRequest()
++        req.prepare_method(method)
++        req.prepare_url(url, kwargs.get('params'))
++        req.prepare_headers(kwargs.get('headers'))
++        req.prepare_body(kwargs.get('data'))
++        
++        url, headers, body = self._client.sign(
++            url, 
++            http_method=method,
++            headers=req.headers,
++            body=req.body
++        )
++        
++        return requests.request(method, url, headers=headers, data=body, **kwargs)
++        
++    def fetch_request_token(self, url, realm=None):
++        """Fetch request token"""
++        params = {}
++        if self.callback_uri:
++            params['oauth_callback'] = self.callback_uri
++            
++        response = self._make_request('POST', url, params=params)
++        if response.status_code != 200:
++            raise TweepyException(f"Failed to fetch request token: {response.text}")
++            
++        # Parse response
++        token_data = urllib.parse.parse_qs(response.text)
++        self.token = {
++            'oauth_token': token_data.get('oauth_token', [None])[0],
++            'oauth_token_secret': token_data.get('oauth_token_secret', [None])[0]
++        }
++        
++        # Add extra fields if present
++        for key, values in token_data.items():
++            key_str = key if isinstance(key, str) else key.decode('utf-8')
++            if key_str not in self.token or self.token[key_str] is None:
++                self.token[key_str] = values[0] if values else None
++                
++        return self.token
++        
++    def authorization_url(self, url, **kwargs):
++        """Get authorization URL"""
++        if not self.token.get('oauth_token'):
++            raise TweepyException("No request token available")
++            
++        auth_url = f"{url}?oauth_token={self.token['oauth_token']}"
++        if self.callback_uri:
++            auth_url += f"&oauth_callback={urllib.parse.quote(self.callback_uri)}"
++            
++        return auth_url
++        
++    def fetch_access_token(self, url, verifier=None, **kwargs):
++        """Fetch access token"""
++        if verifier:
++            self._client.verifier = verifier
++        elif self.verifier:
++            self._client.verifier = self.verifier
++            
++        response = self._make_request('POST', url)
++        if response.status_code != 200:
++            raise TweepyException(f"Failed to fetch access token: {response.text}")
++            
++        # Parse response
++        token_data = urllib.parse.parse_qs(response.text)
++        self.token = {
++            'oauth_token': token_data.get('oauth_token', [None])[0],
++            'oauth_token_secret': token_data.get('oauth_token_secret', [None])[0]
++        }
++        
++        # Add extra fields if present
++        for key, values in token_data.items():
++            key_str = key if isinstance(key, str) else key.decode('utf-8')
++            if key_str not in self.token or self.token[key_str] is None:
++                self.token[key_str] = values[0] if values else None
++                
++        return self.token
++
++
++class OAuth2Session:
++    """Custom OAuth2Session implementation without requests-oauthlib dependency"""
++    
++    def __init__(self, client_id, client_secret=None, scope=None, redirect_uri=None, **kwargs):
++        self.client_id = client_id
++        self.client_secret = client_secret
++        self.scope = scope
++        self.redirect_uri = redirect_uri
++        self.state = None
++        self.code_verifier = None
++        self._client = OAuth2WebClient(client_id, **kwargs)
++        
++    def authorization_url(self, url, code_challenge=None, code_challenge_method=None, **kwargs):
++        """Get authorization URL"""
++        self.state = kwargs.get('state') or ''.join(random.choices(string.ascii_letters + string.digits, k=32))
++        
++        params = OrderedDict([
++            ('response_type', 'code'),
++            ('client_id', self.client_id),
++            ('redirect_uri', self.redirect_uri),
++            ('scope', ' '.join(self.scope) if isinstance(self.scope, list) else self.scope),
++            ('state', self.state)
++        ])
++        
++        if code_challenge:
++            params['code_challenge'] = code_challenge
++            params['code_challenge_method'] = code_challenge_method
++            
++        # Add any additional parameters
++        for key, value in kwargs.items():
++            if key not in params:
++                params[key] = value
++                
++        query_string = urllib.parse.urlencode(params)
++        authorization_url = f"{url}?{query_string}"
++        
++        return authorization_url, self.state
++        
++    def fetch_token(self, url, authorization_response=None, code=None, 
++                   include_client_id=None, auth=None, **kwargs):
++        """Fetch access token"""
++        # Extract code from authorization response if provided
++        if authorization_response and not code:
++            parsed = urllib.parse.urlparse(authorization_response)
++            query_params = urllib.parse.parse_qs(parsed.query)
++            code = query_params.get('code', [None])[0]
++            received_state = query_params.get('state', [None])[0]
++            
++            if received_state != self.state:
++                raise TweepyException("State mismatch in OAuth2 flow")
++                
++        if not code:
++            raise TweepyException("No authorization code provided")
++            
++        # Prepare token request
++        token_data = {
++            'grant_type': 'authorization_code',
++            'code': code,
++            'redirect_uri': self.redirect_uri
++        }
++        
++        if include_client_id:
++            token_data['client_id'] = self.client_id
++            
++        # Add any additional parameters
++        token_data.update(kwargs)
++        
++        # Make token request
++        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
++        if auth:
++            # Handle HTTPBasicAuth
++            if hasattr(auth, 'username') and hasattr(auth, 'password'):
++                credentials = f"{auth.username}:{auth.password}"
++                encoded_credentials = base64.b64encode(credentials.encode()).decode()
++                headers['Authorization'] = f"Basic {encoded_credentials}"
++        elif self.client_id and self.client_secret:
++            # Add client credentials to data if not using Authorization header
++            token_data['client_id'] = self.client_id
++            token_data['client_secret'] = self.client_secret
++            
++        response = requests.post(url, data=token_data, headers=headers)
++        if response.status_code != 200:
++            raise TweepyException(f"Failed to fetch access token: {response.text}")
++            
++        # Parse and store token
++        token_info = response.json()
++        self.token = token_info
++        return token_info
++        
++    def create_code_verifier(self, length=43):
++        """Create a code verifier for PKCE"""
++        self.code_verifier = secrets.token_urlsafe(length)
++        return self.code_verifier
++        
++    def create_code_challenge(self, code_verifier, method='S256'):
++        """Create a code challenge from verifier for PKCE"""
++        if method == 'S256':
++            sha256_hash = hashlib.sha256(code_verifier.encode()).digest()
++            return base64.urlsafe_b64encode(sha256_hash).rstrip(b'=').decode()
++        elif method == 'plain':
++            return code_verifier
++        else:
++            raise ValueError("Method must be 'S256' or 'plain'")
++
++log = logging.getLogger(__name__)
++
++
+ class OAuth1UserHandler:
+     """OAuth 1.0a User Context authentication handler
+ 

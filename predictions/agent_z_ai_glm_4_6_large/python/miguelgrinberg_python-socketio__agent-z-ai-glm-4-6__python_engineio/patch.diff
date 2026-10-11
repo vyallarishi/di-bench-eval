@@ -1,0 +1,42 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index cb7e925..e1eb6b5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,13 +14,15 @@ classifiers = [
+ ]
+ requires-python = ">=3.8"
+ dependencies = [
++    "bidict >= 0.21.0",
++    "python-engineio >= 4.8.0",
+ ]
+ 
+ [project.readme]
+ file = "README.md"
+ content-type = "text/markdown"
+ 
+-[project.urls]
++"python-engineio >= 3.13.0",
+ Homepage = "https://github.com/miguelgrinberg/python-socketio"
+ "Bug Tracker" = "https://github.com/miguelgrinberg/python-socketio/issues"
+ 
+@@ -28,9 +30,11 @@ Homepage = "https://github.com/miguelgrinberg/python-socketio"
+ client = [
+     "requests >= 2.21.0",
+     "websocket-client >= 0.54.0",
++    "python-engineio >= 3.13.0",
+ ]
+ asyncio_client = [
+     "aiohttp >= 3.4",
++    "python-engineio >= 3.13.0",
+ ]
+ docs = [
+     "sphinx",
+@@ -40,8 +44,6 @@ docs = [
+ zip-safe = false
+ include-package-data = true
+ 
+-[tool.setuptools.package-dir]
+-"" = "src"
+ 
+ [tool.setuptools.packages.find]
+ where = [

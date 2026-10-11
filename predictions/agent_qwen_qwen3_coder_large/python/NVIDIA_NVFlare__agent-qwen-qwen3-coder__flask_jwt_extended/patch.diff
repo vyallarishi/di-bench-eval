@@ -1,0 +1,227 @@
+diff --git a/nvflare/dashboard/application/__init__.py b/nvflare/dashboard/application/__init__.py
+index a100099..1f469e1 100644
+--- a/nvflare/dashboard/application/__init__.py
++++ b/nvflare/dashboard/application/__init__.py
+@@ -15,11 +15,8 @@
+ import os
+ 
+ from flask import Flask
+-from flask_jwt_extended import JWTManager
+ from flask_sqlalchemy import SQLAlchemy
+-
+-db = SQLAlchemy()
+-jwt = JWTManager()
++from .auth import jwt_required, create_access_token, get_jwt_identity, get_jwt, cleanup_expired_tokens
+ 
+ 
+ def init_app():
+@@ -29,7 +26,6 @@ def init_app():
+     app = Flask(__name__, static_url_path="", static_folder=static_folder)
+     app.config.from_object("nvflare.dashboard.config.Config")
+     db.init_app(app)
+-    jwt.init_app(app)
+     with app.app_context():
+         from . import clients, project, users
+         from .store import Store
+diff --git a/nvflare/dashboard/application/auth.py b/nvflare/dashboard/application/auth.py
+new file mode 100644
+index 0000000..49295da
+--- /dev/null
++++ b/nvflare/dashboard/application/auth.py
+@@ -0,0 +1,102 @@
++# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++import functools
++import hashlib
++import secrets
++import time
++from flask import request, jsonify, g
++from .store import Store
++
++# In-memory token storage (in production, use Redis or database)
++tokens = {}
++
++def generate_token():
++    """Generate a secure random token"""
++    return secrets.token_urlsafe(32)
++
++def create_access_token(identity, additional_claims=None):
++    """Create an access token for the user"""
++    token = generate_token()
++    expiration = time.time() + 24 * 60 * 60  # 24 hours
++    
++    token_data = {
++        'identity': identity,
++        'expiration': expiration,
++        'claims': additional_claims or {}
++    }
++    
++    tokens[token] = token_data
++    return token
++
++def verify_token(token):
++    """Verify if a token is valid and not expired"""
++    if token not in tokens:
++        return None
++    
++    token_data = tokens[token]
++    if time.time() > token_data['expiration']:
++        # Token expired, remove it
++        del tokens[token]
++        return None
++    
++    return token_data
++
++def get_jwt_identity():
++    """Get the identity from the current request context"""
++    return getattr(g, 'jwt_identity', None)
++
++def get_jwt():
++    """Get the JWT claims from the current request context"""
++    return getattr(g, 'jwt_claims', {})
++
++def jwt_required():
++    """Decorator to require JWT authentication"""
++    def decorator(f):
++        @functools.wraps(f)
++        def decorated_function(*args, **kwargs):
++            token = None
++            
++            # Check for token in Authorization header
++            auth_header = request.headers.get('Authorization')
++            if auth_header and auth_header.startswith('Bearer '):
++                token = auth_header.split(' ')[1]
++            
++            if not token:
++                return jsonify({"status": "unauthenticated"}), 401
++            
++            token_data = verify_token(token)
++            if not token_data:
++                return jsonify({"status": "unauthenticated"}), 401
++            
++            # Set the identity and claims in the request context
++            g.jwt_identity = token_data['identity']
++            g.jwt_claims = token_data['claims']
++            
++            return f(*args, **kwargs)
++        return decorated_function
++    return decorator
++
++def expired_token_loader(callback):
++    """Decorator for handling expired tokens"""
++    # We handle expired tokens in the jwt_required decorator
++    pass
++
++def cleanup_expired_tokens():
++    """Remove expired tokens from storage"""
++    current_time = time.time()
++    expired_tokens = [token for token, data in tokens.items() 
++                     if current_time > data['expiration']]
++    for token in expired_tokens:
++        del tokens[token]
+\ No newline at end of file
+diff --git a/nvflare/dashboard/application/clients.py b/nvflare/dashboard/application/clients.py
+index 80d83e6..46be2ee 100644
+--- a/nvflare/dashboard/application/clients.py
++++ b/nvflare/dashboard/application/clients.py
+@@ -14,11 +14,12 @@
+ 
+ from flask import current_app as app
+ from flask import jsonify, make_response, request
+-from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
+ 
++from .auth import jwt_required, get_jwt, get_jwt_identity
+ from .store import Store, check_role
+ 
+ 
++
+ @app.route("/api/v1/clients", methods=["POST"])
+ @jwt_required()
+ def create_one_client():
+diff --git a/nvflare/dashboard/application/project.py b/nvflare/dashboard/application/project.py
+index 763f219..90adcb6 100644
+--- a/nvflare/dashboard/application/project.py
++++ b/nvflare/dashboard/application/project.py
+@@ -15,16 +15,11 @@
+ 
+ from flask import current_app as app
+ from flask import jsonify, make_response, request
+-from flask_jwt_extended import create_access_token, get_jwt, jwt_required
+ 
+-from . import jwt
++from .auth import create_access_token, get_jwt, jwt_required
+ from .store import Store
+ 
+ 
+-@jwt.expired_token_loader
+-def my_expired_token_callback(jwt_header, jwt_payload):
+-    return jsonify({"status": "unauthenticated"}), 401
+-
+ 
+ @app.route("/application-config")
+ def application_config_html():
+diff --git a/nvflare/dashboard/application/users.py b/nvflare/dashboard/application/users.py
+index d7a6deb..841b83e 100644
+--- a/nvflare/dashboard/application/users.py
++++ b/nvflare/dashboard/application/users.py
+@@ -14,11 +14,12 @@
+ 
+ from flask import current_app as app
+ from flask import jsonify, make_response, request
+-from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
+ 
++from .auth import jwt_required, get_jwt, get_jwt_identity
+ from .store import Store, check_role
+ 
+ 
++
+ @app.route("/api/v1/users", methods=["POST"])
+ def create_one_user():
+     req = request.json
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..40394e2 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,11 +16,28 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    cryptography>=36.0.0
++    Flask==3.0.2
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =
+-    tenseal==0.3.12
+-PSI =
++flask_sqlalchemy
+     openmined.psi==1.1.1
+ PT =
+     torch

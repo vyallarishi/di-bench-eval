@@ -1,0 +1,116 @@
+diff --git a/localstack-core/localstack/dns/server.py b/localstack-core/localstack/dns/server.py
+index 046f0e0..aa14a7d 100644
+--- a/localstack-core/localstack/dns/server.py
++++ b/localstack-core/localstack/dns/server.py
+@@ -14,44 +14,18 @@ from typing import Iterable, Literal, Tuple
+ 
+ import psutil
+ from cachetools import TTLCache, cached
+-from dnslib import (
+-    AAAA,
+-    CNAME,
+-    MX,
+-    NS,
+-    QTYPE,
+-    RCODE,
+-    RD,
+-    RDMAP,
+-    RR,
+-    SOA,
+-    TXT,
+-    A,
+-    DNSHeader,
+-    DNSLabel,
+-    DNSQuestion,
+-    DNSRecord,
+-)
+-from dnslib.server import DNSHandler, DNSServer
+-from psutil._common import snicaddr
+-
+ import dns.flags
+ import dns.message
+ import dns.query
++import dns.rcode
++import dns.rdatatype
++import dns.rdtypes.ANY.base
+ from dns.exception import Timeout
++from psutil._common import snicaddr
++
++from psutil._common import snicaddr
+ 
+ # Note: avoid adding additional imports here, to avoid import issues when running the CLI
+-from localstack import config
+-from localstack.constants import LOCALHOST_HOSTNAME, LOCALHOST_IP
+-from localstack.dns.models import (
+-    AliasTarget,
+-    DnsServerProtocol,
+-    DynamicRecord,
+-    NameRecord,
+-    RecordType,
+-    SOARecord,
+-    TargetRecord,
+-)
+ from localstack.services.edge import run_module_as_sudo
+ from localstack.utils import iputils
+ from localstack.utils.net import Port, port_can_be_bound
+diff --git a/localstack-core/localstack/utils/net.py b/localstack-core/localstack/utils/net.py
+index c01c34f..fc15dff 100644
+--- a/localstack-core/localstack/utils/net.py
++++ b/localstack-core/localstack/utils/net.py
+@@ -8,7 +8,7 @@ from typing import Any, List, MutableMapping, NamedTuple, Optional, Union
+ from urllib.parse import urlparse
+ 
+ import dns.resolver
+-from dnslib import DNSRecord
++import dns.message
+ 
+ from localstack import config, constants
+ 
+@@ -497,11 +497,17 @@ def send_dns_query(
+     qtype: str = "A",
+     timeout: float = 1.0,
+     tcp: bool = False,
+-) -> DNSRecord:
++) -> dns.message.Message:
+     LOG.debug("querying %s:%d for name %s", ip_address, port, name)
+-    request = DNSRecord.question(qname=name, qtype=qtype)
+-    reply_bytes = request.send(dest=ip_address, port=port, tcp=tcp, timeout=timeout, ipv6=False)
+-    return DNSRecord.parse(reply_bytes)
++    resolver = dns.resolver.Resolver()
++    resolver.nameservers = [ip_address]
++    resolver.port = port
++    resolver.timeout = timeout
++    resolver.lifetime = timeout
++    answer = resolver.resolve(name, qtype)
++    # Create a simple response message
++    response = dns.message.make_response(answer.response)
++    return response
+ 
+ 
+ dynamic_port_range = PortRange(DYNAMIC_PORT_RANGE_START, DYNAMIC_PORT_RANGE_END)
+diff --git a/pyproject.toml b/pyproject.toml
+index c8d45fd..526f7ad 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,21 @@ authors = [
+ description = "The core library and runtime of LocalStack"
+ requires-python = ">=3.8"
+ dependencies = [
++    "build",
++    "click>=7.1",
++    "cachetools>=5.0",
++    "cryptography",
++    "dill==0.3.6",
++    "dnslib>=0.9.10",
++    "dnspython>=1.16.0",
++    "plux>=1.10",
++    "psutil>=5.4.8",
++    "python-dotenv>=0.19.1",
++    "pyyaml>=5.1",
++    "rich>=12.3.0",
++    "requests>=2.20.0",
++    "semver>=2.10",
++    "tailer>=0.4.1",
+ ]
+ dynamic = ["version"]
+ classifiers = [

@@ -1,0 +1,212 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c7b34c0..b03bf44 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,7 +29,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "werkzeug",
++    "Flask",
++    "markupsafe",
++    "Pygments>=2.12.0",
++    "xstatic",
++    "xstatic-bootbox>=5.4.0",
++    "xstatic-bootstrap>=4.0.0.0,<5.0.0.0",
++    "xstatic-font-awesome<5.0",
++    "xstatic-jquery",
++    "xstatic-jquery-ui",
++    "xstatic-jquery-file-upload",
++    "xstatic-pygments",
++]
+ 
+ [project.scripts]
+ bepasty-server = "bepasty.cli.server:main"
+diff --git a/src/bepasty/bepasty_xstatic.py b/src/bepasty/bepasty_xstatic.py
+index 6bcb3bd..2cfd464 100644
+--- a/src/bepasty/bepasty_xstatic.py
++++ b/src/bepasty/bepasty_xstatic.py
+@@ -1,8 +1,5 @@
+-from xstatic.main import XStatic
+-
+-# names below must be package names
++# XStatic packaging - mapping of package names to module names
+ mod_names = [
+-    'asciinema_player',
+     'bootbox',
+     'bootstrap',
+     'font_awesome',
+diff --git a/src/bepasty/static/app/css/asciinema-player.css b/src/bepasty/static/app/css/asciinema-player.css
+new file mode 100644
+index 0000000..24832a8
+--- /dev/null
++++ b/src/bepasty/static/app/css/asciinema-player.css
+@@ -0,0 +1,42 @@
++/**
++ * Minimal asciinema player CSS replacement
++ * Basic styling for our custom asciinema player
++ */
++
++.asciinema-player-container {
++    border: 1px solid #ccc;
++    border-radius: 4px;
++    padding: 20px;
++    background: #f9f9f9;
++    font-family: monospace;
++    text-align: center;
++    margin: 10px 0;
++}
++
++.asciinema-player-container a {
++    display: inline-block;
++    padding: 10px 20px;
++    background: #007cba;
++    color: white;
++    text-decoration: none;
++    border-radius: 3px;
++    margin: 10px 0;
++    transition: background-color 0.2s;
++}
++
++.asciinema-player-container a:hover {
++    background: #005a87;
++}
++
++.asciinema-player-container p {
++    margin: 10px 0;
++    color: #333;
++}
++
++.asciinema-error {
++    color: #d32f2f;
++    padding: 10px;
++    border: 1px solid #d32f2f;
++    border-radius: 3px;
++    background: #ffebee;
++}
+\ No newline at end of file
+diff --git a/src/bepasty/static/app/js/asciinema-player.js b/src/bepasty/static/app/js/asciinema-player.js
+new file mode 100644
+index 0000000..c722f53
+--- /dev/null
++++ b/src/bepasty/static/app/js/asciinema-player.js
+@@ -0,0 +1,95 @@
++/**
++ * Minimal asciinema player replacement
++ * Provides basic functionality to display .cast files
++ */
++(function() {
++    'use strict';
++
++    function AsciinemaPlayer(element, options) {
++        this.element = element;
++        this.options = options || {};
++        this.src = options.src;
++        this.title = options.title || '';
++        this.theme = options.theme || 'asciinema';
++        this.autoplay = options.autoplay || false;
++        
++        this.init();
++    }
++
++    AsciinemaPlayer.prototype.init = function() {
++        if (!this.src) {
++            this.element.innerHTML = '<div class="asciinema-error">No source file specified</div>';
++            return;
++        }
++
++        // Create a simple container that shows download link and basic info
++        var container = document.createElement('div');
++        container.className = 'asciinema-player-container';
++        container.style.cssText = [
++            'border: 1px solid #ccc;',
++            'border-radius: 4px;',
++            'padding: 20px;',
++            'background: #f9f9f9;',
++            'font-family: monospace;',
++            'text-align: center;'
++        ].join(' ');
++
++        var title = this.title || 'asciinema recording';
++        var downloadLink = document.createElement('a');
++        downloadLink.href = this.src;
++        downloadLink.textContent = 'Download ' + title;
++        downloadLink.style.cssText = [
++            'display: inline-block;',
++            'padding: 10px 20px;',
++            'background: #007cba;',
++            'color: white;',
++            'text-decoration: none;',
++            'border-radius: 3px;',
++            'margin: 10px 0;'
++        ].join(' ');
++
++        var info = document.createElement('div');
++        info.innerHTML = [
++            '<p><strong>' + title + '</strong></p>',
++            '<p>This is an asciinema recording (.cast file).</p>',
++            '<p>Download the file to view it with the asciinema player.</p>'
++        ].join('');
++        info.style.cssText = 'margin-bottom: 15px;';
++
++        container.appendChild(info);
++        container.appendChild(downloadLink);
++        
++        this.element.innerHTML = '';
++        this.element.appendChild(container);
++    };
++
++    // Auto-initialize from <asciinema-player> tags
++    function init() {
++        var players = document.getElementsByTagName('asciinema-player');
++        for (var i = 0; i < players.length; i++) {
++            var element = players[i];
++            var src = element.getAttribute('src');
++            var title = element.getAttribute('title') || '';
++            var theme = element.getAttribute('theme') || 'asciinema';
++            var autoplay = element.hasAttribute('autoplay');
++            
++            new AsciinemaPlayer(element, {
++                src: src,
++                title: title,
++                theme: theme,
++                autoplay: autoplay
++            });
++        }
++    }
++
++    // Initialize when DOM is ready
++    if (document.readyState === 'loading') {
++        document.addEventListener('DOMContentLoaded', init);
++    } else {
++        init();
++    }
++
++    // Export for potential manual use
++    window.AsciinemaPlayer = AsciinemaPlayer;
++
++})();
+\ No newline at end of file
+diff --git a/src/bepasty/templates/display.html b/src/bepasty/templates/display.html
+index 2a7ab79..945b091 100644
+--- a/src/bepasty/templates/display.html
++++ b/src/bepasty/templates/display.html
+@@ -99,14 +99,11 @@
+ <!-- Pygments styles -->
+ <link rel="stylesheet" href="{{ url_for('bepasty.xstatic', name='pygments', filename='css/colorful.css') }}" type="text/css">
+ <!-- asciinema styles -->
+-<link rel="stylesheet" href="{{ url_for('bepasty.xstatic', name='asciinema_player', filename='asciinema-player.css') }}" type="text/css">
+-{% endblock %}
++<link rel="stylesheet" href="{{ url_for('static', filename='app/css/asciinema-player.css') }}" type="text/css">
+ 
+ {% block extra_script %}
+ <script src="{{ url_for('bepasty.xstatic', name='bootbox', filename='bootbox.min.js') }}" type="text/javascript"></script>
+-<script src="{{ url_for('bepasty.xstatic', name='asciinema_player', filename='asciinema-player.js') }}" type="text/javascript"></script>
+-<script src="{{ url_for('static', filename='app/js/utils.js') }}" type="text/javascript"></script>
+-{% if may(MODIFY) %}
++<script src="{{ url_for('static', filename='app/js/asciinema-player.js') }}" type="text/javascript"></script>
+ <script>
+     <!-- function that used by utils.js -->
+     function contenttype_autocomplete(modal_box) {

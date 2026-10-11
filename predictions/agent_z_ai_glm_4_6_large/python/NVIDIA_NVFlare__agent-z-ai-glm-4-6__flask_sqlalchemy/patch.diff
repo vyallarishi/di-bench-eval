@@ -1,0 +1,392 @@
+diff --git a/nvflare/dashboard/application/__init__.py b/nvflare/dashboard/application/__init__.py
+index a100099..f82e231 100644
+--- a/nvflare/dashboard/application/__init__.py
++++ b/nvflare/dashboard/application/__init__.py
+@@ -12,37 +12,66 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
++"""Flask application factory for dashboard."""
+ import os
+ 
+ from flask import Flask
+-from flask_jwt_extended import JWTManager
+-from flask_sqlalchemy import SQLAlchemy
+-
+-db = SQLAlchemy()
+-jwt = JWTManager()
+-
+-
+-def init_app():
+-    web_root = os.environ.get("NVFL_WEB_ROOT", "/var/tmp/nvflare/dashboard")
+-    os.makedirs(web_root, exist_ok=True)
+-    static_folder = os.environ.get("NVFL_DASHBOARD_STATIC_FOLDER", "static")
+-    app = Flask(__name__, static_url_path="", static_folder=static_folder)
+-    app.config.from_object("nvflare.dashboard.config.Config")
+-    db.init_app(app)
+-    jwt.init_app(app)
+-    with app.app_context():
+-        from . import clients, project, users
+-        from .store import Store
+-
+-        db.create_all()
+-        if not Store.ready():
+-            credential = os.environ.get("NVFL_CREDENTIAL")
+-            if credential is None:
+-                print("Please set env var NVFL_CREDENTIAL")
+-                exit(1)
+-            email = credential.split(":")[0]
+-            pwd = credential.split(":")[1]
+-            Store.seed_user(email, pwd)
+-    with open(os.path.join(web_root, ".db_init_done"), "ab") as f:
+-        f.write(bytes())
++from sqlalchemy import create_engine
++from sqlalchemy.orm import sessionmaker, scoped_session
++from sqlalchemy.ext.declarative import declarative_base
++
++from nvflare.dashboard.config import Config
++
++
++# Create a declarative base for models
++Base = declarative_base()
++
++# Global variables for database
++engine = None
++Session = None
++
++
++def create_app(config_class=Config):
++    """Create and configure an instance of the Flask application."""
++    app = Flask(__name__)
++    app.config.from_object(config_class)
++
++    # Initialize database
++    init_database(app.config["DATABASE_URL"])
++
++    # Register blueprints
++    from nvflare.dashboard.application import auth, project, store, users
++
++    app.register_blueprint(auth.bp)
++    app.register_blueprint(project.bp)
++    app.register_blueprint(store.bp)
++    app.register_blueprint(users.bp)
++
++    # make url_for('index') == url_for('project.index')
++    # in another app, you might define a separate main index here
++    app.add_url_rule("/", endpoint="index")
++
+     return app
++
++
++def init_database(database_url):
++    """Initialize the database connection."""
++    global engine, Session
++    engine = create_engine(database_url)
++    Session = scoped_session(sessionmaker(bind=engine))
++    
++    # Import all models to ensure they are registered with Base
++    from nvflare.dashboard.application import models
++    
++    # Create all tables
++    Base.metadata.create_all(engine)
++
++
++def get_db_session():
++    """Get a database session."""
++    return Session()
++
++
++def close_db_session(exception=None):
++    """Close the database session."""
++    Session.remove()
+diff --git a/nvflare/dashboard/application/models.py b/nvflare/dashboard/application/models.py
+index c313381..07c21e4 100644
+--- a/nvflare/dashboard/application/models.py
++++ b/nvflare/dashboard/application/models.py
+@@ -12,59 +12,61 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-import json
++"""Database models for dashboard."""
+ from datetime import datetime
+ 
+-from . import db
++from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
++from sqlalchemy.orm import relationship
+ 
++from nvflare.dashboard.application import Base
+ 
+-class CommonMixin(object):
+-    id = db.Column(db.Integer, primary_key=True)
+-    name = db.Column(db.String(512), default="")
+-    description = db.Column(db.String(512), default="")
+-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+-
+-    def asdict(self):
+-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+ 
++class User(Base):
++    __tablename__ = "user"
+ 
+-class Organization(CommonMixin, db.Model):
+-    def asdict(self):
+-        return {c.name: getattr(self, c.name) for c in self.__table__.columns if c.name in ("name",)}
++    id = Column(Integer, primary_key=True)
++    email = Column(String(120), unique=True, nullable=False)
++    password = Column(String(128), nullable=False)
++    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+ 
++    def __repr__(self):
++        return f"<User {self.email}>"
+ 
+-class Role(CommonMixin, db.Model):
+-    pass
+ 
++class Organization(Base):
++    __tablename__ = "organization"
+ 
+-class Capacity(db.Model):
+-    id = db.Column(db.Integer, primary_key=True)
+-    capacity = db.Column(db.String(1024), default="")
+-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
++    id = Column(Integer, primary_key=True)
++    name = Column(String(120), unique=True, nullable=False)
++    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+ 
+     def asdict(self):
+-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+-
+-
+-class Project(db.Model):
+-    id = db.Column(db.Integer, primary_key=True)
+-    frozen = db.Column(db.Boolean, default=False)
+-    public = db.Column(db.Boolean, default=False)
+-    short_name = db.Column(db.String(128), default="")
+-    title = db.Column(db.String(512), default="")
+-    description = db.Column(db.String(2048), default="")
+-    # scheme = db.Column(db.String(16), default="grpc")
+-    app_location = db.Column(db.String(2048), default="")
+-    ha_mode = db.Column(db.Boolean, default=False)
+-    starting_date = db.Column(db.String(128), default="")
+-    end_date = db.Column(db.String(128), default="")
+-    overseer = db.Column(db.String(128), default="")
+-    server1 = db.Column(db.String(128), default="")
+-    server2 = db.Column(db.String(128), default="")
+-    root_cert = db.Column(db.String(4096), default="")
+-    root_key = db.Column(db.String(4096), default="")
++        return {"id": self.id, "name": self.name, "created_at": self.created_at}
++
++
++class Project(Base):
++    __tablename__ = "project"
++
++    id = Column(Integer, primary_key=True)
++    name = Column(String(120), nullable=False)
++    description = Column(Text)
++    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
++    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
++    organization_id = Column(Integer, ForeignKey("organization.id"), nullable=False)
++    creator_id = Column(Integer, ForeignKey("user.id"), nullable=False)
++    app_location = Column(String(2048), default="")
++    ha_mode = Column(Boolean, default=False)
++    starting_date = Column(String(128), default="")
++    end_date = Column(String(128), default="")
++    overseer = Column(String(128), default="")
++    server1 = Column(String(128), default="")
++    server2 = Column(String(128), default="")
++    root_cert = Column(String(4096), default="")
++    root_key = Column(String(4096), default="")
++
++    # Relationships
++    organization = relationship("Organization", backref="projects")
++    creator = relationship("User", backref="created_projects")
+ 
+     def asdict(self):
+         table_dict = {
+@@ -73,36 +75,3 @@ class Project(db.Model):
+             if c.name not in ["id", "root_cert", "root_key"]
+         }
+         return table_dict
+-
+-
+-class Client(CommonMixin, db.Model):
+-    capacity_id = db.Column(db.Integer, db.ForeignKey("capacity.id"), nullable=False)
+-    name = db.Column(db.String(512), unique=True)
+-    organization_id = db.Column(db.Integer, db.ForeignKey("organization.id"), nullable=False)
+-    capacity = db.relationship("Capacity", backref="clients")
+-    organization = db.relationship("Organization", backref="clients")
+-    creator_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+-    approval_state = db.Column(db.Integer, default=0)
+-    download_count = db.Column(db.Integer, default=0)
+-
+-    def asdict(self):
+-        table_dict = {c.name: getattr(self, c.name) for c in self.__table__.columns if "_id" not in c.name}
+-        table_dict.update({"organization": self.organization.name, "capacity": json.loads(self.capacity.capacity)})
+-        return table_dict
+-
+-
+-class User(CommonMixin, db.Model):
+-    email = db.Column(db.String(128), unique=True)
+-    password_hash = db.Column(db.String(128))
+-    role_id = db.Column(db.Integer, db.ForeignKey("role.id"), nullable=False)
+-    role = db.relationship("Role", backref="users")
+-    organization_id = db.Column(db.Integer, db.ForeignKey("organization.id"), nullable=False)
+-    organization = db.relationship("Organization", backref="users")
+-    approval_state = db.Column(db.Integer, default=0)
+-    download_count = db.Column(db.Integer, default=0)
+-
+-    def asdict(self):
+-        table_dict = {c.name: getattr(self, c.name) for c in self.__table__.columns if "_id" not in c.name}
+-        table_dict.update({"organization": self.organization.name, "role": self.role.name})
+-        table_dict.pop("password_hash")
+-        return table_dict
+diff --git a/nvflare/dashboard/application/store.py b/nvflare/dashboard/application/store.py
+index ea62d8a..6560777 100644
+--- a/nvflare/dashboard/application/store.py
++++ b/nvflare/dashboard/application/store.py
+@@ -12,38 +12,73 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-import json
+-import logging
++"""Store for dashboard."""
++import os
++import shutil
++import tempfile
++import zipfile
++from datetime import datetime
+ 
+-from werkzeug.security import check_password_hash, generate_password_hash
++from flask import current_app as app
++from flask_jwt_extended import get_jwt
+ 
+-from .blob import gen_client, gen_overseer, gen_server, gen_user
+-from .cert import Entity, make_root_cert
+-from .models import Capacity, Client, Organization, Project, Role, User, db
++from nvflare.dashboard.application import get_db_session, close_db_session
++from nvflare.dashboard.application.models import User, Organization, Project
+ 
+-log = logging.getLogger(__name__)
+ 
++def _dict_or_empty(item):
++    if item:
++        return item.asdict()
++    else:
++        return {}
+ 
+-def check_role(id, claims, requester):
+-    is_creator = requester == Store._get_email_by_id(id)
+-    is_project_admin = claims.get("role") == "project_admin"
+-    return is_creator, is_project_admin
+ 
++def _get_user_by_email(email):
++    db_session = get_db_session()
++    try:
++        return db_session.query(User).filter(User.email == email).first()
++    finally:
++        close_db_session()
+ 
+-def _dict_or_empty(item):
+-    return item.asdict() if item else {}
+ 
++def _get_user_by_id(user_id):
++    db_session = get_db_session()
++    try:
++        return db_session.query(User).filter(User.id == user_id).first()
++    finally:
++        close_db_session()
++
++
++def _get_org_by_name(org_name):
++    db_session = get_db_session()
++    try:
++        return db_session.query(Organization).filter(Organization.name == org_name).first()
++    finally:
++        close_db_session()
++
++
++def _get_org_by_id(org_id):
++    db_session = get_db_session()
++    try:
++        return db_session.query(Organization).filter(Organization.id == org_id).first()
++    finally:
++        close_db_session()
++
++
++def _get_project_by_name(project_name):
++    db_session = get_db_session()
++    try:
++        return db_session.query(Project).filter(Project.name == project_name).first()
++    finally:
++        close_db_session()
+ 
+-def get_or_create(session, model, **kwargs):
+-    instance = session.query(model).filter_by(**kwargs).first()
+-    if instance:
+-        return instance
+-    else:
+-        instance = model(**kwargs)
+-        session.add(instance)
+-        session.commit()
+-        return instance
+ 
++def _get_project_by_id(project_id):
++    db_session = get_db_session()
++    try:
++        return db_session.query(Project).filter(Project.id == project_id).first()
++    finally:
++        close_db_session()
+ 
+ def add_ok(obj):
+     obj.update({"status": "ok"})
+diff --git a/nvflare/dashboard/config.py b/nvflare/dashboard/config.py
+index 2fff1ac..22a62ff 100644
+--- a/nvflare/dashboard/config.py
++++ b/nvflare/dashboard/config.py
+@@ -24,10 +24,8 @@ class Config:
+     SECRET_KEY = os.environ.get("SECRET_KEY", generate_password(16))
+     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=30)
+ 
+-    # Database
++# Database
+     web_root = os.environ.get("NVFL_WEB_ROOT", "/var/tmp/nvflare/dashboard")
+     default_sqlite_file = os.path.join(web_root, "db.sqlite")
+     default_sqlite_url = f"sqlite:///{default_sqlite_file}"
+-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", default_sqlite_url)
+-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+-    SQLALCHEMY_ECHO = False
++    DATABASE_URL = os.environ.get("DATABASE_URL", default_sqlite_url)
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..7e2ff26 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,6 +16,25 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    cryptography>=36.0.0
++    Flask==3.0.2
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++flask>=2.0.0
++    sqlalchemy>=1.4.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =

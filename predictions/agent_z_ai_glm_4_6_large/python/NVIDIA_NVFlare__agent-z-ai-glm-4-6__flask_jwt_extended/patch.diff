@@ -1,0 +1,58 @@
+diff --git a/nvflare/dashboard/application/__init__.py b/nvflare/dashboard/application/__init__.py
+index a100099..78ec3ed 100644
+--- a/nvflare/dashboard/application/__init__.py
++++ b/nvflare/dashboard/application/__init__.py
+@@ -13,13 +13,12 @@
+ # limitations under the License.
+ 
+ import os
++from datetime import timedelta
+ 
+-from flask import Flask
+-from flask_jwt_extended import JWTManager
++from flask import Flask, session
+ from flask_sqlalchemy import SQLAlchemy
+ 
+ db = SQLAlchemy()
+-jwt = JWTManager()
+ 
+ 
+ def init_app():
+diff --git a/setup.cfg b/setup.cfg
+index 0a057d2..b63d2b4 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,6 +16,24 @@ classifiers =
+ zip_safe = True
+ python_requires = >= 3.8
+ install_requires =
++    cryptography>=36.0.0
++    Flask==3.0.2
++    Werkzeug==3.0.3
++    Flask-JWT-Extended==4.6.0
++    Flask-SQLAlchemy==3.1.1
++    SQLAlchemy==2.0.16
++    grpcio>=1.62.1
++    gunicorn>=22.0.0
++    numpy<=1.26.4
++    protobuf>=4.24.4
++    psutil>=5.9.1
++    PyYAML>=6.0
++    requests>=2.28.0
++    six>=1.15.0
++    msgpack>=1.0.3
++    docker>=6.0
++    websockets>=10.4
++    pyhocon
+ 
+ [options.extras_require]
+ HE =
+@@ -23,7 +41,7 @@ HE =
+ PSI =
+     openmined.psi==1.1.1
+ PT =
+-    torch
++flask>=2.0
+     torchvision
+ SKLEARN =
+     scikit-learn

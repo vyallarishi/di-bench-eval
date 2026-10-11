@@ -1,0 +1,51 @@
+diff --git a/adaptive/learner/average_learner1D.py b/adaptive/learner/average_learner1D.py
+index 9678b4f..d9b7b65 100644
+--- a/adaptive/learner/average_learner1D.py
++++ b/adaptive/learner/average_learner1D.py
+@@ -10,7 +10,6 @@ from typing import Callable
+ 
+ import numpy as np
+ import scipy.stats
+-from sortedcollections import ItemSortedDict
+ from sortedcontainers import SortedDict
+ 
+ from adaptive.learner.learner1D import Learner1D, _get_intervals
+@@ -615,10 +614,6 @@ class AverageLearner1D(Learner1D):
+         return p.redim(x={"range": plot_bounds})
+ 
+ 
+-def decreasing_dict() -> ItemSortedDict:
++def decreasing_dict() -> dict:
+     """This initialization orders the dictionary from large to small values"""
+-
+-    def sorting_rule(key, value):
+-        return -value
+-
+-    return ItemSortedDict(sorting_rule, SortedDict())
++    return {}
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..33d93a2 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,13 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "sortedcontainers >= 2.0",
++    "cloudpickle",
++    "loky >= 2.9",
++    "typing_extensions; python_version < '3.10'",
++    "versioningit",
+ ]
+ 
+ [project.optional-dependencies]
+@@ -34,7 +41,6 @@ notebook = [
+     "ipykernel>=4.8.0",      # because https://github.com/ipython/ipykernel/issues/274 and https://github.com/ipython/ipykernel/issues/263
+     "jupyter_client>=5.2.2", # because https://github.com/jupyter/jupyter_client/pull/314
+     "holoviews>=1.9.1",
+-    "ipywidgets",
+     "bokeh",
+     "pandas",
+     "matplotlib",

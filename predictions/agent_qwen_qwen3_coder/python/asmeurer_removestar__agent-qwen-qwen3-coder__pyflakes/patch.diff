@@ -1,0 +1,192 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c761b0c..74e40e0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,9 +27,8 @@ classifiers = [
+   "Programming Language :: Python :: 3.10",
+   "Programming Language :: Python :: 3.11",
+   "Programming Language :: Python :: 3.12",
++dependencies = [
+ ]
+-dependencies = []
+-
+ [project.optional-dependencies]
+ nb = [
+   "nbformat",
+diff --git a/removestar/__main__.py b/removestar/__main__.py
+index 0e06c04..1e41b4d 100644
+--- a/removestar/__main__.py
++++ b/removestar/__main__.py
+@@ -2,11 +2,6 @@
+ """
+ Tool to automatically replace "import *" imports with explicit imports
+ 
+-Requires pyflakes.
+-
+-Usage:
+-
+-$ removestar file.py # Shows diff but does not edit file.py
+ 
+ $ removestar -i file.py # Edits file.py in-place
+ 
+diff --git a/removestar/removestar.py b/removestar/removestar.py
+index ad325db..9045601 100644
+--- a/removestar/removestar.py
++++ b/removestar/removestar.py
+@@ -1,22 +1,126 @@
++"""
++Functions to remove star imports and replace them with explicit imports.
++"""
++
+ import ast
+-import builtins
+ import contextlib
+ import os
+-import re
+ import sys
+-from functools import lru_cache
+-from pathlib import Path
+-
+-from pyflakes.checker import _MAGIC_GLOBALS, Checker, ModuleScope
+-from pyflakes.messages import ImportStarUsage, ImportStarUsed
++from collections import defaultdict
+ 
+ with contextlib.suppress(ImportError):
+     from nbconvert import NotebookExporter
+ 
+ from .output import green, yellow
+ 
+-# quit and exit are not included in old versions of pyflakes
+-MAGIC_GLOBALS = set(_MAGIC_GLOBALS).union({"quit", "exit"})
++# Magic globals similar to pyflakes
++MAGIC_GLOBALS = {
++    "__name__", "__doc__", "__package__", "__loader__", "__spec__",
++    "__annotations__", "__builtins__", "__file__", "__cached__",
++    "quit", "exit"
++}
++
++class ImportStarUsed:
++    """Message indicating a star import was used."""
++    def __init__(self, filename, lineno, modname):
++        self.filename = filename
++        self.lineno = lineno
++        self.message_args = (modname,)
++
++class ImportStarUsage:
++    """Message indicating a name from a star import was used."""
++    def __init__(self, filename, lineno, name, *modules):
++        self.filename = filename
++        self.lineno = lineno
++        self.message_args = (name,) + modules
++
++class ModuleScope:
++    """Represents a module scope for tracking names."""
++    def __init__(self):
++        self.names = set()
++
++class Checker:
++    """Custom checker to replace pyflakes functionality."""
++    
++    def __init__(self, tree, filename=""):
++        self.tree = tree
++        self.filename = filename
++        self.messages = []
++        self.scopes = [ModuleScope()]
++        self.imported_names = defaultdict(set)  # module -> set of names
++        self.star_imports = set()  # set of modules imported with *
++        self.used_names = {}  # name -> set of possible modules
++        
++        self._analyze_tree()
++    
++    def _analyze_tree(self):
++        """Analyze the AST tree to find star imports and used names."""
++        visitor = StarImportVisitor()
++        visitor.visit(self.tree)
++        
++        # Record star imports
++        for lineno, modname in visitor.star_imports:
++            self.messages.append(ImportStarUsed(self.filename, lineno, modname))
++            self.star_imports.add(modname)
++        
++        # Record name usages
++        for lineno, name in visitor.name_usages:
++            # For now, we don't know which module the name comes from,
++            # so we'll handle this during the fixing process
++            self.messages.append(ImportStarUsage(self.filename, lineno, name))
++
++class StarImportVisitor(ast.NodeVisitor):
++    """AST visitor to find star imports and name usages."""
++    
++    def __init__(self):
++        self.star_imports = []  # (lineno, modname)
++        self.name_usages = []   # (lineno, name)
++        self.imported_names = set()
++        
++    def visit_ImportFrom(self, node):
++        """Handle 'from module import *' statements."""
++        if node.names and node.names[0].name == '*':
++            self.star_imports.append((node.lineno, node.module))
++        else:
++            # Track explicitly imported names
++            for alias in node.names:
++                self.imported_names.add(alias.asname or alias.name)
++        self.generic_visit(node)
++    
++    def visit_Import(self, node):
++        """Handle regular import statements."""
++        for alias in node.names:
++            self.imported_names.add(alias.asname or alias.name)
++        self.generic_visit(node)
++    
++    def visit_Name(self, node):
++        """Handle name references."""
++        if isinstance(node.ctx, ast.Load):
++            # This is a name usage (not a definition)
++            # Skip if it's a built-in or explicitly imported name
++            if node.id not in MAGIC_GLOBALS:
++                self.name_usages.append((node.lineno, node.id))
++        self.generic_visit(node)
++    
++    def visit_FunctionDef(self, node):
++        """Handle function definitions to track local variables."""
++        # Add function name to imported names to avoid treating it as usage
++        self.imported_names.add(node.name)
++        self.generic_visit(node)
++    
++    def visit_ClassDef(self, node):
++        """Handle class definitions to track local variables."""
++        # Add class name to imported names to avoid treating it as usage
++        self.imported_names.add(node.name)
++        self.generic_visit(node)
++    
++    def visit_Assign(self, node):
++        """Handle assignments to track local variables."""
++        # For simple assignments like 'x = 1', add target names
++        for target in node.targets:
++            if isinstance(target, ast.Name):
++                self.imported_names.add(target.id)
++        self.generic_visit(node)
+ 
+ 
+ def names_to_replace(checker):
+@@ -36,6 +140,8 @@ def star_imports(checker):
+     ]
+ 
+ 
++
++
+ def fix_code(
+     code,
+     *,
+diff --git a/tests/test_removestar.py b/tests/test_removestar.py
+index 7da5660..2fac061 100644
+--- a/tests/test_removestar.py
++++ b/tests/test_removestar.py
+@@ -6,7 +6,6 @@ from filecmp import dircmp
+ from pathlib import Path
+ 
+ import pytest
+-from pyflakes.checker import Checker
+ 
+ from removestar.output import get_colored_diff, green, red, yellow
+ from removestar.removestar import (

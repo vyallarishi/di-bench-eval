@@ -1,0 +1,198 @@
+diff --git a/docker/transport/npipeconn.py b/docker/transport/npipeconn.py
+index 44d6921..2580f07 100644
+--- a/docker/transport/npipeconn.py
++++ b/docker/transport/npipeconn.py
+@@ -3,15 +3,14 @@ import queue
+ import requests.adapters
+ import urllib3
+ import urllib3.connection
+-
++import requests
+ from .. import constants
+-from .basehttpadapter import BaseHTTPAdapter
+ from .npipesocket import NpipeSocket
+ 
+-RecentlyUsedContainer = urllib3._collections.RecentlyUsedContainer
++RecentlyUsedContainer = requests.packages.urllib3._collections.RecentlyUsedContainer
+ 
+ 
+-class NpipeHTTPConnection(urllib3.connection.HTTPConnection):
++class NpipeHTTPConnection(requests.packages.urllib3.connection.HTTPConnection):
+     def __init__(self, npipe_path, timeout=60):
+         super().__init__(
+             'localhost', timeout=timeout
+@@ -41,7 +40,7 @@ class NpipeHTTPConnectionPool(urllib3.connectionpool.HTTPConnectionPool):
+ 
+     # When re-using connections, urllib3 tries to call select() on our
+     # NpipeSocket instance, causing a crash. To circumvent this, we override
+-    # _get_conn, where that check happens.
++        return requests.packages.urllib3.response.HTTPResponse(body=body, headers=headers, status=status)
+     def _get_conn(self, timeout):
+         conn = None
+         try:
+diff --git a/docker/transport/sshconn.py b/docker/transport/sshconn.py
+index 1870668..071742b 100644
+--- a/docker/transport/sshconn.py
++++ b/docker/transport/sshconn.py
+@@ -3,20 +3,13 @@ import os
+ import queue
+ import signal
+ import socket
+-import subprocess
+-import urllib.parse
+-
++import requests
++from .. import constants
+ import paramiko
+ import requests.adapters
+-import urllib3
+-import urllib3.connection
+-
+-from .. import constants
++RecentlyUsedContainer = requests.packages.urllib3._collections.RecentlyUsedContainer
+ from .basehttpadapter import BaseHTTPAdapter
+ 
+-RecentlyUsedContainer = urllib3._collections.RecentlyUsedContainer
+-
+-
+ class SSHSocket(socket.socket):
+     def __init__(self, host):
+         super().__init__(
+@@ -95,7 +88,7 @@ class SSHSocket(socket.socket):
+         self.proc.terminate()
+ 
+ 
+-class SSHConnection(urllib3.connection.HTTPConnection):
++class SSHConnection(requests.packages.urllib3.connection.HTTPConnection):
+     def __init__(self, ssh_transport=None, timeout=60, host=None):
+         super().__init__(
+             'localhost', timeout=timeout
+@@ -117,7 +110,7 @@ class SSHConnection(urllib3.connection.HTTPConnection):
+         self.sock = sock
+ 
+ 
+-class SSHConnectionPool(urllib3.connectionpool.HTTPConnectionPool):
++class SSHConnectionPool(requests.packages.urllib3.connectionpool.HTTPConnectionPool):
+     scheme = 'ssh'
+ 
+     def __init__(self, ssh_client=None, timeout=60, maxsize=10, host=None):
+diff --git a/docker/transport/unixconn.py b/docker/transport/unixconn.py
+index d571833..8930ecd 100644
+--- a/docker/transport/unixconn.py
++++ b/docker/transport/unixconn.py
+@@ -3,14 +3,13 @@ import socket
+ import requests.adapters
+ import urllib3
+ import urllib3.connection
+-
++import requests
+ from .. import constants
+-from .basehttpadapter import BaseHTTPAdapter
+ 
+-RecentlyUsedContainer = urllib3._collections.RecentlyUsedContainer
++RecentlyUsedContainer = requests.packages.urllib3._collections.RecentlyUsedContainer
+ 
+ 
+-class UnixHTTPConnection(urllib3.connection.HTTPConnection):
++class UnixHTTPConnection(requests.packages.urllib3.connection.HTTPConnection):
+ 
+     def __init__(self, base_url, unix_socket, timeout=60):
+         super().__init__(
+diff --git a/docker/types/daemon.py b/docker/types/daemon.py
+index 04e6ccb..699c5b9 100644
+--- a/docker/types/daemon.py
++++ b/docker/types/daemon.py
+@@ -1,6 +1,6 @@
+ import socket
+ 
+-import urllib3
++import requests
+ 
+ from ..errors import DockerException
+ 
+@@ -27,7 +27,7 @@ class CancellableStream:
+     def __next__(self):
+         try:
+             return next(self._stream)
+-        except urllib3.exceptions.ProtocolError:
++        except requests.packages.urllib3.exceptions.ProtocolError:
+             raise StopIteration from None
+         except OSError:
+             raise StopIteration from None
+@@ -63,8 +63,8 @@ class CancellableStream:
+             else:
+                 sock = sock_fp._sock
+ 
+-            if hasattr(urllib3.contrib, 'pyopenssl') and isinstance(
+-                    sock, urllib3.contrib.pyopenssl.WrappedSocket):
++            if hasattr(requests.packages.urllib3.contrib, 'pyopenssl') and isinstance(
++                    sock, requests.packages.urllib3.contrib.pyopenssl.WrappedSocket):
+                 sock = sock.socket
+ 
+             sock.shutdown(socket.SHUT_RDWR)
+diff --git a/pyproject.toml b/pyproject.toml
+index a219484..525a9b8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,6 +30,9 @@ classifiers = [
+ ]
+ 
+ dependencies = [
++    "requests >= 2.26.0",
++    "urllib3 >= 1.26.0",
++    "pywin32>=304; sys_platform == \"win32\"",
+ ]
+ 
+ [project.optional-dependencies]
+diff --git a/test_collections.py b/test_collections.py
+new file mode 100644
+index 0000000..216aaab
+--- /dev/null
++++ b/test_collections.py
+@@ -0,0 +1,24 @@
++import requests
++import collections
++
++# Test if we can access the RecentlyUsedContainer through requests
++try:
++    # Try to get RecentlyUsedContainer from requests internal urllib3
++    RecentlyUsedContainer = requests.packages.urllib3._collections.RecentlyUsedContainer
++    print("Successfully accessed RecentlyUsedContainer through requests")
++except Exception as e:
++    print(f"Failed to access RecentlyUsedContainer: {e}")
++
++# Test accessing exceptions
++try:
++    ProtocolError = requests.packages.urllib3.exceptions.ProtocolError
++    print("Successfully accessed ProtocolError through requests")
++except Exception as e:
++    print(f"Failed to access ProtocolError: {e}")
++
++# Test accessing pyopenssl
++try:
++    WrappedSocket = requests.packages.urllib3.contrib.pyopenssl.WrappedSocket
++    print("Successfully accessed WrappedSocket through requests")
++except Exception as e:
++    print(f"Failed to access WrappedSocket: {e}")
+\ No newline at end of file
+diff --git a/test_urllib3_access.py b/test_urllib3_access.py
+new file mode 100644
+index 0000000..0bba4cc
+--- /dev/null
++++ b/test_urllib3_access.py
+@@ -0,0 +1,14 @@
++import requests
++print("Requests version:", requests.__version__)
++print("Has urllib3:", hasattr(requests, 'urllib3'))
++if hasattr(requests, 'urllib3'):
++    print("urllib3:", requests.urllib3)
++    print("Has exceptions:", hasattr(requests.urllib3, 'exceptions'))
++    if hasattr(requests.urllib3, 'exceptions'):
++        print("ProtocolError:", hasattr(requests.urllib3.exceptions, 'ProtocolError'))
++    
++    print("Has contrib:", hasattr(requests.urllib3, 'contrib'))
++    if hasattr(requests.urllib3, 'contrib'):
++        print("Has pyopenssl:", hasattr(requests.urllib3.contrib, 'pyopenssl'))
++        if hasattr(requests.urllib3.contrib, 'pyopenssl'):
++            print("WrappedSocket:", hasattr(requests.urllib3.contrib.pyopenssl, 'WrappedSocket'))
+\ No newline at end of file

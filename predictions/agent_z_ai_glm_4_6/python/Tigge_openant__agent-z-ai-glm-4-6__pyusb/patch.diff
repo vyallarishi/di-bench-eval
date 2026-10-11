@@ -1,0 +1,43 @@
+diff --git a/openant/base/ant.py b/openant/base/ant.py
+index d5b717f..7cb0a43 100644
+--- a/openant/base/ant.py
++++ b/openant/base/ant.py
+@@ -30,15 +30,15 @@ import threading
+ import time
+ import queue
+ import logging
+-
+-import usb.core
+-import usb.util
+-from usb import USBError
++import os
++import subprocess
+ 
+ from .message import Message
+ from .commons import format_list
+ from .driver import find_driver
+ 
++from .driver import find_driver
++
+ _logger = logging.getLogger("openant.base.ant")
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 1a36eeb..616e7d7 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -23,11 +23,12 @@ classifiers = [
+     "Topic :: Software Development :: Embedded Systems",
+     "Environment :: Console"
+ ]
+-dependencies = []
++dependencies = [
++    "pyusb>=1.1.1"
++]
+ dynamic = ["readme", "version"]
+ 
+ [project.optional-dependencies]
+-serial = ["pyserial"]
+ influx = ["influxdb-client"]
+ test = ["pytest", "black", "pylint"]
+ docs = ["sphinx>=5.2.3", "furo>=2021.3.20b30", "sphinx_mdinclude"]

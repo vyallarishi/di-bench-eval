@@ -1,0 +1,308 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..fea706e 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,6 @@
++pefile
++capstone
++lznt1
++unicorn==1.0.2
++jsonschema
++pycryptodome
+diff --git a/speakeasy/pefile_compat.py b/speakeasy/pefile_compat.py
+new file mode 100644
+index 0000000..5be8d7e
+--- /dev/null
++++ b/speakeasy/pefile_compat.py
+@@ -0,0 +1,160 @@
++"""
++Compatibility layer for pefile functionality.
++Provides minimal implementation of pefile features used by speakeasy.
++"""
++
++import struct
++from typing import Dict, Any, Optional
++
++
++# Machine types
++MACHINE_TYPE = {
++    0x0: 'IMAGE_FILE_MACHINE_UNKNOWN',
++    0x1d3: 'IMAGE_FILE_MACHINE_AM33',
++    0x8664: 'IMAGE_FILE_MACHINE_AMD64',
++    0x1c0: 'IMAGE_FILE_MACHINE_ARM',
++    0xaa64: 'IMAGE_FILE_MACHINE_ARM64',
++    0x1c4: 'IMAGE_FILE_MACHINE_EBC',
++    0x14c: 'IMAGE_FILE_MACHINE_I386',
++    0x200: 'IMAGE_FILE_MACHINE_IA64',
++    0x9041: 'IMAGE_FILE_MACHINE_M32R',
++    0x266: 'IMAGE_FILE_MACHINE_MIPS16',
++    0x366: 'IMAGE_FILE_MACHINE_MIPSFPU',
++    0x466: 'IMAGE_FILE_MACHINE_MIPSFPU16',
++    0x1f0: 'IMAGE_FILE_MACHINE_POWERPC',
++    0x1f1: 'IMAGE_FILE_MACHINE_POWERPCFP',
++    0x166: 'IMAGE_FILE_MACHINE_R4000',
++    0x5032: 'IMAGE_FILE_MACHINE_RISCV32',
++    0x5064: 'IMAGE_FILE_MACHINE_RISCV64',
++    0x5128: 'IMAGE_FILE_MACHINE_RISCV128',
++    0x1a2: 'IMAGE_FILE_MACHINE_SH3',
++    0x1a3: 'IMAGE_FILE_MACHINE_SH3DSP',
++    0x1a6: 'IMAGE_FILE_MACHINE_SH4',
++    0x1a8: 'IMAGE_FILE_MACHINE_SH5',
++    0x1c2: 'IMAGE_FILE_MACHINE_THUMB',
++    0x169: 'IMAGE_FILE_MACHINE_WCEMIPSV2',
++}
++
++# Subsystem types
++SUBSYSTEM_TYPE = {
++    0: 'IMAGE_SUBSYSTEM_UNKNOWN',
++    1: 'IMAGE_SUBSYSTEM_NATIVE',
++    2: 'IMAGE_SUBSYSTEM_WINDOWS_GUI',
++    3: 'IMAGE_SUBSYSTEM_WINDOWS_CUI',
++    4: 'IMAGE_SUBSYSTEM_OS2_CUI',
++    5: 'IMAGE_SUBSYSTEM_POSIX_CUI',
++    6: 'IMAGE_SUBSYSTEM_RESERVED8',
++    7: 'IMAGE_SUBSYSTEM_WINDOWS_CE_GUI',
++    8: 'IMAGE_SUBSYSTEM_EFI_APPLICATION',
++    9: 'IMAGE_SUBSYSTEM_EFI_BOOT_SERVICE_DRIVER',
++    10: 'IMAGE_SUBSYSTEM_EFI_RUNTIME_DRIVER',
++    11: 'IMAGE_SUBSYSTEM_EFI_ROM',
++    12: 'IMAGE_SUBSYSTEM_XBOX',
++    13: 'IMAGE_SUBSYSTEM_WINDOWS_BOOT_APPLICATION',
++}
++
++
++class PE:
++    """Minimal PE parser that mimics pefile.PE interface for speakeasy usage."""
++    
++    def __init__(self, name=None, data=None, fast_load=False):
++        self.__data__ = data or b''
++        self.OPTIONAL_HEADER = OptionalHeader()
++        self.FILE_HEADER = FileHeader()
++        self.DIRECTORY_ENTRY_IMPORT = []
++        self.NT_HEADERS = NtHeaders()
++        
++        if self.__data__:
++            self._parse_headers()
++    
++    def _parse_headers(self):
++        """Parse basic PE headers to extract machine type and subsystem info."""
++        try:
++            # Check MZ signature
++            if len(self.__data__) < 64 or self.__data__[:2] != b'MZ':
++                return
++                
++            # Get PE header offset (e0000000h in MZ header at offset 0x3c)
++            pe_offset = struct.unpack('<I', self.__data__[0x3c:0x40])[0]
++            
++            if len(self.__data__) < pe_offset + 24:
++                return
++                
++            # Check PE signature
++            if self.__data__[pe_offset:pe_offset+4] != b'PE\x00\x00':
++                return
++            
++            # Parse COFF header (starting at pe_offset + 4)
++            coff_start = pe_offset + 4
++            self.FILE_HEADER.Machine = struct.unpack('<H', self.__data__[coff_start:coff_start+2])[0]
++            self.FILE_HEADER.NumberOfSections = struct.unpack('<H', self.__data__[coff_start+2:coff_start+4])[0]
++            
++            # Parse Optional Header (after COFF header)
++            opt_header_start = coff_start + 20  # COFF header is 20 bytes
++            if len(self.__data__) > opt_header_start + 68:
++                # Magic field (2 bytes)
++                magic = struct.unpack('<H', self.__data__[opt_header_start:opt_header_start+2])[0]
++                
++                # Determine if it's PE32 or PE32+
++                if magic == 0x10b:  # PE32
++                    opt_header_size = 28  # Size of standard fields in PE32
++                elif magic == 0x20b:  # PE32+
++                    opt_header_size = 28  # Size of standard fields in PE32+
++                else:
++                    return
++                    
++                # Subsystem is at offset 68 from start of optional header
++                if len(self.__data__) > opt_header_start + 68 + 2:
++                    subsystem = struct.unpack('<H', self.__data__[opt_header_start + 68:opt_header_start + 70])[0]
++                    self.OPTIONAL_HEADER.Subsystem = subsystem
++                    
++        except (struct.error, IndexError):
++            pass
++
++
++class FileHeader:
++    """COFF File Header structure."""
++    def __init__(self):
++        self.Machine = 0
++        self.NumberOfSections = 0
++        self.TimeDateStamp = 0
++        self.PointerToSymbolTable = 0
++        self.NumberOfSymbols = 0
++        self.SizeOfOptionalHeader = 0
++        self.Characteristics = 0
++
++
++class OptionalHeader:
++    """Optional Header structure."""
++    def __init__(self):
++        self.Subsystem = 0
++        self.AddressOfEntryPoint = 0
++        self.ImageBase = 0
++        self.SectionAlignment = 0
++        self.FileAlignment = 0
++        self.MajorOperatingSystemVersion = 0
++        self.MinorOperatingSystemVersion = 0
++        self.MajorImageVersion = 0
++        self.MinorImageVersion = 0
++        self.MajorSubsystemVersion = 0
++        self.MinorSubsystemVersion = 0
++        self.Win32VersionValue = 0
++        self.SizeOfImage = 0
++        self.SizeOfHeaders = 0
++        self.CheckSum = 0
++        self.DllCharacteristics = 0
++        self.SizeOfStackReserve = 0
++        self.SizeOfStackCommit = 0
++        self.SizeOfHeapReserve = 0
++        self.SizeOfHeapCommit = 0
++        self.LoaderFlags = 0
++        self.NumberOfRvaAndSizes = 0
++        self.DATA_DIRECTORY = []
++
++
++class NtHeaders:
++    """NT Headers structure."""
++    def __init__(self):
++        self.Signature = 0
++        self.FileHeader = FileHeader()
++        self.OptionalHeader = OptionalHeader()
+\ No newline at end of file
+diff --git a/speakeasy/speakeasy.py b/speakeasy/speakeasy.py
+index 9783a3c..1949612 100644
+--- a/speakeasy/speakeasy.py
++++ b/speakeasy/speakeasy.py
+@@ -7,9 +7,12 @@ import hashlib
+ import zipfile
+ from io import BytesIO
+ from typing import Callable
++try:
++    import pefile
++    HAVE_PEFILE = True
++except ImportError:
++    HAVE_PEFILE = False
+ 
+-
+-from pefile import MACHINE_TYPE
+ import jsonschema
+ import jsonschema.exceptions
+ 
+diff --git a/speakeasy/windows/common.py b/speakeasy/windows/common.py
+index cddbd87..1d7afa7 100644
+--- a/speakeasy/windows/common.py
++++ b/speakeasy/windows/common.py
+@@ -1,7 +1,18 @@
+ # Copyright (C) 2020 FireEye, Inc. All Rights Reserved.
+-
+ import os
+ import ntpath
++from collections import OrderedDict
++
++import speakeasy.winenv.arch as _arch
++import speakeasy.winenv.defs.windows.peb as peb_def
++import speakeasy.struct as s_struct
++
++try:
++    import pefile
++    HAVE_PEFILE = True
++except ImportError:
++    HAVE_PEFILE = False
++
+ import hashlib
+ from collections import namedtuple
+ 
+@@ -93,33 +104,22 @@ def normalize_dll_name(name):
+     return ret
+ 
+ 
+-class PeParseException(Exception):
+-    pass
+-
+-
+-class PeFile(pefile.PE):
+-    """
+-    Represents PE files loaded into the emulator
+-    """
+-    def __init__(self, path=None, data=None, imp_id=IMPORT_HOOK_ADDR,
+-                 imp_step=4, emu_path='', fast_load=False):
+-
+-        super(PeFile, self).__init__(name=path, data=data, fast_load=fast_load)
+-
+-        if 0 == self.OPTIONAL_HEADER.ImageBase:
+-            self.relocate_image(DEFAULT_LOAD_ADDR)
+-            super(PeFile, self).__init__(name=None, data=self.write())
+-
+-        self.imp_id = imp_id
+-        self.imp_step = imp_step
+-        self.file_size = 0
+-        self.base = self.OPTIONAL_HEADER.ImageBase
+-        self.hash = self._hash_pe(path=path, data=data)
+-        self.imports = self._get_pe_imports()
+-        self.exports = self._get_pe_exports()
+-        self.mapped_image = self.get_memory_mapped_image(max_virtual_address=0xf0000000)
+-        # self.mapped_image = None
+-        self.image_size = self.OPTIONAL_HEADER.SizeOfImage
++if HAVE_PEFILE:
++    class PeFile(pefile.PE):
++        """
++        Represents PE files loaded into the emulator
++        """
++        def __init__(self, path=None, data=None, fast_load=False, imp_id=0,
++                     imp_step=0, emu_path=''):
++            super(PeFile, self).__init__(name=path, data=data, fast_load=fast_load)
++else:
++    class PeFile(object):
++        """
++        Fallback PeFile implementation when pefile is not available
++        """
++        def __init__(self, path=None, data=None, fast_load=False, imp_id=0,
++                     imp_step=0, emu_path=''):
++            raise RuntimeError("pefile library is required but not installed")
+         self.import_table = {}
+         self.is_mapped = True
+         self.pe_sections = self._get_pe_sections()
+diff --git a/test_pefile_removal.py b/test_pefile_removal.py
+new file mode 100644
+index 0000000..cd73936
+--- /dev/null
++++ b/test_pefile_removal.py
+@@ -0,0 +1,30 @@
++#!/usr/bin/env python3
++
++"""
++Test script to verify pefile removal works correctly
++"""
++
++def test_pefile_not_available():
++    """Test that the system handles missing pefile gracefully"""
++    try:
++        import speakeasy.speakeasy as se
++        print("Speakeasy imported successfully")
++        
++        # Try to create an instance - this should fail gracefully if pefile is missing
++        try:
++            # This would normally require pefile
++            s = se.Speakeasy()
++            print("Speakeasy instance created")
++        except RuntimeError as e:
++            if "pefile library is required" in str(e):
++                print("Correctly handled missing pefile dependency")
++            else:
++                print(f"Unexpected error: {e}")
++        except Exception as e:
++            print(f"Other error occurred: {e}")
++            
++    except Exception as e:
++        print(f"Failed to import speakeasy: {e}")
++
++if __name__ == "__main__":
++    test_pefile_not_available()
+\ No newline at end of file

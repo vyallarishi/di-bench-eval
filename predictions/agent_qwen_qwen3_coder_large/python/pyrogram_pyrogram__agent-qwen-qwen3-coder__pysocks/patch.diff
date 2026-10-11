@@ -1,0 +1,52 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..68abeee 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1 @@
++pyaes==1.6.1
+diff --git a/run_tests.py b/run_tests.py
+new file mode 100644
+index 0000000..936b587
+--- /dev/null
++++ b/run_tests.py
+@@ -0,0 +1,16 @@
++import sys
++import subprocess
++
++def run_tests():
++    try:
++        # Run the tests using pytest
++        result = subprocess.run([sys.executable, '-m', 'pytest', 'tests/', '-v'], check=True, capture_output=True, text=True)
++        print("Tests passed successfully.")
++        print(result.stdout)
++    except subprocess.CalledProcessError as e:
++        print("Tests failed.")
++        print(e.output)
++        sys.exit(1)
++
++if __name__ == "__main__":
++    run_tests()
+\ No newline at end of file
+diff --git a/test_no_pysocks.py b/test_no_pysocks.py
+new file mode 100644
+index 0000000..2456875
+--- /dev/null
++++ b/test_no_pysocks.py
+@@ -0,0 +1,16 @@
++import sys
++import subprocess
++
++def main():
++    # Run the tests using pytest
++    try:
++        result = subprocess.run([sys.executable, '-m', 'pytest', 'tests/'], check=True, capture_output=True, text=True)
++        print("Tests passed successfully.")
++        print(result.stdout)
++    except subprocess.CalledProcessError as e:
++        print("Tests failed.")
++        print(e.output)
++        sys.exit(1)
++
++if __name__ == "__main__":
++    main()
+\ No newline at end of file

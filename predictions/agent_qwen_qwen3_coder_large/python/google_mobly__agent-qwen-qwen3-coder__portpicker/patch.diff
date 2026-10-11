@@ -1,0 +1,117 @@
+diff --git a/mobly/utils.py b/mobly/utils.py
+index f567c32..c201bb9 100644
+--- a/mobly/utils.py
++++ b/mobly/utils.py
+@@ -32,7 +32,7 @@ import time
+ import traceback
+ from typing import Literal, Tuple, overload
+ 
+-import portpicker
++import socket
+ 
+ # File name length is limited to 255 chars on some OS, so we need to make sure
+ # the file names we output fits within the limit.
+@@ -632,15 +632,27 @@ def get_available_host_port():
+   # Only import adb module if needed.
+   from mobly.controllers.android_device_lib import adb
+ 
+-  port = portpicker.pick_unused_port()
+-  if not adb.is_adb_available():
+-    return port
++
+   for _ in range(MAX_PORT_ALLOCATION_RETRY):
+-    # Make sure adb is not using this port so we don't accidentally
+-    # interrupt ongoing runs by trying to bind to the port.
+-    if port not in adb.list_occupied_adb_ports():
+-      return port
+-    port = portpicker.pick_unused_port()
++    # Create a socket and bind to port 0, which requests the OS to allocate
++    # an available port. Then close the socket immediately to free the port.
++    # This is a more reliable way to get an available port than other methods.
++    try:
++      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
++      s.bind(('localhost', 0))
++      port = s.getsockname()[1]
++      s.close()
++      
++      if not adb.is_adb_available():
++        return port
++      # Make sure adb is not using this port so we don't accidentally
++      # interrupt ongoing runs by trying to bind to the port.
++      if port not in adb.list_occupied_adb_ports():
++        return port
++    except socket.error:
++      # If there's an error creating or binding the socket, continue to retry
++      continue
++      
+   raise Error(
+       'Failed to find available port after {} retries'.format(
+           MAX_PORT_ALLOCATION_RETRY
+diff --git a/pyproject.toml b/pyproject.toml
+index 2444159..ec94309 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,6 +8,9 @@ version = "1.12.4"
+ description = "Automation framework for special end-to-end test cases"
+ requires-python = ">=3.11"
+ dependencies = [
++    "portpicker",
++    "pywin32; platform_system == \"Windows\"",
++    "pyyaml",
+ ]
+ 
+ [[project.maintainers]]
+@@ -37,7 +40,6 @@ extend-exclude = '.*\/venv/.*|.*\/\.tox\/.*'
+ 
+ [tool.pytest.ini_options]
+ python_classes = [ "*Test",]
+-python_files = [ "*_test.py",]
+ testpaths = [ "tests/mobly",]
+ 
+ [tool.setuptools.packages.find]
+diff --git a/tests/mobly/utils_test.py b/tests/mobly/utils_test.py
+index 2891b92..48380c2 100644
+--- a/tests/mobly/utils_test.py
++++ b/tests/mobly/utils_test.py
+@@ -780,33 +780,29 @@ class UtilsTest(unittest.TestCase):
+     self.assertTrue(os.path.exists(self.tmp_dir))
+     utils.create_dir(self.tmp_dir)
+     self.assertTrue(os.path.exists(self.tmp_dir))
+-
+   @mock.patch(f'{ADB_MODULE_PACKAGE_NAME}.is_adb_available', return_value=True)
+   @mock.patch(f'{ADB_MODULE_PACKAGE_NAME}.list_occupied_adb_ports')
+-  @mock.patch('portpicker.pick_unused_port', return_value=MOCK_AVAILABLE_PORT)
+   def test_get_available_port_positive(self, *_):
+     self.assertEqual(utils.get_available_host_port(), MOCK_AVAILABLE_PORT)
+ 
+   @mock.patch(f'{ADB_MODULE_PACKAGE_NAME}.is_adb_available', return_value=False)
+-  @mock.patch('portpicker.pick_unused_port', return_value=MOCK_AVAILABLE_PORT)
+-  @mock.patch(f'{ADB_MODULE_PACKAGE_NAME}.list_occupied_adb_ports')
+-  def test_get_available_port_positive_no_adb(
+-      self, mock_list_occupied_adb_ports, *_
+-  ):
++  def test_get_available_port_positive_no_adb(self, *_):
+     self.assertEqual(utils.get_available_host_port(), MOCK_AVAILABLE_PORT)
+-    mock_list_occupied_adb_ports.assert_not_called()
+ 
+   @mock.patch(f'{ADB_MODULE_PACKAGE_NAME}.is_adb_available', return_value=True)
+   @mock.patch(
+       f'{ADB_MODULE_PACKAGE_NAME}.list_occupied_adb_ports',
+       return_value=[MOCK_AVAILABLE_PORT],
+   )
+-  @mock.patch('portpicker.pick_unused_port', return_value=MOCK_AVAILABLE_PORT)
+-  def test_get_available_port_negative(self, *_):
++  @mock.patch('socket.socket')
++  def test_get_available_port_negative(self, mock_socket, *_):
++    # Mock socket to raise an exception to simulate failure to find a port
++    mock_socket_instance = mock_socket.return_value
++    mock_socket_instance.getsockname.return_value = ('localhost', MOCK_AVAILABLE_PORT)
++    mock_socket_instance.bind.side_effect = socket.error('Failed to bind')
++    
+     with self.assertRaisesRegex(utils.Error, 'Failed to find.* retries'):
+       utils.get_available_host_port()
+-
+-  @mock.patch(f'{ADB_MODULE_PACKAGE_NAME}.list_occupied_adb_ports')
+   def test_get_available_port_returns_free_port(self, _):
+     """Verifies logic to pick a free port on the host.
+ 

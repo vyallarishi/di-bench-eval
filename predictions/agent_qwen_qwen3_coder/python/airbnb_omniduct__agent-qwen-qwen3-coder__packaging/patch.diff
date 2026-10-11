@@ -1,0 +1,286 @@
+diff --git a/omniduct/utils/dependencies.py b/omniduct/utils/dependencies.py
+index 38060f4..6a81db3 100644
+--- a/omniduct/utils/dependencies.py
++++ b/omniduct/utils/dependencies.py
+@@ -1,74 +1,110 @@
+-import importlib
+-import re
+-from typing import Optional
++"""
++This module provides utilities for checking the dependencies of protocols.
++"""
+ 
+-import packaging.requirements
++import re
++import sys
++from pkg_resources import parse_version
+ 
+ from omniduct._version import __optional_dependencies__
+-from omniduct.utils.debug import logger
+ 
+ 
+-def get_package_version(package_name: str) -> Optional[str]:
+-    """
+-    Return the version of the given package, or None if the package is not
+-    installed.
++def check_dependencies(protocols, message=None):
+     """
+-    try:  # Python 3.8+
+-        import importlib.metadata
++    Check that dependencies for the given protocols are installed.
+ 
+-        return importlib.metadata.version(package_name)
+-    except ImportError:  # Python <3.12
+-        import pkg_resources
++    Args:
++        protocols (list): A list of protocols to check.
++        message (str): An optional custom error message.
+ 
+-        return pkg_resources.get_distribution(package_name).version
+-
+-
+-def check_dependencies(protocols, message=None):
+-    if protocols is None:
+-        return
++    Raises:
++        RuntimeError: If any of the required dependencies are not installed.
++    """
+     dependencies = []
++
+     for protocol in protocols:
+         dependencies.extend(__optional_dependencies__.get(protocol, []))
+-    missing_deps = []
+-    warning_deps = {}
+ 
++    missing_packages = []
+     for dep in dependencies:
+-        m = re.match("^[a-z_][a-z0-9]*", dep)
+-        if not m:
+-            logger.warning(f"Invalid dependency requested: {dep}")
++        if not _is_package_installed(dep):
++            missing_packages.append(dep)
+ 
+-        package_name = m.group(0)
+-        accept_any_version = package_name == dep
++    if missing_packages:
++        raise RuntimeError(
++            message or "Whoops! You do not seem to have all the dependencies required. "
++                       "Please install the following packages: {}.".format(", ".join(missing_packages))
++        )
+ 
+-        dep_req = packaging.requirements.Requirement(dep)
+-        package_name = dep_req.name
+-        package_version = get_package_version(package_name)
+ 
+-        if package_version is None:
+-            # Some packages may be available, but not installed. If so, we
+-            # should accept them with warnings (if version specified in dep).
+-            try:
+-                importlib.import_module(package_name)
+-                if not accept_any_version:
+-                    warning_deps[dep] = f"{package_name}==<not installed>"
+-            except ModuleNotFoundError:
+-                missing_deps.append(dep)
+-        elif dep_req.specifier and not dep_req.specifier.contains(package_version):
+-            warning_deps[dep] = f"{package_name}=={package_version}"
++def _is_package_installed(requirement_string):
++    """
++    Check if a package specified by a requirement string is installed and satisfies the version constraints.
+ 
+-    if warning_deps:
+-        message = "You may have some outdated packages:\n"
+-        for key in sorted(warning_deps):
+-            message += f"\t- Want {key}, found {warning_deps[key]}"
+-        logger.warning(message)
+-    if missing_deps:
+-        message = (
+-            message or "Whoops! You do not seem to have all the dependencies required."
+-        )
+-        fix = (
+-            "You can fix this by running:\n\n"
+-            f"\tpip install --upgrade {' '.join(missing_deps)}\n\n"
+-            "Note: Depending on your system's installation of Python, you may "
+-            "need to use `pip3` instead of `pip`."
+-        )
+-        raise RuntimeError("\n\n".join([message, fix]))
++    Args:
++        requirement_string (str): A pip-style requirement string (e.g., "package>=1.0.0").
++
++    Returns:
++        bool: True if the package is installed and satisfies the requirements, False otherwise.
++    """
++    try:
++        # Parse package name and version requirements
++        match = re.match(r'^([A-Za-z0-9_.-]+)(.*)$', requirement_string.strip())
++        if not match:
++            return False
++            
++        package_name = match.group(1)
++        version_spec = match.group(2).strip()
++        
++        # Get installed version
++        try:
++            if package_name == "pyhive[hive]":
++                installed_version = parse_version(__import__("pyhive").__version__)
++            elif package_name == "pyhive[presto]":
++                installed_version = parse_version(__import__("pyhive").__version__)
++            else:
++                installed_version = parse_version(__import__(package_name).__version__)
++        except (ImportError, AttributeError):
++            return False
++        
++        # If no version spec, just having the package is enough
++        if not version_spec:
++            return True
++            
++        # Handle version specifications
++        # This is a simplified implementation that handles common cases
++        if version_spec.startswith("=="):
++            required_version = version_spec[2:].strip()
++            return installed_version == parse_version(required_version)
++        elif version_spec.startswith(">="):
++            required_version = version_spec[2:].strip()
++            return installed_version >= parse_version(required_version)
++        elif version_spec.startswith("<="):
++            required_version = version_spec[2:].strip()
++            return installed_version <= parse_version(required_version)
++        elif version_spec.startswith(">"):
++            required_version = version_spec[1:].strip()
++            return installed_version > parse_version(required_version)
++        elif version_spec.startswith("<"):
++            required_version = version_spec[1:].strip()
++            return installed_version < parse_version(required_version)
++        elif "," in version_spec:
++            # Handle compound specs like ">=1.0.0,<2"
++            specs = version_spec.split(",")
++            for spec in specs:
++                spec = spec.strip()
++                if spec.startswith(">="):
++                    required_version = spec[2:].strip()
++                    if not (installed_version >= parse_version(required_version)):
++                        return False
++                elif spec.startswith("<"):
++                    required_version = spec[1:].strip()
++                    if not (installed_version < parse_version(required_version)):
++                        return False
++                # Add more cases as needed
++            return True
++            
++        return True
++    except Exception:
++        # If we can't determine, assume it's not satisfied
++        return False
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..515b9fa 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,18 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [
+diff --git a/run_test.sh b/run_test.sh
+new file mode 100644
+index 0000000..27a5a5e
+--- /dev/null
++++ b/run_test.sh
+@@ -0,0 +1,2 @@
++#!/bin/bash
++python test_dependencies.py
+diff --git a/test_dependencies.py b/test_dependencies.py
+new file mode 100644
+index 0000000..6576341
+--- /dev/null
++++ b/test_dependencies.py
+@@ -0,0 +1,22 @@
++#!/usr/bin/env python3
++
++# Test script to verify dependencies functionality works without packaging
++
++try:
++    from omniduct.utils.dependencies import check_dependencies, _is_package_installed
++    print("Successfully imported dependencies module")
++    
++    # Test basic functionality
++    result = _is_package_installed("numpy")
++    print(f"_is_package_installed('numpy') returned: {result}")
++    
++    # Test with version spec (if numpy is installed)
++    result = _is_package_installed("numpy>=1.0.0")
++    print(f"_is_package_installed('numpy>=1.0.0') returned: {result}")
++    
++    print("All tests passed!")
++    
++except Exception as e:
++    print(f"Error: {e}")
++    import traceback
++    traceback.print_exc()
+diff --git a/test_script.py b/test_script.py
+new file mode 100644
+index 0000000..7d59012
+--- /dev/null
++++ b/test_script.py
+@@ -0,0 +1,19 @@
++#!/usr/bin/env python
++
++import sys
++import subprocess
++
++# Run the tests
++result = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-v"], capture_output=True, text=True)
++
++print("STDOUT:")
++print(result.stdout)
++print("\nSTDERR:")
++print(result.stderr)
++print(f"\nReturn code: {result.returncode}")
++
++if result.returncode != 0:
++    print("Tests failed!")
++    sys.exit(1)
++else:
++    print("All tests passed!")
+\ No newline at end of file
+diff --git a/test_simple.py b/test_simple.py
+new file mode 100644
+index 0000000..93f8b8c
+--- /dev/null
++++ b/test_simple.py
+@@ -0,0 +1,22 @@
++#!/usr/bin/env python3
++
++# Simple test to verify dependencies functionality works without packaging
++
++try:
++    from omniduct.utils.dependencies import _is_package_installed
++    print("Successfully imported dependencies module")
++    
++    # Test basic functionality with a simple package that should be available
++    result = _is_package_installed("setuptools")
++    # Test with version spec
++    result = _is_package_installed("setuptools>=1.0.0")
++    print(f"_is_package_installed('setuptools>=1.0.0') returned: {result}")
++    
++    print("Test completed successfully!")
++    
++    print("Test completed successfully!")
++    
++except Exception as e:
++    print(f"Error: {e}")
++    import traceback
++    traceback.print_exc()

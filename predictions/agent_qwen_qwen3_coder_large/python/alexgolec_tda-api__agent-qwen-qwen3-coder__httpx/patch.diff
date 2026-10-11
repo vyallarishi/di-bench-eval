@@ -1,0 +1,89 @@
+diff --git a/setup.py b/setup.py
+index 3a662b6..12b34e2 100644
+--- a/setup.py
++++ b/setup.py
+@@ -30,6 +30,12 @@ setuptools.setup(
+     ],
+     python_requires='>=3.7',
+     install_requires=[
++        'authlib',
++        'autopep8',
++        'prompt_toolkit',
++        'python-dateutil',
++        'selenium', 
++        'websockets>=9.0.0'
+     ],
+     extras_require={
+         'dev': [
+diff --git a/tda/debug.py b/tda/debug.py
+index 735c72d..124e9d5 100644
+--- a/tda/debug.py
++++ b/tda/debug.py
+@@ -1,5 +1,4 @@
+ import atexit
+-import httpx
+ import logging
+ import sys
+ import tda
+diff --git a/tda/orders/generic.py b/tda/orders/generic.py
+index 39280d5..e2ae85c 100644
+--- a/tda/orders/generic.py
++++ b/tda/orders/generic.py
+@@ -3,7 +3,6 @@ from enum import Enum
+ from tda.orders import common
+ from tda.utils import EnumEnforcer
+ 
+-import httpx
+ 
+ 
+ def _build_object(obj):
+@@ -390,7 +389,10 @@ class OrderBuilder(EnumEnforcer):
+ 
+     # ChildOrderStrategies
+     def add_child_order_strategy(self, child_order_strategy):
+-        if isinstance(child_order_strategy, httpx.Response):
++        if isinstance(child_order_strategy, object) and hasattr(child_order_strategy, '__class__') and \
++                child_order_strategy.__class__.__name__ == 'Response' and \
++                hasattr(child_order_strategy, '__module__') and \
++                'httpx' in child_order_strategy.__module__:
+             raise ValueError(
+                     'Child order cannot be a response. See here for ' +
+                     'details: https://tda-api.readthedocs.io/en/latest/' +
+diff --git a/tda/utils.py b/tda/utils.py
+index 2b32d6a..2dc008c 100644
+--- a/tda/utils.py
++++ b/tda/utils.py
+@@ -4,7 +4,6 @@ module.'''
+ import datetime
+ import dateutil.parser
+ import enum
+-import httpx
+ import inspect
+ import re
+ 
+diff --git a/tests/orders/generic_test.py b/tests/orders/generic_test.py
+index 8df046c..0a4897d 100644
+--- a/tests/orders/generic_test.py
++++ b/tests/orders/generic_test.py
+@@ -1,4 +1,3 @@
+-import httpx
+ import unittest
+ 
+ from tda.orders.generic import *
+@@ -552,9 +551,15 @@ class OrderBuilderTest(unittest.TestCase):
+ 
+     @no_duplicates
+     def test_add_child_order_strategy_httpx_response(self):
++        # Create a mock Response object that mimics httpx.Response
++        class MockResponse:
++            def __init__(self):
++                self.__class__.__name__ = 'Response'
++                self.__module__ = 'httpx.models'  # Use a module name that contains 'httpx'
++        
+         with self.assertRaisesRegex(
+                 ValueError, 'Child order cannot be a response'):
+-            self.order_builder.add_child_order_strategy(httpx.Response(200))
++            self.order_builder.add_child_order_strategy(MockResponse())
+ 
+     ##########################################################################
+     # OrderLegCollection

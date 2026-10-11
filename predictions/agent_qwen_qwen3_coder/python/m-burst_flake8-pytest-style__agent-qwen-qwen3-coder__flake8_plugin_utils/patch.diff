@@ -1,0 +1,194 @@
+diff --git a/flake8_pytest_style/plugin.py b/flake8_pytest_style/plugin.py
+index 4b9db50..ff2bc58 100644
+--- a/flake8_pytest_style/plugin.py
++++ b/flake8_pytest_style/plugin.py
+@@ -2,7 +2,7 @@ import argparse
+ from typing import List
+ 
+ from flake8.options.manager import OptionManager
+-from flake8_plugin_utils import Plugin
++from .plugin_utils import Plugin
+ 
+ from .config import (
+     DEFAULT_CONFIG,
+diff --git a/flake8_pytest_style/plugin_utils.py b/flake8_pytest_style/plugin_utils.py
+new file mode 100644
+index 0000000..213dbc2
+--- /dev/null
++++ b/flake8_pytest_style/plugin_utils.py
+@@ -0,0 +1,85 @@
++"""Reimplementation of flake8_plugin_utils functionality."""
++
++import ast
++from typing import Any, Dict, Generic, List, Optional, Set, Tuple, Type, TypeVar, Union
++
++# Type variables
++T = TypeVar('T')
++ConfigType = TypeVar('ConfigType')
++
++
++class Error:
++    """Base class for plugin errors."""
++
++    code: str
++    message: str
++    defaults: Optional[Tuple[Any, ...]] = None
++
++    def __init__(self, *args: Any) -> None:
++        self.args = args
++
++    def format_message(self) -> str:
++        """Format the error message with arguments."""
++        if self.defaults is not None:
++            # Combine defaults with provided args
++            combined_args = list(self.defaults)
++            combined_args.extend(self.args)
++            return self.message.format(*combined_args)
++        return self.message.format(*self.args)
++
++
++class Visitor(Generic[ConfigType]):
++    """Base visitor class."""
++
++    def __init__(self, config: Optional[ConfigType] = None) -> None:
++        self.config = config or self.get_default_config()
++        self.errors: List[Tuple[int, int, str, Type[Any]]] = []
++
++    def get_default_config(self) -> ConfigType:
++        """Get default configuration."""
++        # This should be overridden by subclasses if needed
++        raise NotImplementedError("Subclasses should implement get_default_config()")
++
++    def error_from_node(
++        self, error_class: Type[Error], node: ast.AST, *args: Any, **kwargs: Any
++    ) -> None:
++        """Record an error from an AST node."""
++        error_instance = error_class(*args, **kwargs)
++        message = f"{error_class.code} {error_instance.format_message()}"
++        self.errors.append((node.lineno, node.col_offset, message, type(self)))
++
++
++def is_none(node: ast.AST) -> bool:
++    """Check if an AST node represents None."""
++    return isinstance(node, ast.Constant) and node.value is None
++
++
++def is_false(node: ast.AST) -> bool:
++    """Check if an AST node represents False."""
++    return isinstance(node, ast.Constant) and node.value is False
++
++
++def check_equivalent_nodes(node1: ast.AST, node2: ast.AST) -> bool:
++    """Check if two AST nodes are equivalent."""
++    # Simple comparison based on AST dump
++    return ast.dump(node1) == ast.dump(node2)
++
++
++class Plugin(Generic[ConfigType]):
++    """Base plugin class."""
++    
++    name: str
++    version: str
++    visitors: List[Type[Visitor[ConfigType]]] = []
++    
++    @classmethod
++    def add_options(cls, option_manager: Any) -> None:
++        """Add plugin options."""
++        pass
++    
++    @classmethod
++    def parse_options_to_config(
++        cls, option_manager: Any, options: Any, args: List[str]
++    ) -> ConfigType:
++        """Parse options to config."""
++        raise NotImplementedError("Subclasses should implement parse_options_to_config()")
+\ No newline at end of file
+diff --git a/flake8_pytest_style/visitors/assertion.py b/flake8_pytest_style/visitors/assertion.py
+index 009592f..588f2ac 100644
+--- a/flake8_pytest_style/visitors/assertion.py
++++ b/flake8_pytest_style/visitors/assertion.py
+@@ -1,7 +1,6 @@
+ import ast
+ 
+-from flake8_plugin_utils import Visitor
+-
++from flake8_pytest_style.plugin_utils import Error, Visitor
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import (
+     CompositeAssertion,
+diff --git a/flake8_pytest_style/visitors/fail.py b/flake8_pytest_style/visitors/fail.py
+index dd9fcf1..1e3aadb 100644
+--- a/flake8_pytest_style/visitors/fail.py
++++ b/flake8_pytest_style/visitors/fail.py
+@@ -1,6 +1,6 @@
+ import ast
+ 
+-from flake8_plugin_utils import Visitor
++from flake8_pytest_style.plugin_utils import Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import AssertAlwaysFalse, FailWithoutMessage
+diff --git a/flake8_pytest_style/visitors/fixtures.py b/flake8_pytest_style/visitors/fixtures.py
+index abc4a4f..f726176 100644
+--- a/flake8_pytest_style/visitors/fixtures.py
++++ b/flake8_pytest_style/visitors/fixtures.py
+@@ -1,7 +1,7 @@
+ import ast
+ from typing import Set, Type, Union
+ 
+-from flake8_plugin_utils import Error, Visitor
++from flake8_pytest_style.plugin_utils import Error, Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import (
+diff --git a/flake8_pytest_style/visitors/imports.py b/flake8_pytest_style/visitors/imports.py
+index 42d4095..db2023e 100644
+--- a/flake8_pytest_style/visitors/imports.py
++++ b/flake8_pytest_style/visitors/imports.py
+@@ -1,6 +1,6 @@
+ import ast
+ 
+-from flake8_plugin_utils import Visitor
++from flake8_pytest_style.plugin_utils import Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import IncorrectPytestImport
+diff --git a/flake8_pytest_style/visitors/marks.py b/flake8_pytest_style/visitors/marks.py
+index 9bf8f58..0be9a55 100644
+--- a/flake8_pytest_style/visitors/marks.py
++++ b/flake8_pytest_style/visitors/marks.py
+@@ -1,7 +1,7 @@
+ import ast
+ from typing import Union
+ 
+-from flake8_plugin_utils import Visitor
++from flake8_pytest_style.plugin_utils import Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import (
+diff --git a/flake8_pytest_style/visitors/parametrize.py b/flake8_pytest_style/visitors/parametrize.py
+index eb5f09d..760d4f0 100644
+--- a/flake8_pytest_style/visitors/parametrize.py
++++ b/flake8_pytest_style/visitors/parametrize.py
+@@ -2,8 +2,7 @@ import ast
+ import itertools
+ from typing import Optional
+ 
+-from flake8_plugin_utils import Visitor, check_equivalent_nodes
+-
++from flake8_pytest_style.plugin_utils import Error, Visitor, check_equivalent_nodes
+ from ..config import (
+     Config,
+     ParametrizeNamesType,
+diff --git a/pyproject.toml b/pyproject.toml
+index 1e2391a..28d1422 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -26,6 +26,7 @@ PT = 'flake8_pytest_style.plugin:PytestStylePlugin'
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8.1"
++flake8-plugin-utils = "^1.3.2"
+ 
+ [tool.poetry.group.dev.dependencies]
+ black = "^24.3.0"

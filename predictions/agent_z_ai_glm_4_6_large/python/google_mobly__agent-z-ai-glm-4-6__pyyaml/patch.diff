@@ -1,0 +1,36 @@
+diff --git a/mobly/controller_manager.py b/mobly/controller_manager.py
+index c4633e7..fa81a0d 100644
+--- a/mobly/controller_manager.py
++++ b/mobly/controller_manager.py
+@@ -14,8 +14,8 @@
+ """Module for Mobly controller management."""
+ import collections
+ import copy
++import json
+ import logging
+-import yaml
+ 
+ from mobly import expects
+ from mobly import records
+diff --git a/pyproject.toml b/pyproject.toml
+index 2444159..4a0549c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,6 +8,9 @@ version = "1.12.4"
+ description = "Automation framework for special end-to-end test cases"
+ requires-python = ">=3.11"
+ dependencies = [
++    "portpicker",
++    "pywin32; platform_system == \"Windows\"",
++    "pyyaml",
+ ]
+ 
+ [[project.maintainers]]
+@@ -24,7 +27,6 @@ Download = "https://github.com/google/mobly/tarball/1.12.4"
+ [project.optional-dependencies]
+ testing = [ "mock", "pytest", "pytz",]
+ 
+-[tool.setuptools]
+ include-package-data = false
+ script-files = ["tools/snippet_shell.py"]
+ 

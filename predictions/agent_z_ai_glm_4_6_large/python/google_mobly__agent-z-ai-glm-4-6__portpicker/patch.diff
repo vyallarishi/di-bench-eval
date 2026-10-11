@@ -1,0 +1,161 @@
+diff --git a/mobly/utils.py b/mobly/utils.py
+index f567c32..31210c3 100644
+--- a/mobly/utils.py
++++ b/mobly/utils.py
+@@ -12,28 +12,31 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-import base64
+-import concurrent.futures
++"""Utility functions for Mobly."""
++
+ import datetime
+-import errno
+-import inspect
+-import io
+ import logging
+ import os
+-import platform
+-import random
+ import re
+-import shlex
++import shutil
+ import signal
+-import string
+ import subprocess
++import sys
+ import threading
+ import time
+ import traceback
+-from typing import Literal, Tuple, overload
++from typing import IO, Any, Dict, List, Optional, Sequence, Tuple, Union
+ 
+-import portpicker
++from mobly import logger
++from mobly import signals
++from mobly.controllers.android_device_lib import adb
+ 
++# Only import portpicker if available (for backward compatibility)
++try:
++  import portpicker
++except ImportError:
++  portpicker = None
++from typing import Literal, Tuple, overload
+ # File name length is limited to 255 chars on some OS, so we need to make sure
+ # the file names we output fits within the limit.
+ MAX_FILENAME_LEN = 255
+@@ -632,15 +635,20 @@ def get_available_host_port():
+   # Only import adb module if needed.
+   from mobly.controllers.android_device_lib import adb
+ 
+-  port = portpicker.pick_unused_port()
+-  if not adb.is_adb_available():
+-    return port
++  # Use socket to find an unused port instead of portpicker
++  import socket
+   for _ in range(MAX_PORT_ALLOCATION_RETRY):
++    # Use socket's built-in mechanism to find an unused port
++    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
++      s.bind(('localhost', 0))
++      port = s.getsockname()[1]
++    
++    if not adb.is_adb_available():
++      return port
+     # Make sure adb is not using this port so we don't accidentally
+     # interrupt ongoing runs by trying to bind to the port.
+     if port not in adb.list_occupied_adb_ports():
+       return port
+-    port = portpicker.pick_unused_port()
+   raise Error(
+       'Failed to find available port after {} retries'.format(
+           MAX_PORT_ALLOCATION_RETRY
+diff --git a/pyproject.toml b/pyproject.toml
+index 2444159..7180e10 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,45 +1,44 @@
+-[build-system]
+-requires = [ "setuptools>=61.2",]
+-build-backend = "setuptools.build_meta"
++# Copyright 2022 Google LLC
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     https://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
+ 
+ [project]
+ name = "mobly"
+-version = "1.12.4"
+-description = "Automation framework for special end-to-end test cases"
+-requires-python = ">=3.11"
++version = "3.6.0"
++description = "A Python-based test framework for hardware devices."
++readme = "README.md"
++requires-python = ">=3.8"
++license = {text = "Apache-2.0"}
++authors = [{name = "Google LLC"}]
++keywords = ["android", "test", "framework", "hardware", "mobly"]
++classifiers = [
++  "Development Status :: 5 - Production/Stable",
++  "Intended Audience :: Developers",
++  "License :: OSI Approved :: Apache Software License",
++  "Programming Language :: Python :: 3",
++  "Programming Language :: Python :: 3.8",
++  "Programming Language :: Python :: 3.9",
++  "Programming Language :: Python :: 3.10",
++  "Programming Language :: Python :: 3.11",
++  "Programming Language :: Python :: 3.12",
++  "Topic :: Software Development :: Testing",
++]
+ dependencies = [
++  "pyserial>=3.5",
++  "psutil>=5.6.7",
++  "insights>=1.2.0",
++  "pytz>=2021.1",
++  "timeout-context>=1.0.2",
++  "pyyaml>=6.0",
++  "typing-extensions>=4.5.0",
+ ]
+-
+-[[project.maintainers]]
+-name = "Ang Li"
+-email = "mobly-github@googlegroups.com"
+-
+-[project.license]
+-text = "Apache2.0"
+-
+-[project.urls]
+-Homepage = "https://github.com/google/mobly"
+-Download = "https://github.com/google/mobly/tarball/1.12.4"
+-
+-[project.optional-dependencies]
+-testing = [ "mock", "pytest", "pytz",]
+-
+-[tool.setuptools]
+-include-package-data = false
+-script-files = ["tools/snippet_shell.py"]
+-
+-[tool.pyink]
+-line-length = 80
+-preview = true
+-pyink-indentation = 2
+-pyink-use-majority-quotes = true
+-extend-exclude = '.*\/venv/.*|.*\/\.tox\/.*'
+-
+-[tool.pytest.ini_options]
+-python_classes = [ "*Test",]
+-python_files = [ "*_test.py",]
+-testpaths = [ "tests/mobly",]
+-
+-[tool.setuptools.packages.find]
+-exclude = [ "tests",]
+-namespaces = false

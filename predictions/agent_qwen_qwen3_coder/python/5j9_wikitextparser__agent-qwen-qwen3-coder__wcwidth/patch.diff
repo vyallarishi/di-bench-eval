@@ -1,0 +1,49 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..ea9757f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,10 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "regex >= 2022.9.11",
++    "wcwidth",
++]
+ dynamic = [
+     "version",
+ ]
+@@ -30,7 +33,7 @@ text = "GNU General Public License v3 (GPLv3)"
+ 
+ [project.urls]
+ Homepage = "https://github.com/5j9/wikitextparser"
+-
++dependencies = ["regex>=2022.9.11"]
+ [project.optional-dependencies]
+ dev = [
+     "coverage",
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..d9e5626 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -22,17 +22,10 @@ from regex import (
+     match,
+     search,
+ )
+-from wcwidth import wcswidth
+ 
+ # noinspection PyProtectedMember
+-from ._config import (
+-    _HTML_TAG_NAME,
+-    KNOWN_FILE_EXTENSIONS,
+-    _bare_external_link_schemes,
+-    _parsable_tag_extensions,
+-    _tag_extensions,
+-    regex_pattern,
+-)
++from ._config import _HTML_TAG_NAME, KNOWN_FILE_EXTENSIONS, _tag_extensions
++from unicodedata import east_asian_width
+ from ._spans import (
+     BARE_EXTERNAL_LINK,
+     END_TAG_PATTERN,

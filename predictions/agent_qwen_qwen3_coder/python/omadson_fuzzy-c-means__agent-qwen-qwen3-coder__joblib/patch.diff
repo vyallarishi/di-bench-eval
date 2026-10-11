@@ -1,0 +1,75 @@
+diff --git a/fcmeans/main.py b/fcmeans/main.py
+index 04ffe31..05c52e9 100644
+--- a/fcmeans/main.py
++++ b/fcmeans/main.py
+@@ -1,9 +1,7 @@
+-from enum import Enum
+ from typing import Callable, Dict, Optional, Union
+ 
+ import numpy as np
+ import tqdm
+-from joblib import Parallel, delayed
+ from numpy.typing import NDArray
+ from pydantic import BaseModel, ConfigDict, Field, validate_call
+ 
+@@ -97,13 +95,14 @@ class FCM(BaseModel):
+             self.distance,
+             self.distance_params
+         ) ** (2 / (self.m - 1))
+-        u_dist = Parallel(n_jobs=self.n_jobs)(
+-            delayed(
+-                lambda data, col: (data[:, col] / data.T).sum(0)
+-            )(temp, col)
+-            for col in range(temp.shape[1])
+-        )
+-        u_dist = np.vstack(u_dist).T
++        
++        # Sequential computation instead of parallel
++        u_dist_list = []
++        for col in range(temp.shape[1]):
++            data_col = temp[:, col] / temp.T
++            result = data_col.sum(0)
++            u_dist_list.append(result)
++        u_dist = np.vstack(u_dist_list).T
+         return 1 / u_dist
+ 
+     @validate_call(config=dict(arbitrary_types_allowed=True))
+diff --git a/pyproject.toml b/pyproject.toml
+index 0cfbeaf..27a1887 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -25,6 +25,11 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++numpy = "^1.21.1"
++tabulate = "^0.8.9"
++tqdm = "^4.64.1"
++pydantic = "^2.6.4"
++typer = "^0.9.0"
+ 
+ [tool.poetry.group.dev.dependencies]
+ pre-commit = "^3.6.2"
+diff --git a/test_script.py b/test_script.py
+new file mode 100644
+index 0000000..0999b8e
+--- /dev/null
++++ b/test_script.py
+@@ -0,0 +1,16 @@
++import subprocess
++import sys
++
++# Run the tests
++result = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-v"], capture_output=True, text=True)
++
++print("STDOUT:")
++print(result.stdout)
++print("\nSTDERR:")
++print(result.stderr)
++print(f"\nReturn code: {result.returncode}")
++
++if result.returncode == 0:
++    print("Tests passed!")
++else:
++    print("Tests failed!")
+\ No newline at end of file

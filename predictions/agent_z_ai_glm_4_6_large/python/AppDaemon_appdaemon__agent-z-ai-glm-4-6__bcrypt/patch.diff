@@ -1,0 +1,138 @@
+diff --git a/appdaemon/http.py b/appdaemon/http.py
+index 8f19821..227d55c 100644
+--- a/appdaemon/http.py
++++ b/appdaemon/http.py
+@@ -1,5 +1,6 @@
+ import asyncio
+ import concurrent.futures
++import hashlib
+ import json
+ import os
+ import re
+@@ -11,7 +12,6 @@ from socket import gaierror
+ from typing import TYPE_CHECKING, Callable, Optional
+ from urllib.parse import urlparse
+ 
+-import bcrypt
+ import feedparser
+ from aiohttp import web
+ from jinja2 import Environment, FileSystemLoader, select_autoescape
+@@ -25,7 +25,6 @@ from appdaemon.exceptions import StartupAbortedException
+ if TYPE_CHECKING:
+     from appdaemon.appdaemon import AppDaemon
+ 
+-
+ def securedata(myfunc):
+     """
+     Take care of streams and service calls
+@@ -37,13 +36,9 @@ def securedata(myfunc):
+         if self.password is None:
+             return await myfunc(*args)
+         elif "adcreds" in request.cookies:
+-            match = await utils.run_in_executor(
+-                self,
+-                bcrypt.checkpw,
+-                str.encode(self.password),
+-                str.encode(request.cookies["adcreds"]),
+-            )
+-            if match:
++            # Use SHA-256 hash for password verification
++            expected_hash = hashlib.sha256(self.password.encode()).hexdigest()
++            if request.cookies["adcreds"] == expected_hash:
+                 return await myfunc(*args)
+         elif ("x-ad-access" in request.headers) and (request.headers["x-ad-access"] == self.password):
+             return await myfunc(*args)
+@@ -53,8 +48,6 @@ def securedata(myfunc):
+             return self.get_response(request, "401", "Unauthorized")
+ 
+     return wrapper
+-
+-
+ def secure(myfunc):
+     """
+     Take care of screen based security
+@@ -67,18 +60,14 @@ def secure(myfunc):
+             return await myfunc(*args)
+         else:
+             if "adcreds" in request.cookies:
+-                match = await utils.run_in_executor(
+-                    self,
+-                    bcrypt.checkpw,
+-                    str.encode(self.password),
+-                    str.encode(request.cookies["adcreds"]),
+-                )
+-                if match:
++                # Use SHA-256 hash for password verification
++                expected_hash = hashlib.sha256(self.password.encode()).hexdigest()
++                if request.cookies["adcreds"] == expected_hash:
+                     return await myfunc(*args)
+                 else:
+-                    return await self.forcelogon(request)
++                    return self.forcelogon(request)
+             else:
+-                return await self.forcelogon(request)
++                return self.forcelogon(request)
+ 
+     return wrapper
+ 
+@@ -95,10 +84,9 @@ def route_secure(myfunc):
+             return await myfunc(*args)
+ 
+         elif "adcreds" in request.cookies:
+-            match = await utils.run_in_executor(
+-                self, bcrypt.checkpw, str.encode(self.password), str.encode(request.cookies["adcreds"])
+-            )
+-            if match:
++            # Use SHA-256 hash for password verification
++            expected_hash = hashlib.sha256(self.password.encode()).hexdigest()
++            if request.cookies["adcreds"] == expected_hash:
+                 return await myfunc(*args)
+ 
+         elif "token" in request.query and request.query["token"] in self.valid_tokens:
+@@ -108,8 +96,6 @@ def route_secure(myfunc):
+             return self.get_response(request, "401", "Unauthorized")
+ 
+     return wrapper
+-
+-
+ class HTTP:
+     """Handles serving the web UI"""
+ 
+@@ -119,7 +105,6 @@ class HTTP:
+ 
+     stopping: bool
+     executor: concurrent.futures.ThreadPoolExecutor
+-
+     def __init__(self, ad: "AppDaemon", loop, logging, appdaemon, dashboard, old_admin, admin, api, http):
+         self.AD = ad
+         self.logging = logging
+diff --git a/pyproject.toml b/pyproject.toml
+index 01385d5..29ebc03 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,6 +10,25 @@ license= { file = "LICENSE.md" }
+ requires-python = ">=3.10"
+ keywords=[ "appdaemon", "home", "automation" ]
+ dependencies = [
++    'importlib-metadata; python_version<"3.8"',
++    'aiohttp >= 3.9.0,< 3.11.0',
++    'aiohttp_jinja2 >= 1.5.1,< 1.7.0',
++    'astral ~= 3.2',
++    'bcrypt >= 4.0.1,< 4.3.0',
++    'deepdiff == 8.0.1',
++    'feedparser ~= 6.0.10',
++    'iso8601 >= 1.1,< 2.2',
++    'paho-mqtt >= 1.6.1,< 2.2.0',
++    'pid ~= 3.0.4',
++    'python-dateutil >= 2.8.2,< 2.10.0',
++    'python-socketio >= 5.5,< 5.12',
++    'pytz >= 2022.7.1,< 2024.2.0',
++    'pyyaml ~= 6.0.1',
++    'requests >= 2.28.2,< 2.33.0',
++    'sockjs >= 0.11,< 0.14',
++    'uvloop==0.20.0; sys_platform != "win32"',
++    'tomli ~= 2.0.1',
++    'tomli_w ~= 1.0.0'
+ ]
+ 
+ classifiers= [
