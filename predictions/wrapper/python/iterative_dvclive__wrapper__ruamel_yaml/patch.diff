@@ -1,0 +1,78 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..c55462c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++    "dvc>=3.48.4",
++    "dvc-render>=1.0.0,<2",
++    "dvc-studio-client>=0.20,<1",
++    "funcy",
++    "gto",
++    "scmrepo>=3,<4",
++    "psutil",
++    "pynvml",
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/_forward_ruamel_yaml.py b/src/_forward_ruamel_yaml.py
+new file mode 100644
+index 0000000..85fb657
+--- /dev/null
++++ b/src/_forward_ruamel_yaml.py
+@@ -0,0 +1,13 @@
++"""Forwarding shim for ruamel_yaml: every call reaches the library."""
++import ruamel as _lib
++
++RepresenterError = getattr(_lib, 'RepresenterError', None)
++YAML = getattr(_lib, 'YAML', None)
++YAMLError = getattr(_lib, 'YAMLError', None)
++__init__ = getattr(_lib, '__init__', None)
++add_representer = getattr(_lib, 'add_representer', None)
++dump = getattr(_lib, 'dump', None)
++get = getattr(_lib, 'get', None)
++items = getattr(_lib, 'items', None)
++keys = getattr(_lib, 'keys', None)
++load = getattr(_lib, 'load', None)
+diff --git a/src/dvclive/live.py b/src/dvclive/live.py
+index 754137f..f198f45 100644
+--- a/src/dvclive/live.py
++++ b/src/dvclive/live.py
+@@ -23,7 +23,7 @@ if TYPE_CHECKING:
+ from dvc.exceptions import DvcException
+ from dvc.utils.studio import get_repo_url, get_subrepo_relpath
+ from funcy import set_in
+-from ruamel.yaml.representer import RepresenterError
++from src._forward_ruamel_yaml import RepresenterError
+ 
+ from . import env
+ from .dvc import (
+diff --git a/src/dvclive/serialize.py b/src/dvclive/serialize.py
+index 5e1ed22..66329d5 100644
+--- a/src/dvclive/serialize.py
++++ b/src/dvclive/serialize.py
+@@ -15,8 +15,8 @@ class YAMLFileCorruptedError(YAMLError):
+ 
+ 
+ def load_yaml(path, typ="safe"):
+-    from ruamel.yaml import YAML
+-    from ruamel.yaml import YAMLError as _YAMLError
++    from src._forward_ruamel_yaml import YAML
++    from src._forward_ruamel_yaml import YAMLError as _YAMLError
+ 
+     yaml = YAML(typ=typ)
+     with open(path, encoding="utf-8") as fd:
+@@ -27,7 +27,7 @@ def load_yaml(path, typ="safe"):
+ 
+ 
+ def get_yaml():
+-    from ruamel.yaml import YAML
++    from src._forward_ruamel_yaml import YAML
+ 
+     yaml = YAML()
+     yaml.default_flow_style = False

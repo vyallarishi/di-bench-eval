@@ -1,0 +1,132 @@
+diff --git a/examples/_forward_pydantic.py b/examples/_forward_pydantic.py
+new file mode 100644
+index 0000000..5e0f122
+--- /dev/null
++++ b/examples/_forward_pydantic.py
+@@ -0,0 +1,7 @@
++"""Forwarding shim for pydantic: every call reaches the library."""
++import dantic as _lib
++
++BaseModel = getattr(_lib, 'BaseModel', None)
++__init__ = getattr(_lib, '__init__', None)
++model_copy = getattr(_lib, 'model_copy', None)
++model_validator = getattr(_lib, 'model_validator', None)
+diff --git a/examples/langchain-anthropic/04-linkedin-anthropic.py b/examples/langchain-anthropic/04-linkedin-anthropic.py
+index e559de6..9f5fc12 100644
+--- a/examples/langchain-anthropic/04-linkedin-anthropic.py
++++ b/examples/langchain-anthropic/04-linkedin-anthropic.py
+@@ -8,7 +8,7 @@ import langchain_core.tools as langchain_tools
+ from dotenv import load_dotenv
+ from langchain.agents import AgentExecutor, create_tool_calling_agent
+ from langchain_anthropic import ChatAnthropic
+-from pydantic import BaseModel
++from examples._forward_pydantic import BaseModel
+ 
+ from channels import (
+     dm_with_ceo,
+diff --git a/examples/langchain/04-human_as_tool_linkedin.py b/examples/langchain/04-human_as_tool_linkedin.py
+index cdbc012..7ece50f 100644
+--- a/examples/langchain/04-human_as_tool_linkedin.py
++++ b/examples/langchain/04-human_as_tool_linkedin.py
+@@ -4,7 +4,7 @@ import langchain_core.tools as langchain_tools
+ from dotenv import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+-from pydantic import BaseModel
++from examples._forward_pydantic import BaseModel
+ 
+ from channels import (
+     dm_with_ceo,
+diff --git a/examples/langchain/04-human_as_tool_linkedin_frustration.py b/examples/langchain/04-human_as_tool_linkedin_frustration.py
+index fd2488e..2beae9c 100644
+--- a/examples/langchain/04-human_as_tool_linkedin_frustration.py
++++ b/examples/langchain/04-human_as_tool_linkedin_frustration.py
+@@ -4,7 +4,7 @@ import langchain_core.tools as langchain_tools
+ from dotenv import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+-from pydantic import BaseModel
++from examples._forward_pydantic import BaseModel
+ 
+ from channels import (
+     dm_with_ceo,
+diff --git a/examples/langchain/04-linkedin-experimental-slack-blocks.py b/examples/langchain/04-linkedin-experimental-slack-blocks.py
+index e4b06fd..43685fc 100644
+--- a/examples/langchain/04-linkedin-experimental-slack-blocks.py
++++ b/examples/langchain/04-linkedin-experimental-slack-blocks.py
+@@ -5,7 +5,7 @@ import langchain_core.tools as langchain_tools
+ from dotenv import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+-from pydantic import BaseModel
++from examples._forward_pydantic import BaseModel
+ 
+ from channels import (
+     dm_with_ceo,
+diff --git a/examples/langchain/07-grocery-slack-blocks.py b/examples/langchain/07-grocery-slack-blocks.py
+index 9a01abf..1de7169 100644
+--- a/examples/langchain/07-grocery-slack-blocks.py
++++ b/examples/langchain/07-grocery-slack-blocks.py
+@@ -5,7 +5,7 @@ import langchain_core.tools as langchain_tools
+ from dotenv import load_dotenv
+ from langchain.agents import AgentType, initialize_agent
+ from langchain_openai import ChatOpenAI
+-from pydantic import BaseModel
++from examples._forward_pydantic import BaseModel
+ 
+ from channels import (
+     dm_with_ceo,
+diff --git a/humanlayer/core/approval.py b/humanlayer/core/approval.py
+index bfb2e1d..2434919 100644
+--- a/humanlayer/core/approval.py
++++ b/humanlayer/core/approval.py
+@@ -7,7 +7,7 @@ from enum import Enum
+ from functools import wraps
+ from typing import Any, Callable, TypeVar
+ 
+-from pydantic import BaseModel
++from examples._forward_pydantic import BaseModel
+ from slugify import slugify
+ 
+ from humanlayer.core.cloud import (
+diff --git a/humanlayer/core/cloud.py b/humanlayer/core/cloud.py
+index a3db6ba..59d4046 100644
+--- a/humanlayer/core/cloud.py
++++ b/humanlayer/core/cloud.py
+@@ -3,7 +3,7 @@ import logging
+ import os
+ 
+ import requests
+-from pydantic import BaseModel, model_validator
++from examples._forward_pydantic import BaseModel, model_validator
+ 
+ from humanlayer.core.models import (
+     FunctionCall,
+diff --git a/humanlayer/core/models.py b/humanlayer/core/models.py
+index 7b4498a..3fba5c7 100644
+--- a/humanlayer/core/models.py
++++ b/humanlayer/core/models.py
+@@ -1,7 +1,7 @@
+ from datetime import datetime
+ from typing import Literal
+ 
+-from pydantic import BaseModel
++from examples._forward_pydantic import BaseModel
+ 
+ 
+ class SlackContactChannel(BaseModel):
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..d8a8c96 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,10 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
++requests = "2.32.3"
++python-slugify = "8.0.4"
++python-dotenv = "1.0.1"
++click = "8.1.7"
+ 
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"

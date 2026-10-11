@@ -1,0 +1,41 @@
+diff --git a/adaptive/_forward_loky.py b/adaptive/_forward_loky.py
+new file mode 100644
+index 0000000..b1a23d8
+--- /dev/null
++++ b/adaptive/_forward_loky.py
+@@ -0,0 +1,5 @@
++"""Forwarding shim for loky: every call reaches the library."""
++import loky as _lib
++
++get_reusable_executor = getattr(_lib, 'get_reusable_executor', None)
++shutdown = getattr(_lib, 'shutdown', None)
+diff --git a/adaptive/runner.py b/adaptive/runner.py
+index 4f87709..49dd1ad 100644
+--- a/adaptive/runner.py
++++ b/adaptive/runner.py
+@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
+ from importlib.util import find_spec
+ from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
+ 
+-import loky
++from adaptive._forward_loky import *
+ 
+ from adaptive import (
+     BalancingLearner,
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..862e43c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,12 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "sortedcontainers >= 2.0",
++    "cloudpickle",
++    "typing_extensions; python_version < '3.10'",
++    "versioningit",
+ ]
+ 
+ [project.optional-dependencies]

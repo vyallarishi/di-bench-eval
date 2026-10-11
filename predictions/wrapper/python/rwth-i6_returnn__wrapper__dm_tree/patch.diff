@@ -1,0 +1,104 @@
+diff --git a/demos/_forward_dm_tree.py b/demos/_forward_dm_tree.py
+new file mode 100644
+index 0000000..591fa4f
+--- /dev/null
++++ b/demos/_forward_dm_tree.py
+@@ -0,0 +1,6 @@
++"""Forwarding shim for dm_tree: every call reaches the library."""
++import dm_tree as _lib
++
++flatten = getattr(_lib, 'flatten', None)
++flatten_with_path = getattr(_lib, 'flatten_with_path', None)
++map_structure = getattr(_lib, 'map_structure', None)
+diff --git a/demos/demo-rf-pt-benchmark.py b/demos/demo-rf-pt-benchmark.py
+index 53cbcea..8021faf 100644
+--- a/demos/demo-rf-pt-benchmark.py
++++ b/demos/demo-rf-pt-benchmark.py
+@@ -14,7 +14,7 @@ import subprocess
+ from typing import Optional, Any, Tuple, Dict, Sequence, List
+ import os
+ import sys
+-import tree
++from demos._forward_dm_tree import *
+ import numpy
+ import argparse
+ import tempfile
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..2dfc9bf 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,4 @@
++numpy
++h5py
++typing
++# Nest alternative, provides `tree`: https://github.com/rwth-i6/returnn/issues/1314
+diff --git a/returnn/datasets/distrib_files.py b/returnn/datasets/distrib_files.py
+index d7a6e2e..28d8788 100644
+--- a/returnn/datasets/distrib_files.py
++++ b/returnn/datasets/distrib_files.py
+@@ -229,7 +229,7 @@ class DistributeFilesDataset(CachedDataset2):
+         self._data_keys = dataset.get_data_keys()
+ 
+     def _lazy_init_file_sizes(self):
+-        import tree
++        from demos._forward_dm_tree import *
+ 
+         if self._file_sizes:
+             return
+@@ -317,7 +317,7 @@ class DistributeFilesDataset(CachedDataset2):
+         return True
+ 
+     def _get_sub_dataset_dict(self, files: List[FileTree]) -> Dict[str, Any]:
+-        import tree
++        from demos._forward_dm_tree import *
+ 
+         dataset_dict = self.get_sub_epoch_dataset(files)
+         dataset_dict = extend_dataset_dict_from_parent_dataset(dataset_dict, parent_dataset=self)
+@@ -449,7 +449,7 @@ class DistributeFilesDataset(CachedDataset2):
+ 
+ def _get_key_for_file_tree(t: FileTree) -> str:
+     """generates a deterministic key given a file tree"""
+-    import tree
++    from demos._forward_dm_tree import *
+ 
+     return ":".join(tree.flatten(t))
+ 
+diff --git a/returnn/frontend/loop.py b/returnn/frontend/loop.py
+index aa7846b..c9ab99e 100644
+--- a/returnn/frontend/loop.py
++++ b/returnn/frontend/loop.py
+@@ -10,7 +10,7 @@ https://github.com/rwth-i6/returnn/issues/1324
+ 
+ from __future__ import annotations
+ from typing import Optional, Union, TypeVar, Callable, Sequence, Tuple, List, Dict
+-import tree
++from demos._forward_dm_tree import *
+ from returnn.tensor import Tensor, Dim
+ import returnn.frontend as rf
+ from .tensor_array import TensorArray
+diff --git a/returnn/tf/frontend_layers/loop.py b/returnn/tf/frontend_layers/loop.py
+index 43fe8a2..0d2d521 100644
+--- a/returnn/tf/frontend_layers/loop.py
++++ b/returnn/tf/frontend_layers/loop.py
+@@ -4,7 +4,7 @@ Loop. Provides :class:`Loop`.
+ 
+ from __future__ import annotations
+ from typing import Dict, Any, Optional, List, Union, Iterable
+-import tree
++from demos._forward_dm_tree import *
+ from returnn.util.basic import NotSpecified
+ from returnn.tensor import Tensor, Dim, ControlFlowContext
+ import returnn.frontend as rf
+diff --git a/returnn/util/file_cache.py b/returnn/util/file_cache.py
+index aa846d8..193b9dc 100644
+--- a/returnn/util/file_cache.py
++++ b/returnn/util/file_cache.py
+@@ -285,7 +285,7 @@ class FileCache:
+         :return: modified config, where all :class:`CachedFile` instances are replaced by the cached file path,
+             and the list of cached files which are used.
+         """
+-        import tree
++        from demos._forward_dm_tree import *
+ 
+         res_files = []
+ 

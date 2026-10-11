@@ -1,0 +1,198 @@
+diff --git a/collada/_forward_numpy.py b/collada/_forward_numpy.py
+new file mode 100644
+index 0000000..c4ea6da
+--- /dev/null
++++ b/collada/_forward_numpy.py
+@@ -0,0 +1,20 @@
++"""Forwarding shim for numpy: every call reaches the library."""
++import numpy as _lib
++
++array = getattr(_lib, 'array', None)
++asarray = getattr(_lib, 'asarray', None)
++asmatrix = getattr(_lib, 'asmatrix', None)
++assert_array_equal = getattr(_lib, 'assert_array_equal', None)
++concatenate = getattr(_lib, 'concatenate', None)
++cross = getattr(_lib, 'cross', None)
++cumsum = getattr(_lib, 'cumsum', None)
++dot = getattr(_lib, 'dot', None)
++dstack = getattr(_lib, 'dstack', None)
++fromstring = getattr(_lib, 'fromstring', None)
++identity = getattr(_lib, 'identity', None)
++implement_array_function = getattr(_lib, 'implement_array_function', None)
++max = getattr(_lib, 'max', None)
++repeat = getattr(_lib, 'repeat', None)
++sum = getattr(_lib, 'sum', None)
++vdot = getattr(_lib, 'vdot', None)
++zeros = getattr(_lib, 'zeros', None)
+diff --git a/collada/controller.py b/collada/controller.py
+index 0d3e0c6..a9e5e4b 100644
+--- a/collada/controller.py
++++ b/collada/controller.py
+@@ -14,7 +14,7 @@
+     support for loading Skin and Morph. **This module is highly
+     experimental. More support will be added in version 0.4.**"""
+ 
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada import source
+ from collada.common import DaeObject
+diff --git a/collada/light.py b/collada/light.py
+index 283e137..f840df8 100644
+--- a/collada/light.py
++++ b/collada/light.py
+@@ -12,7 +12,7 @@
+ 
+ """Contains objects for representing lights."""
+ 
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada.common import DaeObject, E, tag
+ from collada.common import DaeIncompleteError, DaeMalformedError, \
+diff --git a/collada/lineset.py b/collada/lineset.py
+index 5939ee4..f1273bc 100644
+--- a/collada/lineset.py
++++ b/collada/lineset.py
+@@ -12,7 +12,7 @@
+ 
+ """Module containing classes and functions for the <lines> primitive."""
+ 
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada import primitive
+ from collada.util import checkSource, xrange
+diff --git a/collada/material.py b/collada/material.py
+index dd4bbc5..364959d 100644
+--- a/collada/material.py
++++ b/collada/material.py
+@@ -20,7 +20,7 @@ This module contains all the functionality to load and manage:
+ """
+ 
+ import copy
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada.common import DaeObject, E, tag
+ from collada.common import DaeIncompleteError, DaeBrokenRefError, \
+diff --git a/collada/polygons.py b/collada/polygons.py
+index 92618f6..5a17bea 100644
+--- a/collada/polygons.py
++++ b/collada/polygons.py
+@@ -12,7 +12,7 @@
+ 
+ """Module containing classes and functions for the <polygons> primitive."""
+ 
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada import primitive
+ from collada import polylist
+diff --git a/collada/polylist.py b/collada/polylist.py
+index 7a465f6..0417ab6 100644
+--- a/collada/polylist.py
++++ b/collada/polylist.py
+@@ -12,7 +12,7 @@
+ 
+ """Module containing classes and functions for the <polylist> primitive."""
+ 
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada import primitive
+ from collada import triangleset
+diff --git a/collada/scene.py b/collada/scene.py
+index ac4e586..d0ebdb4 100644
+--- a/collada/scene.py
++++ b/collada/scene.py
+@@ -24,7 +24,7 @@ Supported scene nodes are:
+ """
+ 
+ import collada
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada.common import DaeBrokenRefError
+ from collada.common import DaeError
+diff --git a/collada/source.py b/collada/source.py
+index 6a0e715..e05f0c8 100644
+--- a/collada/source.py
++++ b/collada/source.py
+@@ -12,7 +12,7 @@
+ 
+ """Module for managing data sources defined in geometry tags."""
+ 
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada.common import DaeObject, E, tag
+ from collada.common import DaeIncompleteError, DaeMalformedError, DaeUnsupportedError
+diff --git a/collada/triangleset.py b/collada/triangleset.py
+index 77fe0df..e1c84e5 100644
+--- a/collada/triangleset.py
++++ b/collada/triangleset.py
+@@ -12,7 +12,7 @@
+ 
+ """Module containing classes and functions for the <triangles> primitive."""
+ 
+-import numpy
++from collada._forward_numpy import *
+ 
+ from collada import primitive
+ from collada.common import E
+diff --git a/collada/util.py b/collada/util.py
+index 332052c..25928d3 100644
+--- a/collada/util.py
++++ b/collada/util.py
+@@ -12,7 +12,7 @@
+ 
+ """This module contains utility functions"""
+ 
+-import numpy
++from collada._forward_numpy import *
+ import math
+ import sys
+ 
+diff --git a/examples/daeview/renderer/GLSLRenderer.py b/examples/daeview/renderer/GLSLRenderer.py
+index 1a20906..2556614 100644
+--- a/examples/daeview/renderer/GLSLRenderer.py
++++ b/examples/daeview/renderer/GLSLRenderer.py
+@@ -4,7 +4,7 @@ from __future__ import print_function
+ from __future__ import absolute_import
+ 
+ import collada
+-import numpy
++from collada._forward_numpy import *
+ 
+ import pyglet
+ from pyglet.gl import *
+diff --git a/examples/daeview/renderer/OldStyleRenderer.py b/examples/daeview/renderer/OldStyleRenderer.py
+index a2ad281..ab10a65 100644
+--- a/examples/daeview/renderer/OldStyleRenderer.py
++++ b/examples/daeview/renderer/OldStyleRenderer.py
+@@ -4,7 +4,7 @@ from __future__ import print_function
+ from __future__ import absolute_import
+ 
+ import collada
+-import numpy
++from collada._forward_numpy import *
+ import pyglet
+ from pyglet.gl import *
+ import ctypes
+diff --git a/pyproject.toml b/pyproject.toml
+index 2e7523e..d096393 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,10 @@ authors = [
+     {name = "Jeff Terrace and contributors", email = "jterrace@gmail.com"},
+ ]
+ license = {text = "BSD"}
+-dependencies = []
++dependencies = [
++    "python-dateutil>=2.2",
++    "unittest2; python_version<\"2.7\"",
++]
+ 
+ [project.optional-dependencies]
+ prettyprint = ["lxml"]

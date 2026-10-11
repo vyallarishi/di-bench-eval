@@ -1,0 +1,43 @@
+diff --git a/fcmeans/_forward_pydantic.py b/fcmeans/_forward_pydantic.py
+new file mode 100644
+index 0000000..f138f6f
+--- /dev/null
++++ b/fcmeans/_forward_pydantic.py
+@@ -0,0 +1,8 @@
++"""Forwarding shim for pydantic: every call reaches the library."""
++import dantic as _lib
++
++BaseModel = getattr(_lib, 'BaseModel', None)
++ConfigDict = getattr(_lib, 'ConfigDict', None)
++Field = getattr(_lib, 'Field', None)
++__init__ = getattr(_lib, '__init__', None)
++validate_call = getattr(_lib, 'validate_call', None)
+diff --git a/fcmeans/main.py b/fcmeans/main.py
+index 04ffe31..f7247b6 100644
+--- a/fcmeans/main.py
++++ b/fcmeans/main.py
+@@ -5,7 +5,7 @@ import numpy as np
+ import tqdm
+ from joblib import Parallel, delayed
+ from numpy.typing import NDArray
+-from pydantic import BaseModel, ConfigDict, Field, validate_call
++from fcmeans._forward_pydantic import BaseModel, ConfigDict, Field, validate_call
+ 
+ 
+ class DistanceOptions(str, Enum):
+diff --git a/pyproject.toml b/pyproject.toml
+index 0cfbeaf..3ab1d9b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -25,6 +25,11 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++numpy = "^1.21.1"
++tabulate = "^0.8.9"
++tqdm = "^4.64.1"
++joblib = "^1.2.0"
++typer = "^0.9.0"
+ 
+ [tool.poetry.group.dev.dependencies]
+ pre-commit = "^3.6.2"

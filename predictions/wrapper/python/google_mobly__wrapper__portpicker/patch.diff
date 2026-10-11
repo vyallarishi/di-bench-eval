@@ -1,0 +1,36 @@
+diff --git a/mobly/_forward_portpicker.py b/mobly/_forward_portpicker.py
+new file mode 100644
+index 0000000..8177a19
+--- /dev/null
++++ b/mobly/_forward_portpicker.py
+@@ -0,0 +1,4 @@
++"""Forwarding shim for portpicker: every call reaches the library."""
++import portpicker as _lib
++
++pick_unused_port = getattr(_lib, 'pick_unused_port', None)
+diff --git a/mobly/utils.py b/mobly/utils.py
+index f567c32..9082f39 100644
+--- a/mobly/utils.py
++++ b/mobly/utils.py
+@@ -32,7 +32,7 @@ import time
+ import traceback
+ from typing import Literal, Tuple, overload
+ 
+-import portpicker
++from mobly._forward_portpicker import *
+ 
+ # File name length is limited to 255 chars on some OS, so we need to make sure
+ # the file names we output fits within the limit.
+diff --git a/pyproject.toml b/pyproject.toml
+index 2444159..61e6fac 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,6 +8,8 @@ version = "1.12.4"
+ description = "Automation framework for special end-to-end test cases"
+ requires-python = ">=3.11"
+ dependencies = [
++    "pywin32; platform_system == \"Windows\"",
++    "pyyaml",
+ ]
+ 
+ [[project.maintainers]]

@@ -1,0 +1,48 @@
+diff --git a/dpsprep/_forward_pillow.py b/dpsprep/_forward_pillow.py
+new file mode 100644
+index 0000000..9a6746a
+--- /dev/null
++++ b/dpsprep/_forward_pillow.py
+@@ -0,0 +1,10 @@
++"""Forwarding shim for pillow: every call reaches the library."""
++import PIL as _lib
++
++Image = getattr(_lib, 'Image', None)
++ImageOps = getattr(_lib, 'ImageOps', None)
++check_codec = getattr(_lib, 'check_codec', None)
++convert = getattr(_lib, 'convert', None)
++frombuffer = getattr(_lib, 'frombuffer', None)
++invert = getattr(_lib, 'invert', None)
++open = getattr(_lib, 'open', None)
+diff --git a/dpsprep/images.py b/dpsprep/images.py
+index 0ce40a8..073a457 100644
+--- a/dpsprep/images.py
++++ b/dpsprep/images.py
+@@ -3,8 +3,8 @@ from typing import Literal
+ import djvu.decode
+ import djvu.sexpr
+ import loguru
+-import PIL.features
+-from PIL import Image, ImageOps
++from dpsprep._forward_pillow import *
++from dpsprep._forward_pillow import Image, ImageOps
+ 
+ ImageMode = Literal['rgb', 'grayscale', 'bitonal', 'infer']
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 8af584d..811ffbd 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,6 +7,12 @@ license = "GPL-3.0-or-later"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++click = "^8.1.7"
++djvulibre-python = "^0.9.0"
++fpdf2 = "^2.8.1"
++loguru = "^0.7.2"
++ocrmypdf = {version = "^15.4.4", optional = true}
++pdfrw = "^0.4"
+ 
+ [tool.poetry.group.dev.dependencies]
+ mypy = "^1.13.0"

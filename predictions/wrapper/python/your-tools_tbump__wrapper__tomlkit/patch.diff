@@ -1,0 +1,53 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..680eff5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,14 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++docopt = "^0.6.2"
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/_forward_tomlkit.py b/tbump/_forward_tomlkit.py
+new file mode 100644
+index 0000000..542714d
+--- /dev/null
++++ b/tbump/_forward_tomlkit.py
+@@ -0,0 +1,13 @@
++"""Forwarding shim for tomlkit: every call reaches the library."""
++import tomlkit as _lib
++
++TOMLDocument = getattr(_lib, 'TOMLDocument', None)
++add = getattr(_lib, 'add', None)
++aot = getattr(_lib, 'aot', None)
++document = getattr(_lib, 'document', None)
++dumps = getattr(_lib, 'dumps', None)
++insert = getattr(_lib, 'insert', None)
++loads = getattr(_lib, 'loads', None)
++parse = getattr(_lib, 'parse', None)
++table = getattr(_lib, 'table', None)
++unwrap = getattr(_lib, 'unwrap', None)
+diff --git a/tbump/config.py b/tbump/config.py
+index 84cedde..d7d7f60 100644
+--- a/tbump/config.py
++++ b/tbump/config.py
+@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
+ 
+ import cli_ui as ui
+ import schema
+-import tomlkit
+-from tomlkit.toml_document import TOMLDocument
++from tbump._forward_tomlkit import *
++from tbump._forward_tomlkit import TOMLDocument
+ 
+ from tbump.action import Action
+ from tbump.error import Error

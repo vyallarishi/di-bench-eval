@@ -1,0 +1,132 @@
+diff --git a/examples/_forward_falcon.py b/examples/_forward_falcon.py
+new file mode 100644
+index 0000000..d2f7936
+--- /dev/null
++++ b/examples/_forward_falcon.py
+@@ -0,0 +1,15 @@
++"""Forwarding shim for falcon: every call reaches the library."""
++import falcon as _lib
++
++Lock = getattr(_lib, 'Lock', None)
++Request = getattr(_lib, 'Request', None)
++Response = getattr(_lib, 'Response', None)
++__init__ = getattr(_lib, '__init__', None)
++add_route = getattr(_lib, 'add_route', None)
++create_default_options = getattr(_lib, 'create_default_options', None)
++create_method_not_allowed = getattr(_lib, 'create_method_not_allowed', None)
++iscoroutinefunction = getattr(_lib, 'iscoroutinefunction', None)
++simulate_get = getattr(_lib, 'simulate_get', None)
++simulate_post = getattr(_lib, 'simulate_post', None)
++update_wrapper = getattr(_lib, 'update_wrapper', None)
++version = getattr(_lib, 'version', None)
+diff --git a/examples/falcon/app.py b/examples/falcon/app.py
+index 83bb5e4..3b60144 100644
+--- a/examples/falcon/app.py
++++ b/examples/falcon/app.py
+@@ -1,4 +1,4 @@
+-import falcon
++from examples._forward_falcon import *
+ import logging
+ import re
+ from slack_bolt import App, Respond, Ack
+diff --git a/examples/falcon/async_app.py b/examples/falcon/async_app.py
+index 44989d4..1574df3 100644
+--- a/examples/falcon/async_app.py
++++ b/examples/falcon/async_app.py
+@@ -1,4 +1,4 @@
+-import falcon
++from examples._forward_falcon import *
+ import logging
+ import re
+ from slack_bolt.async_app import AsyncApp, AsyncRespond, AsyncAck
+diff --git a/examples/falcon/async_oauth_app.py b/examples/falcon/async_oauth_app.py
+index df4d969..3a90f21 100644
+--- a/examples/falcon/async_oauth_app.py
++++ b/examples/falcon/async_oauth_app.py
+@@ -1,4 +1,4 @@
+-import falcon
++from examples._forward_falcon import *
+ import logging
+ import re
+ from slack_bolt.async_app import AsyncApp, AsyncRespond, AsyncAck
+diff --git a/examples/falcon/oauth_app.py b/examples/falcon/oauth_app.py
+index 7d9ad7f..530eb36 100644
+--- a/examples/falcon/oauth_app.py
++++ b/examples/falcon/oauth_app.py
+@@ -1,4 +1,4 @@
+-import falcon
++from examples._forward_falcon import *
+ import logging
+ import re
+ from slack_bolt import App, Respond, Ack
+diff --git a/requirements/adapter.txt b/requirements/adapter.txt
+index e69de29..0100726 100644
+--- a/requirements/adapter.txt
++++ b/requirements/adapter.txt
+@@ -0,0 +1,20 @@
++# pip install -r requirements/adapter.txt
++# NOTE: any of async ones requires pip install -r requirements/async.txt too
++# used only under slack_bolt/adapter
++boto3<=2
++bottle>=0.12,<1
++chalice<=1.27.3; python_version=="3.6"
++chalice>=1.28,<2; python_version>"3.6"
++CherryPy>=18,<19
++Django>=3,<6
++fastapi>=0.70.0,<1
++Flask>=1,<4
++Werkzeug>=2,<4
++pyramid>=1,<3
++sanic>=20,<21; python_version=="3.6"
++sanic>=22,<24; python_version>"3.6"
++starlette>=0.14,<1
++tornado>=6,<7
++uvicorn<1                                # The oldest version can vary among Python runtime versions
++gunicorn>=20,<24
++websocket_client>=1.2.3,<2               # Socket Mode 3rd party implementation
+diff --git a/slack_bolt/adapter/falcon/async_resource.py b/slack_bolt/adapter/falcon/async_resource.py
+index 0ce219e..9424b3b 100644
+--- a/slack_bolt/adapter/falcon/async_resource.py
++++ b/slack_bolt/adapter/falcon/async_resource.py
+@@ -1,8 +1,8 @@
+ from datetime import datetime
+ from http import HTTPStatus
+ 
+-from falcon import version as falcon_version  # type: ignore[import-untyped]
+-from falcon.asgi import Request, Response  # type: ignore[import-untyped]
++from examples._forward_falcon import version as falcon_version  # type: ignore[import-untyped]
++from examples._forward_falcon import Request, Response  # type: ignore[import-untyped]
+ from slack_bolt import BoltResponse
+ from slack_bolt.async_app import AsyncApp
+ from slack_bolt.error import BoltError
+@@ -17,7 +17,7 @@ class AsyncSlackAppResource:
+     from slack_bolt.async_app import AsyncApp
+     app = AsyncApp()
+ 
+-    import falcon
++    from examples._forward_falcon import *
+     app = falcon.asgi.App()
+     app.add_route("/slack/events", AsyncSlackAppResource(app))
+     """
+diff --git a/slack_bolt/adapter/falcon/resource.py b/slack_bolt/adapter/falcon/resource.py
+index 45b7614..737db00 100644
+--- a/slack_bolt/adapter/falcon/resource.py
++++ b/slack_bolt/adapter/falcon/resource.py
+@@ -1,7 +1,7 @@
+ from datetime import datetime
+ from http import HTTPStatus
+ 
+-from falcon import Request, Response, version as falcon_version  # type: ignore[import-untyped]
++from examples._forward_falcon import Request, Response, version as falcon_version  # type: ignore[import-untyped]
+ 
+ from slack_bolt import BoltResponse
+ from slack_bolt.app import App
+@@ -14,7 +14,7 @@ class SlackAppResource:
+     from slack_bolt import App
+     app = App()
+ 
+-    import falcon
++    from examples._forward_falcon import *
+     api = application = falcon.API()
+     api.add_route("/slack/events", SlackAppResource(app))
+     """

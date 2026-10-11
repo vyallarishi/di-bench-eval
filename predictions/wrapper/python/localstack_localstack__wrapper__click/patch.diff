@@ -1,0 +1,209 @@
+diff --git a/localstack-core/localstack/aws/scaffold.py b/localstack-core/localstack/aws/scaffold.py
+index 1421091..dac2ad7 100644
+--- a/localstack-core/localstack/aws/scaffold.py
++++ b/localstack-core/localstack/aws/scaffold.py
+@@ -6,7 +6,7 @@ from multiprocessing import Pool
+ from pathlib import Path
+ from typing import Dict, List, Optional, Set
+ 
+-import click
++from scripts._forward_click import *
+ from botocore import xform_name
+ from botocore.exceptions import UnknownServiceError
+ from botocore.model import (
+@@ -483,7 +483,7 @@ def generate(service: str, doc: bool, save: bool, path: str):
+ 
+     SERVICE is the service to generate the stubs for (e.g., sqs, or cloudformation)
+     """
+-    from click import ClickException
++    from scripts._forward_click import ClickException
+ 
+     try:
+         code = generate_code(service, doc=doc)
+diff --git a/localstack-core/localstack/cli/exceptions.py b/localstack-core/localstack/cli/exceptions.py
+index cd65d2e..70aba2c 100644
+--- a/localstack-core/localstack/cli/exceptions.py
++++ b/localstack-core/localstack/cli/exceptions.py
+@@ -1,9 +1,9 @@
+ import typing as t
+ from gettext import gettext
+ 
+-import click
+-from click import ClickException, echo
+-from click._compat import get_text_stderr
++from scripts._forward_click import *
++from scripts._forward_click import ClickException, echo
++from scripts._forward_click import get_text_stderr
+ 
+ 
+ class CLIError(ClickException):
+diff --git a/localstack-core/localstack/cli/localstack.py b/localstack-core/localstack/cli/localstack.py
+index 22546f2..e209f9a 100644
+--- a/localstack-core/localstack/cli/localstack.py
++++ b/localstack-core/localstack/cli/localstack.py
+@@ -5,7 +5,7 @@ import sys
+ import traceback
+ from typing import Dict, List, Optional, Tuple, TypedDict
+ 
+-import click
++from scripts._forward_click import *
+ import requests
+ 
+ from localstack import config
+@@ -872,7 +872,7 @@ def localstack_completion(ctx: click.Context, shell: str) -> None:
+     """
+ 
+     # lookup the completion, raise an error if the given completion is not found
+-    import click.shell_completion
++    from scripts._forward_click import *
+ 
+     comp_cls = click.shell_completion.get_completion_class(shell)
+     if comp_cls is None:
+diff --git a/localstack-core/localstack/cli/lpm.py b/localstack-core/localstack/cli/lpm.py
+index ad4a6f5..7351a50 100644
+--- a/localstack-core/localstack/cli/lpm.py
++++ b/localstack-core/localstack/cli/lpm.py
+@@ -3,7 +3,7 @@ import logging
+ from multiprocessing.pool import ThreadPool
+ from typing import List, Optional
+ 
+-import click
++from scripts._forward_click import *
+ from rich.console import Console
+ 
+ from localstack import config
+diff --git a/localstack-core/localstack/cli/plugin.py b/localstack-core/localstack/cli/plugin.py
+index f9af884..51c7c48 100644
+--- a/localstack-core/localstack/cli/plugin.py
++++ b/localstack-core/localstack/cli/plugin.py
+@@ -2,7 +2,7 @@ import abc
+ import logging
+ import os
+ 
+-import click
++from scripts._forward_click import *
+ from plux import Plugin, PluginManager
+ 
+ LOG = logging.getLogger(__name__)
+diff --git a/localstack-core/localstack/cli/plugins.py b/localstack-core/localstack/cli/plugins.py
+index c635881..a530dfc 100644
+--- a/localstack-core/localstack/cli/plugins.py
++++ b/localstack-core/localstack/cli/plugins.py
+@@ -1,7 +1,7 @@
+ import os
+ import time
+ 
+-import click
++from scripts._forward_click import *
+ from plux import PluginManager
+ from plux.build.setuptools import find_plugins
+ from plux.core.entrypoint import spec_to_entry_point
+diff --git a/localstack-core/localstack/dev/kubernetes/__main__.py b/localstack-core/localstack/dev/kubernetes/__main__.py
+index e50f3f4..1be82f8 100644
+--- a/localstack-core/localstack/dev/kubernetes/__main__.py
++++ b/localstack-core/localstack/dev/kubernetes/__main__.py
+@@ -1,6 +1,6 @@
+ import os
+ 
+-import click
++from scripts._forward_click import *
+ import yaml
+ 
+ from localstack import version as localstack_version
+diff --git a/localstack-core/localstack/dev/run/__main__.py b/localstack-core/localstack/dev/run/__main__.py
+index d54b035..054e82a 100644
+--- a/localstack-core/localstack/dev/run/__main__.py
++++ b/localstack-core/localstack/dev/run/__main__.py
+@@ -2,7 +2,7 @@ import dataclasses
+ import os
+ from typing import Iterable, Tuple
+ 
+-import click
++from scripts._forward_click import *
+ from rich.rule import Rule
+ 
+ from localstack import config
+diff --git a/localstack-core/localstack/services/cloudformation/scaffolding/__main__.py b/localstack-core/localstack/services/cloudformation/scaffolding/__main__.py
+index d6eb97f..8a49869 100644
+--- a/localstack-core/localstack/services/cloudformation/scaffolding/__main__.py
++++ b/localstack-core/localstack/services/cloudformation/scaffolding/__main__.py
+@@ -9,7 +9,7 @@ from functools import reduce
+ from pathlib import Path
+ from typing import Any, Generator, Literal, Optional, TypedDict, TypeVar
+ 
+-import click
++from scripts._forward_click import *
+ from jinja2 import Environment, FileSystemLoader
+ from yaml import safe_dump
+ 
+diff --git a/localstack-core/localstack/utils/analytics/cli.py b/localstack-core/localstack/utils/analytics/cli.py
+index ebab4f3..1aa56c0 100644
+--- a/localstack-core/localstack/utils/analytics/cli.py
++++ b/localstack-core/localstack/utils/analytics/cli.py
+@@ -3,7 +3,7 @@ import functools
+ from multiprocessing import Process
+ from typing import List
+ 
+-import click
++from scripts._forward_click import *
+ 
+ from localstack import config
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index c8d45fd..fbdebd1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,20 @@ authors = [
+ description = "The core library and runtime of LocalStack"
+ requires-python = ">=3.8"
+ dependencies = [
++    "build",
++    "cachetools>=5.0",
++    "cryptography",
++    "dill==0.3.6",
++    "dnslib>=0.9.10",
++    "dnspython>=1.16.0",
++    "plux>=1.10",
++    "psutil>=5.4.8",
++    "python-dotenv>=0.19.1",
++    "pyyaml>=5.1",
++    "rich>=12.3.0",
++    "requests>=2.20.0",
++    "semver>=2.10",
++    "tailer>=0.4.1",
+ ]
+ dynamic = ["version"]
+ classifiers = [
+diff --git a/scripts/_forward_click.py b/scripts/_forward_click.py
+new file mode 100644
+index 0000000..afe0b57
+--- /dev/null
++++ b/scripts/_forward_click.py
+@@ -0,0 +1,14 @@
++"""Forwarding shim for click: every call reaches the library."""
++import click as _lib
++
++ClickException = getattr(_lib, 'ClickException', None)
++__init__ = getattr(_lib, '__init__', None)
++argument = getattr(_lib, 'argument', None)
++command = getattr(_lib, 'command', None)
++echo = getattr(_lib, 'echo', None)
++get_text_stderr = getattr(_lib, 'get_text_stderr', None)
++group = getattr(_lib, 'group', None)
++invoke = getattr(_lib, 'invoke', None)
++option = getattr(_lib, 'option', None)
++pass_context = getattr(_lib, 'pass_context', None)
++version_option = getattr(_lib, 'version_option', None)
+diff --git a/scripts/gather_outdated_snapshots.py b/scripts/gather_outdated_snapshots.py
+index 817ab45..1d665ca 100644
+--- a/scripts/gather_outdated_snapshots.py
++++ b/scripts/gather_outdated_snapshots.py
+@@ -2,7 +2,7 @@ import datetime
+ import json
+ import os
+ 
+-import click
++from scripts._forward_click import *
+ 
+ 
+ def get_outdated_snapshots_for_directory(

@@ -1,0 +1,79 @@
+diff --git a/examples/_forward_bottle.py b/examples/_forward_bottle.py
+new file mode 100644
+index 0000000..666cf65
+--- /dev/null
++++ b/examples/_forward_bottle.py
+@@ -0,0 +1,11 @@
++"""Forwarding shim for bottle: every call reaches the library."""
++import bottle as _lib
++
++Request = getattr(_lib, 'Request', None)
++Response = getattr(_lib, 'Response', None)
++add_header = getattr(_lib, 'add_header', None)
++get = getattr(_lib, 'get', None)
++post = getattr(_lib, 'post', None)
++request = getattr(_lib, 'request', None)
++response = getattr(_lib, 'response', None)
++run = getattr(_lib, 'run', None)
+diff --git a/examples/bottle/app.py b/examples/bottle/app.py
+index 8cab4d6..2f30555 100644
+--- a/examples/bottle/app.py
++++ b/examples/bottle/app.py
+@@ -20,7 +20,7 @@ def event_test(ack, body, say, logger):
+     say("What's up?")
+ 
+ 
+-from bottle import post, request, response, run
++from examples._forward_bottle import post, request, response, run
+ 
+ handler = SlackRequestHandler(app)
+ 
+diff --git a/examples/bottle/oauth_app.py b/examples/bottle/oauth_app.py
+index 8d42327..daac482 100644
+--- a/examples/bottle/oauth_app.py
++++ b/examples/bottle/oauth_app.py
+@@ -18,7 +18,7 @@ def event_test(body, say, logger):
+     say("What's up?")
+ 
+ 
+-from bottle import get, post, request, response, run
++from examples._forward_bottle import get, post, request, response, run
+ 
+ handler = SlackRequestHandler(app)
+ 
+diff --git a/requirements/adapter.txt b/requirements/adapter.txt
+index e69de29..8abc164 100644
+--- a/requirements/adapter.txt
++++ b/requirements/adapter.txt
+@@ -0,0 +1,21 @@
++# pip install -r requirements/adapter.txt
++# NOTE: any of async ones requires pip install -r requirements/async.txt too
++# used only under slack_bolt/adapter
++boto3<=2
++chalice<=1.27.3; python_version=="3.6"
++chalice>=1.28,<2; python_version>"3.6"
++CherryPy>=18,<19
++Django>=3,<6
++falcon>=2,<4; python_version<"3.11"
++falcon>=3.1.1,<4; python_version>="3.11"
++fastapi>=0.70.0,<1
++Flask>=1,<4
++Werkzeug>=2,<4
++pyramid>=1,<3
++sanic>=20,<21; python_version=="3.6"
++sanic>=22,<24; python_version>"3.6"
++starlette>=0.14,<1
++tornado>=6,<7
++uvicorn<1                                # The oldest version can vary among Python runtime versions
++gunicorn>=20,<24
++websocket_client>=1.2.3,<2               # Socket Mode 3rd party implementation
+diff --git a/slack_bolt/adapter/bottle/handler.py b/slack_bolt/adapter/bottle/handler.py
+index d99e24a..2863709 100644
+--- a/slack_bolt/adapter/bottle/handler.py
++++ b/slack_bolt/adapter/bottle/handler.py
+@@ -1,4 +1,4 @@
+-from bottle import Request, Response  # type: ignore[import-untyped]
++from examples._forward_bottle import Request, Response  # type: ignore[import-untyped]
+ 
+ from slack_bolt.app import App
+ from slack_bolt.oauth import OAuthFlow

@@ -1,0 +1,1387 @@
+diff --git a/demos/demo-rf-pt-benchmark.py b/demos/demo-rf-pt-benchmark.py
+index 53cbcea..fba6593 100644
+--- a/demos/demo-rf-pt-benchmark.py
++++ b/demos/demo-rf-pt-benchmark.py
+@@ -15,7 +15,7 @@ from typing import Optional, Any, Tuple, Dict, Sequence, List
+ import os
+ import sys
+ import tree
+-import numpy
++from tools._forward_numpy import *
+ import argparse
+ import tempfile
+ import time
+diff --git a/demos/demo-tf-search-compiled-graph.py b/demos/demo-tf-search-compiled-graph.py
+index 85e629b..731a635 100644
+--- a/demos/demo-tf-search-compiled-graph.py
++++ b/demos/demo-tf-search-compiled-graph.py
+@@ -13,7 +13,7 @@ import os
+ import json
+ import argparse
+ import tensorflow as tf
+-import numpy
++from tools._forward_numpy import *
+ 
+ 
+ class Hyp:
+diff --git a/demos/mdlstm/IAM/create_IAM_dataset.py b/demos/mdlstm/IAM/create_IAM_dataset.py
+index a032996..313866d 100644
+--- a/demos/mdlstm/IAM/create_IAM_dataset.py
++++ b/demos/mdlstm/IAM/create_IAM_dataset.py
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python
+ # coding=utf-8
+ import h5py
+-import numpy
++from tools._forward_numpy import *
+ from scipy.ndimage import imread
+ from scipy.misc import imsave, imresize
+ import os
+diff --git a/demos/mdlstm/IAM/decode.py b/demos/mdlstm/IAM/decode.py
+index cbcaeb8..367c2af 100644
+--- a/demos/mdlstm/IAM/decode.py
++++ b/demos/mdlstm/IAM/decode.py
+@@ -2,7 +2,7 @@
+ 
+ from __future__ import annotations
+ import h5py
+-import numpy
++from tools._forward_numpy import *
+ 
+ with open("chars.txt") as f:
+     chars = [l.strip() for l in f.readlines()] + ["_blank"]
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..0ab369b 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,4 @@
++h5py
++typing
++# Nest alternative, provides `tree`: https://github.com/rwth-i6/returnn/issues/1314
++dm-tree
+diff --git a/returnn/__main__.py b/returnn/__main__.py
+index 5d148b7..757eb09 100644
+--- a/returnn/__main__.py
++++ b/returnn/__main__.py
+@@ -23,7 +23,7 @@ import os
+ import sys
+ import time
+ from typing import TYPE_CHECKING, Optional, Union, Any, Sequence, Dict
+-import numpy
++from tools._forward_numpy import *
+ import returnn
+ from returnn.log import log
+ from returnn.config import Config, get_global_config
+diff --git a/returnn/datasets/audio.py b/returnn/datasets/audio.py
+index 2803f25..d2d6187 100644
+--- a/returnn/datasets/audio.py
++++ b/returnn/datasets/audio.py
+@@ -4,7 +4,7 @@ Datasets dealing with audio
+ 
+ from __future__ import annotations
+ from typing import Optional, Any, List, Tuple, Dict
+-import numpy
++from tools._forward_numpy import *
+ import typing
+ 
+ from .basic import DatasetSeq
+diff --git a/returnn/datasets/basic.py b/returnn/datasets/basic.py
+index 1be9a49..428e780 100644
+--- a/returnn/datasets/basic.py
++++ b/returnn/datasets/basic.py
+@@ -16,7 +16,7 @@ from threading import RLock
+ from random import Random, random
+ import sys
+ import os
+-import numpy
++from tools._forward_numpy import *
+ import functools
+ import typing
+ from typing import TYPE_CHECKING, Optional, Any, Union, Type, Dict, Sequence, List, Callable
+@@ -355,7 +355,7 @@ class Dataset(object):
+         :rtype: numpy.ndarray
+         """
+         # noinspection PyProtectedMember
+-        from numpy.lib.stride_tricks import as_strided
++        from tools._forward_numpy import as_strided
+ 
+         x = numpy.concatenate([self.zpad, xr, self.zpad])
+         return as_strided(
+diff --git a/returnn/datasets/cached.py b/returnn/datasets/cached.py
+index dd98b5c..dde9055 100644
+--- a/returnn/datasets/cached.py
++++ b/returnn/datasets/cached.py
+@@ -3,7 +3,7 @@ from typing import List
+ import gc
+ import sys
+ import time
+-import numpy
++from tools._forward_numpy import *
+ import threading
+ import typing
+ from .basic import Dataset
+diff --git a/returnn/datasets/cached2.py b/returnn/datasets/cached2.py
+index 7ce074a..811910d 100644
+--- a/returnn/datasets/cached2.py
++++ b/returnn/datasets/cached2.py
+@@ -3,7 +3,7 @@ Provides :class:`CachedDataset2`.
+ """
+ 
+ from __future__ import annotations
+-import numpy
++from tools._forward_numpy import *
+ import typing
+ from typing import Optional
+ from threading import Condition
+diff --git a/returnn/datasets/distrib_files.py b/returnn/datasets/distrib_files.py
+index d7a6e2e..6cf480c 100644
+--- a/returnn/datasets/distrib_files.py
++++ b/returnn/datasets/distrib_files.py
+@@ -9,7 +9,7 @@ from __future__ import annotations
+ from typing import Union, Optional, Any, Callable, Sequence, Tuple, List, Dict
+ import os
+ import sys
+-import numpy
++from tools._forward_numpy import *
+ from returnn.log import log
+ from returnn.util.basic import override_env_var, try_run
+ from returnn.util.multi_proc_non_daemonic_spawn import NonDaemonicSpawnContext
+diff --git a/returnn/datasets/generating.py b/returnn/datasets/generating.py
+index fbae91d..3a1d06b 100644
+--- a/returnn/datasets/generating.py
++++ b/returnn/datasets/generating.py
+@@ -5,7 +5,7 @@ Some datasets for artificially generated data.
+ from __future__ import annotations
+ 
+ from typing import Optional, Union, Any, Sequence, List, Tuple, Dict
+-import numpy
++from tools._forward_numpy import *
+ import sys
+ import typing
+ 
+diff --git a/returnn/datasets/hdf.py b/returnn/datasets/hdf.py
+index 91b2d57..37a62d9 100644
+--- a/returnn/datasets/hdf.py
++++ b/returnn/datasets/hdf.py
+@@ -8,7 +8,7 @@ import typing
+ import collections
+ import gc
+ import h5py
+-import numpy
++from tools._forward_numpy import *
+ from .cached import CachedDataset
+ from .cached2 import CachedDataset2
+ from .basic import Dataset, DatasetSeq
+diff --git a/returnn/datasets/lm.py b/returnn/datasets/lm.py
+index 59aa49e..2d8fda0 100644
+--- a/returnn/datasets/lm.py
++++ b/returnn/datasets/lm.py
+@@ -15,7 +15,7 @@ import time
+ import re
+ import gzip
+ import xml.etree.ElementTree as ElementTree
+-import numpy
++from tools._forward_numpy import *
+ from random import Random
+ 
+ from returnn.util.basic import (
+diff --git a/returnn/datasets/meta.py b/returnn/datasets/meta.py
+index 29f40e7..4467490 100644
+--- a/returnn/datasets/meta.py
++++ b/returnn/datasets/meta.py
+@@ -30,7 +30,7 @@ import returnn.util.basic as util
+ from returnn.util.basic import NumbersDict, load_json, OptionalNotImplementedError
+ from returnn.log import log
+ from random import Random
+-import numpy
++from tools._forward_numpy import *
+ import sys
+ import typing
+ 
+diff --git a/returnn/datasets/numpy_dump.py b/returnn/datasets/numpy_dump.py
+index 5f7a937..9b1fd50 100644
+--- a/returnn/datasets/numpy_dump.py
++++ b/returnn/datasets/numpy_dump.py
+@@ -4,7 +4,7 @@ Provides :class:`NumpyDumpDataset`.
+ 
+ from returnn.datasets.basic import Dataset, DatasetSeq
+ import os
+-import numpy
++from tools._forward_numpy import *
+ import typing
+ 
+ 
+diff --git a/returnn/datasets/postprocessing.py b/returnn/datasets/postprocessing.py
+index 7fa92e3..f59fa69 100644
+--- a/returnn/datasets/postprocessing.py
++++ b/returnn/datasets/postprocessing.py
+@@ -5,7 +5,7 @@ Provides :class:`PostprocessingDataset`.
+ from __future__ import annotations
+ 
+ from itertools import islice
+-from numpy.random import RandomState
++from tools._forward_numpy import RandomState
+ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar
+ 
+ from returnn.datasets.basic import DatasetSeq
+diff --git a/returnn/datasets/sprint.py b/returnn/datasets/sprint.py
+index 7c86865..8a688fc 100644
+--- a/returnn/datasets/sprint.py
++++ b/returnn/datasets/sprint.py
+@@ -18,7 +18,7 @@ except ImportError:
+     import _thread as thread
+ from threading import Condition, RLock, current_thread, Thread
+ import time
+-import numpy
++from tools._forward_numpy import *
+ 
+ import returnn.util.task_system as task_system
+ from returnn.datasets.basic import Dataset, DatasetSeq
+diff --git a/returnn/datasets/util/feature_extraction.py b/returnn/datasets/util/feature_extraction.py
+index d1cd420..0c8c8a2 100644
+--- a/returnn/datasets/util/feature_extraction.py
++++ b/returnn/datasets/util/feature_extraction.py
+@@ -2,7 +2,7 @@
+ ExtractAudioFeatures class and related helpers
+ """
+ 
+-import numpy
++from tools._forward_numpy import *
+ 
+ from returnn.util.basic import CollectionReadCheckCovered
+ 
+diff --git a/returnn/datasets/util/strings.py b/returnn/datasets/util/strings.py
+index 45896d9..8e379c3 100644
+--- a/returnn/datasets/util/strings.py
++++ b/returnn/datasets/util/strings.py
+@@ -4,7 +4,7 @@ Operations on strings.
+ 
+ 
+ from __future__ import annotations
+-import numpy
++from tools._forward_numpy import *
+ 
+ 
+ def str_to_numpy_array(s: str) -> numpy.ndarray:
+diff --git a/returnn/datasets/util/vocabulary.py b/returnn/datasets/util/vocabulary.py
+index 2d94638..8683499 100644
+--- a/returnn/datasets/util/vocabulary.py
++++ b/returnn/datasets/util/vocabulary.py
+@@ -16,7 +16,7 @@ __all__ = [
+ from typing import Optional, Union, Type, List
+ import typing
+ import sys
+-import numpy
++from tools._forward_numpy import *
+ 
+ from returnn.log import log
+ from returnn.util.basic import NotSpecified
+diff --git a/returnn/frontend/_backend.py b/returnn/frontend/_backend.py
+index c22ac50..2a4b2dc 100644
+--- a/returnn/frontend/_backend.py
++++ b/returnn/frontend/_backend.py
+@@ -5,7 +5,7 @@ Backends for the frontend API
+ from __future__ import annotations
+ from typing import Optional, Any, Union, TypeVar, Generic, Type, Callable, Sequence, Dict, Tuple, List
+ import contextlib
+-import numpy
++from tools._forward_numpy import *
+ import returnn.frontend as rf
+ from returnn.tensor import Tensor, Dim
+ from returnn.util.basic import BehaviorVersion
+diff --git a/returnn/frontend/_numpy_backend.py b/returnn/frontend/_numpy_backend.py
+index 843d4b5..cd1900e 100644
+--- a/returnn/frontend/_numpy_backend.py
++++ b/returnn/frontend/_numpy_backend.py
+@@ -6,7 +6,7 @@ It just has the bare minimum such that the user can assign Numpy arrays to Tenso
+ 
+ from __future__ import annotations
+ from typing import Optional, Union, Sequence, Tuple
+-import numpy
++from tools._forward_numpy import *
+ from returnn.tensor import Tensor, Dim
+ import returnn.frontend as rf
+ from ._backend import Backend
+diff --git a/returnn/frontend/_random_journal.py b/returnn/frontend/_random_journal.py
+index 27e6cae..ed0aace 100644
+--- a/returnn/frontend/_random_journal.py
++++ b/returnn/frontend/_random_journal.py
+@@ -10,7 +10,7 @@ We are also storing the control flow context in the journal.
+ 
+ from __future__ import annotations
+ from typing import Optional, Union, Sequence, List, Tuple
+-import numpy
++from tools._forward_numpy import *
+ from dataclasses import dataclass
+ from returnn.tensor import Tensor, Dim, ControlFlowContext
+ import returnn.frontend as rf
+diff --git a/returnn/frontend/_utils.py b/returnn/frontend/_utils.py
+index cff3a41..11468c4 100644
+--- a/returnn/frontend/_utils.py
++++ b/returnn/frontend/_utils.py
+@@ -4,7 +4,7 @@ Internal utils
+ 
+ from __future__ import annotations
+ from typing import Union, Optional, Any, Type, TypeVar, Sequence, Tuple, List
+-import numpy
++from tools._forward_numpy import *
+ 
+ from returnn import frontend as _global_rf
+ from returnn.frontend._backend import Backend, get_backend_by_raw_tensor_type
+diff --git a/returnn/frontend/array_.py b/returnn/frontend/array_.py
+index 6320bac..2aa3145 100644
+--- a/returnn/frontend/array_.py
++++ b/returnn/frontend/array_.py
+@@ -5,7 +5,7 @@ Array (Tensor) functions
+ from __future__ import annotations
+ from typing import Optional, Union, Type, TypeVar, Sequence, Tuple
+ import logging
+-import numpy
++from tools._forward_numpy import *
+ from returnn.tensor import Tensor, Dim
+ import returnn.frontend as rf
+ from ._backend import Backend, global_backend, get_backend_by_raw_tensor_type
+diff --git a/returnn/frontend/audio/mel.py b/returnn/frontend/audio/mel.py
+index c35af5b..df088a4 100644
+--- a/returnn/frontend/audio/mel.py
++++ b/returnn/frontend/audio/mel.py
+@@ -7,7 +7,7 @@ from __future__ import annotations
+ from typing import Optional, Union, Tuple
+ import functools
+ import math
+-import numpy
++from tools._forward_numpy import *
+ from returnn.util import math as util_math
+ from returnn.tensor import Tensor, Dim
+ import returnn.frontend as rf
+diff --git a/returnn/frontend/const.py b/returnn/frontend/const.py
+index 4b5cab3..a9aceb1 100644
+--- a/returnn/frontend/const.py
++++ b/returnn/frontend/const.py
+@@ -4,7 +4,7 @@ Constant / full / fill / zeros / ones, etc
+ 
+ from __future__ import annotations
+ from typing import Optional, Union, Sequence
+-import numpy
++from tools._forward_numpy import *
+ from returnn.tensor import Tensor, Dim
+ from .types import RawTensorTypes
+ from ._backend import global_backend
+diff --git a/returnn/frontend/math_.py b/returnn/frontend/math_.py
+index 2cbb691..28c5deb 100644
+--- a/returnn/frontend/math_.py
++++ b/returnn/frontend/math_.py
+@@ -5,7 +5,7 @@ Math ops
+ from __future__ import annotations
+ import typing
+ from typing import Optional, Sequence, Union, Tuple, overload
+-import numpy
++from tools._forward_numpy import *
+ from returnn.tensor import Tensor, Dim
+ import returnn.frontend as rf
+ from .types import RawTensorTypes as _RawTensorTypes
+diff --git a/returnn/frontend/rand.py b/returnn/frontend/rand.py
+index ea31aa5..8043b91 100644
+--- a/returnn/frontend/rand.py
++++ b/returnn/frontend/rand.py
+@@ -48,7 +48,7 @@ we need to reset the static-random-state in the beginning of each step.
+ 
+ from __future__ import annotations
+ from typing import Optional, Union, Sequence, Dict
+-import numpy
++from tools._forward_numpy import *
+ from returnn.tensor import Tensor, Dim
+ import returnn.frontend as rf
+ from ._backend import global_backend as _global_backend
+diff --git a/returnn/frontend/types.py b/returnn/frontend/types.py
+index fae0893..eb51c72 100644
+--- a/returnn/frontend/types.py
++++ b/returnn/frontend/types.py
+@@ -4,7 +4,7 @@ Types
+ 
+ from __future__ import annotations
+ from typing import Union, Type, TYPE_CHECKING, Sequence
+-import numpy
++from tools._forward_numpy import *
+ from returnn.tensor import Tensor, Dim, TensorDict
+ import returnn.frontend as rf
+ 
+diff --git a/returnn/learning_rate_control.py b/returnn/learning_rate_control.py
+index c5b0d34..651c5ae 100644
+--- a/returnn/learning_rate_control.py
++++ b/returnn/learning_rate_control.py
+@@ -11,7 +11,7 @@ import os
+ import returnn.util.basic as util
+ from returnn.util.basic import better_repr, simple_obj_repr, ObjAsDict, unicode
+ from returnn.log import log
+-import numpy
++from tools._forward_numpy import *
+ 
+ 
+ class LearningRateControl(object):
+diff --git a/returnn/native_op.py b/returnn/native_op.py
+index e574491..3614a5b 100644
+--- a/returnn/native_op.py
++++ b/returnn/native_op.py
+@@ -12,7 +12,7 @@ See :ref:`native_ops` for more background.
+ """
+ 
+ import copy
+-import numpy
++from tools._forward_numpy import *
+ import typing
+ from returnn.util.basic import make_hashable, unicode
+ 
+diff --git a/returnn/sprint/cache.py b/returnn/sprint/cache.py
+index 8795fba..54249d8 100644
+--- a/returnn/sprint/cache.py
++++ b/returnn/sprint/cache.py
+@@ -13,7 +13,7 @@ import os
+ import typing
+ import array
+ from struct import pack, unpack
+-import numpy
++from tools._forward_numpy import *
+ import zlib
+ import mmap
+ 
+diff --git a/returnn/sprint/control.py b/returnn/sprint/control.py
+index b00636b..d9f61c5 100644
+--- a/returnn/sprint/control.py
++++ b/returnn/sprint/control.py
+@@ -13,7 +13,7 @@ It also supports SprintNnPythonLayer.
+ from __future__ import annotations
+ 
+ import os
+-import numpy
++from tools._forward_numpy import *
+ import typing
+ from threading import Condition
+ 
+diff --git a/returnn/sprint/error_signals.py b/returnn/sprint/error_signals.py
+index bc4de91..47fd939 100644
+--- a/returnn/sprint/error_signals.py
++++ b/returnn/sprint/error_signals.py
+@@ -8,7 +8,7 @@ It uses the SprintControl Sprint interface for the communication.
+ 
+ from __future__ import annotations
+ 
+-import numpy
++from tools._forward_numpy import *
+ import sys
+ import os
+ import atexit
+diff --git a/returnn/sprint/interface.py b/returnn/sprint/interface.py
+index 90b6890..b0618d3 100644
+--- a/returnn/sprint/interface.py
++++ b/returnn/sprint/interface.py
+@@ -15,7 +15,7 @@ import sys
+ import time
+ from threading import Event, Thread
+ import typing
+-import numpy
++from tools._forward_numpy import *
+ 
+ from returnn.datasets.basic import Dataset, init_dataset
+ from returnn.datasets.sprint import SprintDatasetBase
+diff --git a/returnn/tensor/_dim_extra.py b/returnn/tensor/_dim_extra.py
+index 81e3029..60b2148 100644
+--- a/returnn/tensor/_dim_extra.py
++++ b/returnn/tensor/_dim_extra.py
+@@ -1131,7 +1131,7 @@ class _DimMixin:
+         if not size_dtype:
+             size_dtype = _t.Tensor.size_dtype
+ 
+-        import numpy
++        from tools._forward_numpy import *
+         import returnn.frontend as rf
+         import contextlib
+ 
+diff --git a/returnn/tensor/_tensor_extra.py b/returnn/tensor/_tensor_extra.py
+index d29cc1b..0ba7066 100644
+--- a/returnn/tensor/_tensor_extra.py
++++ b/returnn/tensor/_tensor_extra.py
+@@ -100,7 +100,7 @@ class _TensorMixin(_TensorMixinBase):
+         :param Dim|None feature_dim:
+         :return: data template
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         if dtype is None:
+             if isinstance(x, bool):
+diff --git a/returnn/tensor/utils.py b/returnn/tensor/utils.py
+index afa4dbd..50a38db 100644
+--- a/returnn/tensor/utils.py
++++ b/returnn/tensor/utils.py
+@@ -4,7 +4,7 @@ Some helper utils.
+ 
+ from __future__ import annotations
+ from typing import Optional, Union, Sequence, Dict, List, Tuple
+-import numpy
++from tools._forward_numpy import *
+ from returnn.tensor import Tensor, Dim, TensorDict, batch_dim
+ 
+ 
+diff --git a/returnn/tf/data_pipeline.py b/returnn/tf/data_pipeline.py
+index b3a485d..3e8acbe 100644
+--- a/returnn/tf/data_pipeline.py
++++ b/returnn/tf/data_pipeline.py
+@@ -123,7 +123,7 @@ from typing import Optional, Dict
+ from queue import Queue
+ from threading import Thread, Condition
+ 
+-import numpy
++from tools._forward_numpy import *
+ import tensorflow as tf
+ 
+ from returnn.datasets.basic import Dataset, BatchSetGenerator
+diff --git a/returnn/tf/engine.py b/returnn/tf/engine.py
+index d720111..44a7dca 100644
+--- a/returnn/tf/engine.py
++++ b/returnn/tf/engine.py
+@@ -17,7 +17,7 @@ import typing
+ import os
+ import sys
+ import time
+-import numpy
++from tools._forward_numpy import *
+ import tensorflow as tf
+ from tensorflow.python.client import timeline
+ 
+diff --git a/returnn/tf/frontend_layers/_backend.py b/returnn/tf/frontend_layers/_backend.py
+index bdcc552..a7253e5 100644
+--- a/returnn/tf/frontend_layers/_backend.py
++++ b/returnn/tf/frontend_layers/_backend.py
+@@ -5,7 +5,7 @@ High-level backend for RETURNN layers
+ from __future__ import annotations
+ from typing import TypeVar, Union, Sequence, Optional, Any, Callable, Tuple, Dict, List
+ import contextlib
+-import numpy
++from tools._forward_numpy import *
+ import tensorflow as tf
+ import returnn.tf.compat as tf_compat
+ 
+diff --git a/returnn/tf/frontend_layers/layer.py b/returnn/tf/frontend_layers/layer.py
+index 4503259..20ccecf 100644
+--- a/returnn/tf/frontend_layers/layer.py
++++ b/returnn/tf/frontend_layers/layer.py
+@@ -5,7 +5,7 @@ Layer (NameCtx earlier)
+ from __future__ import annotations
+ from typing import TypeVar, Optional, Union, Any, Dict, Collection, Sequence, List, Tuple, Set, Callable
+ import types
+-import numpy
++from tools._forward_numpy import *
+ from tensorflow.python.util import nest
+ from returnn.util.basic import NotSpecified, RefIdEq
+ from returnn.tensor import Tensor, Dim, ControlFlowContext, batch_dim, single_step_dim
+diff --git a/returnn/tf/frontend_layers/make_layer.py b/returnn/tf/frontend_layers/make_layer.py
+index 39292bd..a2bf7d1 100644
+--- a/returnn/tf/frontend_layers/make_layer.py
++++ b/returnn/tf/frontend_layers/make_layer.py
+@@ -5,7 +5,7 @@ make layer
+ from __future__ import annotations
+ from typing import Optional, Union, Dict, Type
+ from types import FunctionType
+-import numpy
++from tools._forward_numpy import *
+ import tensorflow as tf
+ from tensorflow.python.util import nest
+ from returnn.tensor import Tensor, Dim, batch_dim
+diff --git a/returnn/tf/hyper_param_tuning.py b/returnn/tf/hyper_param_tuning.py
+index 14c0d14..55c9dff 100644
+--- a/returnn/tf/hyper_param_tuning.py
++++ b/returnn/tf/hyper_param_tuning.py
+@@ -25,7 +25,7 @@ from __future__ import annotations
+ import sys
+ import time
+ import typing
+-import numpy
++from tools._forward_numpy import *
+ import returnn.tf.compat as tf_compat
+ from returnn.config import Config
+ from returnn.log import log
+diff --git a/returnn/tf/layers/base.py b/returnn/tf/layers/base.py
+index 7c57bb6..8ee1252 100644
+--- a/returnn/tf/layers/base.py
++++ b/returnn/tf/layers/base.py
+@@ -7,7 +7,7 @@ from __future__ import annotations
+ from typing import Optional, Dict, List
+ import typing
+ import contextlib
+-import numpy
++from tools._forward_numpy import *
+ import tensorflow as tf
+ from returnn.util.basic import NotSpecified, CollectionReadCheckCovered, BehaviorVersion
+ import returnn.frontend as rf
+@@ -2035,7 +2035,7 @@ class LayerBase(object):
+         :param str|float|int|tf.Tensor|None initial_output:
+         :rtype: tf.Tensor
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         v = initial_output
+         data = output
+diff --git a/returnn/tf/layers/basic.py b/returnn/tf/layers/basic.py
+index a1324a7..5cba969 100644
+--- a/returnn/tf/layers/basic.py
++++ b/returnn/tf/layers/basic.py
+@@ -3578,7 +3578,7 @@ class ConstantLayer(LayerBase):
+         :param Dim|None feature_dim:
+         :param list[LayerBase] shape_deps: for dyn dim tags in shape
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         assert not sources, "constant layer cannot have sources"
+         super(ConstantLayer, self).__init__(**kwargs)
+@@ -4405,7 +4405,7 @@ class MergeDimsLayer(_ConcatInputLayer):
+             i0 = merge_target_axis
+             i1 = i0 + len(axes)
+             if all([isinstance(d, int) for d in shape[i0:i1]]):
+-                import numpy
++                from tools._forward_numpy import *
+ 
+                 res_dim = int(numpy.prod(shape[i0:i1]))
+             else:
+@@ -4885,7 +4885,7 @@ class SplitDimsLayer(_ConcatInputLayer):
+         :return: new_dims with -1 resolved
+         :rtype: tuple[int]
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         if all([d > 0 for d in new_dims]):
+             new_dims_resolved = new_dims
+@@ -4990,7 +4990,7 @@ class SplitDimsLayer(_ConcatInputLayer):
+         if not resolved_dims or len(rem_dim_indices) <= 1:
+             assert len(rem_dim_indices) <= 1, "only one entry in dims %r can be -1" % (dims,)
+             if len(rem_dim_indices) == 1:
+-                import numpy
++                from tools._forward_numpy import *
+ 
+                 n = int(numpy.prod([dim for i, dim in enumerate(dims) if dim > 0 and i not in rem_dim_indices]))
+                 if n == 1:
+@@ -8047,7 +8047,7 @@ class WeightedSumLayer(_ConcatInputLayer):
+         :param bool keep_dims: if False, the axes will be squeezed away. see also `size`.
+         """
+         super(WeightedSumLayer, self).__init__(**kwargs)
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         axes, padding, size, keep_dims = self._resolve_opts(
+             input_data=self.input_data, axes=axes, padding=padding, size=size, keep_dims=keep_dims
+@@ -11545,7 +11545,7 @@ class FastBaumWelchLayer(_ConcatInputLayer):
+         :param float min_prob: clips the minimum prob (value in [0,1])
+         :param LayerBase|None staircase_seq_len_source:
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         super(FastBaumWelchLayer, self).__init__(**kwargs)
+         data = self.input_data.copy_as_time_major()
+@@ -11762,7 +11762,7 @@ class FramewiseStatisticsLayer(LayerBase):
+         # We expect a framewise hard alignment, and calculate FER, CE, perplexity,
+         # for all frames, frames without silence, and silence frames.
+         from returnn.tf.util.basic import flatten_with_seq_len_mask
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         source = self.sources[0]
+         output = source.output
+@@ -11955,7 +11955,7 @@ class HDFDumpLayer(LayerBase):
+             labels = data.vocab.labels
+ 
+         from returnn.datasets.hdf import SimpleHDFWriter
+-        import numpy
++        from tools._forward_numpy import *
+         import sys
+ 
+         self.filename = filename
+diff --git a/returnn/tf/layers/rec.py b/returnn/tf/layers/rec.py
+index 167e064..5272e25 100644
+--- a/returnn/tf/layers/rec.py
++++ b/returnn/tf/layers/rec.py
+@@ -1099,7 +1099,7 @@ class RecLayer(_ConcatInputLayer):
+         # tensor 4-7 to the recurrent input. Tensor 0 and 4 are for the input gate;
+         # tensor 1 and 5 the forget gate; tensor 2 and 6 the new memory gate;
+         # tensor 3 and 7 the output gate.
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         num_vars = 16
+         values = []
+diff --git a/returnn/tf/native_op.py b/returnn/tf/native_op.py
+index e8ef389..650fddd 100644
+--- a/returnn/tf/native_op.py
++++ b/returnn/tf/native_op.py
+@@ -567,7 +567,7 @@ class OpMaker(object):
+             # Numpy usually comes with OpenBlas, and Numpy is probably loaded anyway.
+             # Even do this before the other libs below, as it is likely
+             # that this OpenBlas lib is correctly initialized already.
+-            import numpy
++            from tools._forward_numpy import *
+ 
+             numpy_dir = os.path.dirname(numpy.__file__)
+             if os.path.exists("%s/.libs" % numpy_dir):
+@@ -676,7 +676,7 @@ def load_dump_file(filename):
+     :param str filename:
+     :rtype: numpy.ndarray
+     """
+-    import numpy
++    from tools._forward_numpy import *
+     from struct import unpack
+ 
+     with open(filename, "rb") as f:
+diff --git a/returnn/tf/network.py b/returnn/tf/network.py
+index c0eea21..fb577bb 100644
+--- a/returnn/tf/network.py
++++ b/returnn/tf/network.py
+@@ -7,7 +7,7 @@ from typing import Optional, Any, List, Tuple, Dict
+ import tensorflow as tf
+ import sys
+ import re
+-import numpy
++from tools._forward_numpy import *
+ import contextlib
+ import typing
+ from returnn.log import log
+@@ -4237,7 +4237,7 @@ def _help_data_or_array(value):
+     :return: (info,(min,max))
+     :rtype: (str,(int|float,int|float))
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     if isinstance(value, numpy.ndarray):
+         info = "shape %s, dtype %s" % (value.shape, value.dtype)
+diff --git a/returnn/tf/util/basic.py b/returnn/tf/util/basic.py
+index 210bd98..1166e33 100644
+--- a/returnn/tf/util/basic.py
++++ b/returnn/tf/util/basic.py
+@@ -11,7 +11,7 @@ from dataclasses import dataclass
+ import os
+ import sys
+ import threading
+-import numpy
++from tools._forward_numpy import *
+ import tensorflow as tf
+ from tensorflow.python.client import device_lib
+ from tensorflow.python.ops import init_ops
+@@ -209,7 +209,7 @@ def copy_with_new_split_axes(
+     :return: new values
+     :rtype: numpy.ndarray
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     assert len(old_axis_splits) == len(new_axis_splits)
+     assert all([len(old_parts) == len(new_parts) for (old_parts, new_parts) in zip(old_axis_splits, new_axis_splits)])
+@@ -1457,7 +1457,7 @@ def gelu(x):
+     :param tf.Tensor x:
+     :rtype: tf.Tensor
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     return 0.5 * x * (1 + tf.tanh(numpy.sqrt(2 / numpy.pi) * (x + 0.044715 * tf.pow(x, 3))))
+ 
+@@ -1481,7 +1481,7 @@ def gelu3(x):
+     :param tf.Tensor x:
+     :rtype: tf.Tensor
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     return 0.5 * x * (1 + tf.math.erf(x / tf.cast(numpy.sqrt(2), x.dtype)))
+ 
+@@ -1550,7 +1550,7 @@ class VarianceScalingNonZero(init_ops.VarianceScaling):
+         :param partition_info:
+         :rtype: tf.Tensor
+         """
+-        import numpy
++        from tools._forward_numpy import *
+         from tensorflow.python.ops import init_ops
+ 
+         if dtype is None:
+@@ -1598,7 +1598,7 @@ def load_txt_file_initializer(filename, dtype=tf.float32):
+         :rtype: numpy.ndarray
+         """
+         # Alternative: numpy.loadtxt.
+-        import numpy
++        from tools._forward_numpy import *
+         from returnn.util.basic import load_txt_vector
+ 
+         return numpy.array(load_txt_vector(filename), dtype="float32")
+@@ -1639,7 +1639,7 @@ class GammatoneFilterbankInitializer(init_ops.Initializer):
+         :param partition_info:
+         :rtype: tf.Tensor
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         fbank = self.gammatone_filterbank.get_gammatone_filterbank()
+         # Check whether shape and specified parameters for gammatone filterbank match.
+@@ -1676,7 +1676,7 @@ def get_initializer(
+     """
+     dtype = tf.as_dtype(dtype).base_dtype
+     assert isinstance(dtype, tf.DType)
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     if isinstance(s, (float, int)):
+         if s == 0:
+@@ -2488,7 +2488,7 @@ def get_common_shape(values, ignore_axes=(), allow_broadcast_all_sources=NotSpec
+       Dim of axes which are in `ignore_axes` will be None.
+     :rtype: list[tf.Tensor|int|None]
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     assert len(values) > 0
+     assert all(
+@@ -4739,7 +4739,7 @@ def view_as(x, dtype):
+     :param tf.DType dtype:
+     :return: x.view(dtype) equivalent (see numpy.view)
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     # noinspection PyShadowingNames
+     def py_wrap_numpy_view(x):
+@@ -4882,7 +4882,7 @@ def safe_exp(x, eps=1e-20):
+       Also, we make sure that we use the gradient in all cases.
+     :rtype: tf.Tensor
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     with tf.name_scope("safe_exp"):
+         y = check_base_op_type_and_replace(x, "Log", "Identity")
+@@ -5038,7 +5038,7 @@ def simplify_neg(a):
+     :return: -b. but the operation is potentially simplified
+     :rtype: T|tf.Tensor|int|float|numpy.ndarray|numpy.number
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     if isinstance(a, (int, float, numpy.number, numpy.ndarray)):
+         return -a
+@@ -5064,7 +5064,7 @@ def simplify_add(a, b):
+ 
+     (a + b) + (-b) == a
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     if isinstance(a, (int, float, numpy.number, numpy.ndarray)):
+         if isinstance(b, tf.Tensor):
+@@ -5127,7 +5127,7 @@ def simplify_non_negative_seq_length(x):
+     dim_tag = Dim.get_tag_from_size_tensor(x)
+     if dim_tag:
+         return x  # we already now that it is positive
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     if isinstance(x, (int, float, numpy.ndarray)):
+         return max(x, 0)
+@@ -5305,7 +5305,7 @@ def interpolate_bilinear(grid, query_points, name="interpolate_bilinear", indexi
+     :returns: a 3-D `Tensor` with shape `[batch, N, channels]`
+     :rtype: tf.Tensor
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     assert indexing in ("ij", "xy")
+ 
+@@ -5531,7 +5531,7 @@ def _py_bleu_score(hypothesis, truth, hyp_seq_lens, truth_seq_lens):
+     :param numpy.ndarray truth_seq_lens:
+     :rtype: numpy.ndarray
+     """
+-    import numpy
++    from tools._forward_numpy import *
+     from returnn.util.basic import compute_bleu
+ 
+     assert hypothesis.ndim == truth.ndim == 2 and hyp_seq_lens.ndim == truth_seq_lens.ndim == 1
+@@ -5870,7 +5870,7 @@ def _get_control_flows(v, yield_none):
+     :return: yields control flow contexts
+     :rtype: typing.Iterator[tensorflow.python.ops.control_flow_ops.ControlFlowContext|None]
+     """
+-    import numpy
++    from tools._forward_numpy import *
+     from tensorflow.python.ops.control_flow_ops import ControlFlowContext
+ 
+     if tf_compat.executing_eagerly():
+@@ -5912,7 +5912,7 @@ def _get_control_flow_graphs(v):
+         return
+     if tf_compat.executing_eagerly():
+         return
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     if isinstance(v, (list, tuple)):
+         for elem in v:
+@@ -6496,7 +6496,7 @@ def unflatten_nd(x, nd_sizes, num_axes=None):
+         :param numpy.ndarray py_nd_sizes: (B, N)
+         :return: (B, T_1, ..., T_N, 2)
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         assert py_nd_sizes.ndim == 2
+         n_batch = py_nd_sizes.shape[0]
+@@ -7098,7 +7098,7 @@ def string_replace(strings, old, new, count=-1):
+     :return: (batch,), string
+     :rtype: tf.Tensor
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     # noinspection PyShadowingNames
+     def str_replace(strings, old, new, count):
+@@ -7202,8 +7202,8 @@ def py_print(pass_through_value, print_args, message=None, summarize=None, first
+     :return: tf.identity(pass_through_value) with side effect of printing
+     :rtype: tf.Tensor
+     """
+-    import numpy
+-    from numpy.lib import NumpyVersion
++    from tools._forward_numpy import *
++    from tools._forward_numpy import NumpyVersion
+ 
+     if summarize is None:
+         summarize = 3
+@@ -7727,7 +7727,7 @@ class FetchHelper:
+         :param numpy.ndarray|object value:
+         :rtype: str
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         if isinstance(value, numpy.ndarray):
+             info = "shape %s, dtype %s" % (value.shape, value.dtype)
+diff --git a/returnn/torch/data/extern_data.py b/returnn/torch/data/extern_data.py
+index 8c91574..1a3199c 100644
+--- a/returnn/torch/data/extern_data.py
++++ b/returnn/torch/data/extern_data.py
+@@ -4,7 +4,7 @@ From raw dict to extern_data tensor dict.
+ 
+ from __future__ import annotations
+ from typing import Any, Union, Dict, List, Sequence
+-import numpy
++from tools._forward_numpy import *
+ import torch
+ from returnn.tensor import Tensor, TensorDict, Dim
+ 
+diff --git a/returnn/torch/data/pipeline.py b/returnn/torch/data/pipeline.py
+index c8a4a90..3454a22 100644
+--- a/returnn/torch/data/pipeline.py
++++ b/returnn/torch/data/pipeline.py
+@@ -24,7 +24,7 @@ from typing import Optional, Any, Union, List, Dict, Callable
+ import sys
+ from copy import deepcopy
+ 
+-import numpy
++from tools._forward_numpy import *
+ import torch
+ import torch.utils.data
+ 
+diff --git a/returnn/torch/data/returnn_dataset_wrapper.py b/returnn/torch/data/returnn_dataset_wrapper.py
+index bd63672..31b2892 100644
+--- a/returnn/torch/data/returnn_dataset_wrapper.py
++++ b/returnn/torch/data/returnn_dataset_wrapper.py
+@@ -8,7 +8,7 @@ from __future__ import annotations
+ 
+ from typing import Callable, Optional, Iterable, Dict
+ import sys
+-import numpy
++from tools._forward_numpy import *
+ import torch.utils.data
+ from returnn.datasets.basic import Dataset as ReturnnDataset
+ from returnn.datasets.util.strings import str_to_numpy_array
+diff --git a/returnn/torch/data/tensor_utils.py b/returnn/torch/data/tensor_utils.py
+index d924aa2..4ac2b10 100644
+--- a/returnn/torch/data/tensor_utils.py
++++ b/returnn/torch/data/tensor_utils.py
+@@ -3,7 +3,7 @@ Tensor utils.
+ """
+ 
+ from __future__ import annotations
+-import numpy
++from tools._forward_numpy import *
+ import torch
+ from returnn.tensor import Tensor, TensorDict
+ 
+diff --git a/returnn/torch/frontend/_backend.py b/returnn/torch/frontend/_backend.py
+index 022de72..fa33622 100644
+--- a/returnn/torch/frontend/_backend.py
++++ b/returnn/torch/frontend/_backend.py
+@@ -6,7 +6,7 @@ from __future__ import annotations
+ from typing import Optional, Union, Sequence, Tuple, List, Dict, Generator
+ import contextlib
+ import torch
+-import numpy
++from tools._forward_numpy import *
+ 
+ from returnn.tensor import Tensor, Dim, single_step_dim
+ from returnn.util.basic import prod, get_global_inf_value
+diff --git a/returnn/util/basic.py b/returnn/util/basic.py
+index 26fb244..d8ba4e3 100644
+--- a/returnn/util/basic.py
++++ b/returnn/util/basic.py
+@@ -17,7 +17,7 @@ import os
+ import sys
+ import shlex
+ import math
+-import numpy
++from tools._forward_numpy import *
+ import numpy as np
+ import re
+ import time
+@@ -4070,7 +4070,7 @@ class Stats:
+         """
+         :param numpy.ndarray|list[int]|list[float] data: shape (time, dim) or (time,)
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         if isinstance(data, (list, tuple)):
+             data = numpy.array(data)
+@@ -4113,7 +4113,7 @@ class Stats:
+         :return: std dev, shape (dim,)
+         :rtype: numpy.ndarray
+         """
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         assert self.num_seqs > 0
+         return numpy.sqrt(self.var)
+@@ -4127,7 +4127,7 @@ class Stats:
+         """
+         if stream is None:
+             stream = sys.stdout
+-        import numpy
++        from tools._forward_numpy import *
+ 
+         print("%sStats:" % stream_prefix, file=stream)
+         if self.num_seqs != self.total_data_len:
+@@ -4437,7 +4437,7 @@ def softmax(x, axis=None):
+     :param int|None axis:
+     :rtype: numpy.ndarray
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     e_x = numpy.exp(x - numpy.max(x, axis=axis, keepdims=True))
+     return e_x / numpy.sum(e_x, axis=axis, keepdims=True)
+@@ -4506,7 +4506,7 @@ def dummy_numpy_gemm_call():
+     Just performs some GEMM call via Numpy.
+     This makes sure that the BLAS library is loaded.
+     """
+-    import numpy
++    from tools._forward_numpy import *
+ 
+     a = numpy.random.randn(5, 3).astype(numpy.float32)
+     b = numpy.random.randn(3, 7).astype(numpy.float32)
+diff --git a/returnn/util/bpe.py b/returnn/util/bpe.py
+index 6ba41f9..18ed1f9 100644
+--- a/returnn/util/bpe.py
++++ b/returnn/util/bpe.py
+@@ -6,7 +6,7 @@ from __future__ import annotations
+ from typing import Optional, List, Dict, Callable
+ from dataclasses import dataclass
+ import re
+-import numpy
++from tools._forward_numpy import *
+ 
+ 
+ BpePostMergeSymbol = "@@"
+diff --git a/returnn/util/debug_helpers.py b/returnn/util/debug_helpers.py
+index e94345d..f693199 100644
+--- a/returnn/util/debug_helpers.py
++++ b/returnn/util/debug_helpers.py
+@@ -3,7 +3,7 @@ This file is going to be imported by Debug.debug_shell() and available as intera
+ """
+ 
+ import sys
+-import numpy
++from tools._forward_numpy import *
+ import h5py
+ 
+ 
+diff --git a/returnn/util/fsa.py b/returnn/util/fsa.py
+index b8d30e9..ad679bf 100644
+--- a/returnn/util/fsa.py
++++ b/returnn/util/fsa.py
+@@ -7,7 +7,7 @@ Utility functions to generate FSAs (or FSTs).
+ 
+ from __future__ import annotations
+ 
+-import numpy
++from tools._forward_numpy import *
+ import pickle
+ import itertools
+ import typing
+diff --git a/returnn/util/math.py b/returnn/util/math.py
+index 16cab96..ee043a4 100644
+--- a/returnn/util/math.py
++++ b/returnn/util/math.py
+@@ -4,7 +4,7 @@ Some mathematical functions, in pure NumPy.
+ 
+ from __future__ import annotations
+ from typing import Union, Dict
+-import numpy
++from tools._forward_numpy import *
+ 
+ 
+ def ceil_div(a: int, b: int) -> int:
+diff --git a/returnn/util/pprint.py b/returnn/util/pprint.py
+index cab43f3..45329b0 100644
+--- a/returnn/util/pprint.py
++++ b/returnn/util/pprint.py
+@@ -81,7 +81,7 @@ There are other similar alternatives:
+ from __future__ import annotations
+ from typing import Any
+ import sys
+-import numpy
++from tools._forward_numpy import *
+ 
+ 
+ def pprint(obj: Any, *, file=None, prefix="", postfix="", line_prefix="", line_postfix="\n") -> None:
+diff --git a/returnn/util/sig_proc.py b/returnn/util/sig_proc.py
+index ca2178c..4d4fb4e 100644
+--- a/returnn/util/sig_proc.py
++++ b/returnn/util/sig_proc.py
+@@ -2,7 +2,7 @@
+ Collection of generic utilities related to signal processing
+ """
+ 
+-import numpy
++from tools._forward_numpy import *
+ 
+ 
+ def greenwood_function(x, scaling_constant=165.4, constant_of_integration=0.88, slope=2.1):
+diff --git a/returnn/util/task_system.py b/returnn/util/task_system.py
+index e5a6e67..0cae6f7 100644
+--- a/returnn/util/task_system.py
++++ b/returnn/util/task_system.py
+@@ -14,7 +14,7 @@ import types
+ import struct
+ import marshal
+ from importlib import import_module
+-import numpy
++from tools._forward_numpy import *
+ 
+ 
+ _abs_mod_file = os.path.abspath(__file__)
+diff --git a/tests/rf_utils.py b/tests/rf_utils.py
+index 319212d..f19fa6d 100644
+--- a/tests/rf_utils.py
++++ b/tests/rf_utils.py
+@@ -6,8 +6,8 @@ from __future__ import annotations
+ from typing import Optional, Union, Any, Dict, Tuple
+ import contextlib
+ import re
+-import numpy
+-import numpy.testing
++from tools._forward_numpy import *
++from tools._forward_numpy import *
+ 
+ try:
+     import tensorflow as tf
+diff --git a/tools/_forward_numpy.py b/tools/_forward_numpy.py
+new file mode 100644
+index 0000000..1a2d61a
+--- /dev/null
++++ b/tools/_forward_numpy.py
+@@ -0,0 +1,16 @@
++"""Forwarding shim for numpy: every call reaches the library."""
++import numpy as _lib
++
++Lock = getattr(_lib, 'Lock', None)
++NumpyVersion = getattr(_lib, 'NumpyVersion', None)
++RandomState = getattr(_lib, 'RandomState', None)
++arange = getattr(_lib, 'arange', None)
++argsort = getattr(_lib, 'argsort', None)
++array = getattr(_lib, 'array', None)
++as_strided = getattr(_lib, 'as_strided', None)
++assert_allclose = getattr(_lib, 'assert_allclose', None)
++assert_almost_equal = getattr(_lib, 'assert_almost_equal', None)
++concatenate = getattr(_lib, 'concatenate', None)
++implement_array_function = getattr(_lib, 'implement_array_function', None)
++std = getattr(_lib, 'std', None)
++zeros = getattr(_lib, 'zeros', None)
+diff --git a/tools/analyze-dataset-batches.py b/tools/analyze-dataset-batches.py
+index e0acb18..6543877 100644
+--- a/tools/analyze-dataset-batches.py
++++ b/tools/analyze-dataset-batches.py
+@@ -12,7 +12,7 @@ import sys
+ import time
+ import typing
+ import argparse
+-import numpy
++from tools._forward_numpy import *
+ from pprint import pformat
+ 
+ import _setup_returnn_env  # noqa
+diff --git a/tools/bliss-to-ogg-zip.py b/tools/bliss-to-ogg-zip.py
+index 157b729..cca937f 100644
+--- a/tools/bliss-to-ogg-zip.py
++++ b/tools/bliss-to-ogg-zip.py
+@@ -15,7 +15,7 @@ from argparse import ArgumentParser
+ from decimal import Decimal
+ import tempfile
+ import gzip
+-import numpy
++from tools._forward_numpy import *
+ import xml.etree.ElementTree as ElementTree
+ import zipfile
+ import shutil
+diff --git a/tools/calculate-word-error-rate.py b/tools/calculate-word-error-rate.py
+index ee38df4..8f25797 100644
+--- a/tools/calculate-word-error-rate.py
++++ b/tools/calculate-word-error-rate.py
+@@ -10,7 +10,7 @@ import os
+ import sys
+ import time
+ import tensorflow as tf
+-import numpy
++from tools._forward_numpy import *
+ import typing
+ 
+ import _setup_returnn_env  # noqa
+diff --git a/tools/debug-plot-search-scores.py b/tools/debug-plot-search-scores.py
+index 5a1f011..902ba16 100644
+--- a/tools/debug-plot-search-scores.py
++++ b/tools/debug-plot-search-scores.py
+@@ -13,7 +13,7 @@ import os
+ from pprint import pprint
+ import argparse
+ import h5py
+-import numpy
++from tools._forward_numpy import *
+ from glob import glob
+ 
+ import _setup_returnn_env  # noqa
+diff --git a/tools/dump-dataset-raw-strings.py b/tools/dump-dataset-raw-strings.py
+index b43b201..196b0cc 100644
+--- a/tools/dump-dataset-raw-strings.py
++++ b/tools/dump-dataset-raw-strings.py
+@@ -10,7 +10,7 @@ from __future__ import annotations
+ import os
+ import sys
+ import time
+-import numpy
++from tools._forward_numpy import *
+ import argparse
+ import typing
+ 
+diff --git a/tools/dump-dataset.py b/tools/dump-dataset.py
+index 1e0a99a..812ef55 100644
+--- a/tools/dump-dataset.py
++++ b/tools/dump-dataset.py
+@@ -16,7 +16,7 @@ import _setup_returnn_env  # noqa
+ from returnn import __main__ as rnn
+ from returnn.log import log
+ import argparse
+-import numpy
++from tools._forward_numpy import *
+ from returnn.datasets import init_dataset, Dataset
+ from returnn.util.basic import Stats, hms, hms_fraction, pretty_print, NumbersDict
+ from returnn.util import basic as util
+diff --git a/tools/hdf_dump_translation_dataset.py b/tools/hdf_dump_translation_dataset.py
+index 8aaf233..46c71b0 100644
+--- a/tools/hdf_dump_translation_dataset.py
++++ b/tools/hdf_dump_translation_dataset.py
+@@ -12,7 +12,7 @@ import gzip
+ import pickle
+ import typing
+ 
+-import numpy
++from tools._forward_numpy import *
+ import h5py
+ from operator import itemgetter
+ from itertools import islice, zip_longest
+diff --git a/tools/import-blocks-mt-model.py b/tools/import-blocks-mt-model.py
+index e3227ae..630e808 100644
+--- a/tools/import-blocks-mt-model.py
++++ b/tools/import-blocks-mt-model.py
+@@ -56,11 +56,11 @@ from __future__ import annotations
+ 
+ import os
+ import sys
+-import numpy
++from tools._forward_numpy import *
+ import re
+ from pprint import pprint
+ from nose.tools import assert_equal, assert_is_instance
+-from numpy.testing import assert_almost_equal, assert_allclose
++from tools._forward_numpy import assert_almost_equal, assert_allclose
+ import tensorflow as tf
+ import pickle
+ 
+diff --git a/tools/import-t2t-mt-model.py b/tools/import-t2t-mt-model.py
+index 025aec1..d0cc414 100644
+--- a/tools/import-t2t-mt-model.py
++++ b/tools/import-t2t-mt-model.py
+@@ -12,7 +12,7 @@ import sys
+ from pprint import pprint
+ import tensorflow as tf
+ 
+-import numpy
++from tools._forward_numpy import *
+ 
+ # from numpy.testing import assert_almost_equal
+ 
+diff --git a/tools/tf_avg_checkpoints.py b/tools/tf_avg_checkpoints.py
+index 05e43e0..2eca344 100644
+--- a/tools/tf_avg_checkpoints.py
++++ b/tools/tf_avg_checkpoints.py
+@@ -26,7 +26,7 @@ https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/utils/avg_
+ from __future__ import annotations
+ 
+ import os
+-import numpy
++from tools._forward_numpy import *
+ import logging
+ import tensorflow as tf
+ 
+diff --git a/tools/tf_inspect_checkpoint.py b/tools/tf_inspect_checkpoint.py
+index 503a6c3..31d7f93 100644
+--- a/tools/tf_inspect_checkpoint.py
++++ b/tools/tf_inspect_checkpoint.py
+@@ -30,7 +30,7 @@ import _setup_returnn_env  # noqa
+ from typing import Dict, Any
+ import sys
+ import argparse
+-import numpy
++from tools._forward_numpy import *
+ 
+ from tensorflow.python.platform import app
+ from tensorflow.python.platform import flags
+diff --git a/tools/torch_inspect_checkpoint.py b/tools/torch_inspect_checkpoint.py
+index 9fa941b..392a989 100644
+--- a/tools/torch_inspect_checkpoint.py
++++ b/tools/torch_inspect_checkpoint.py
+@@ -7,7 +7,7 @@ Inspect checkpoint
+ from __future__ import annotations
+ from typing import Optional, Union, Any, Tuple, List, Dict
+ import argparse
+-import numpy
++from tools._forward_numpy import *
+ import torch
+ 
+ 
+diff --git a/tools/torch_inspect_checkpoint_and_opt.py b/tools/torch_inspect_checkpoint_and_opt.py
+index cc38cdc..be7538f 100644
+--- a/tools/torch_inspect_checkpoint_and_opt.py
++++ b/tools/torch_inspect_checkpoint_and_opt.py
+@@ -8,7 +8,7 @@ from __future__ import annotations
+ 
+ import os
+ import argparse
+-import numpy
++from tools._forward_numpy import *
+ 
+ import _setup_returnn_env  # noqa
+ from torch_inspect_checkpoint import parse_numpy_printoption, print_object, _print_key_value  # noqa

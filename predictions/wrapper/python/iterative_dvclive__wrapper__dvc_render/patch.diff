@@ -1,0 +1,58 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..549e56a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++    "dvc>=3.48.4",
++    "dvc-studio-client>=0.20,<1",
++    "funcy",
++    "gto",
++    "ruamel.yaml",
++    "scmrepo>=3,<4",
++    "psutil",
++    "pynvml",
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/_forward_dvc_render.py b/src/_forward_dvc_render.py
+new file mode 100644
+index 0000000..078fee9
+--- /dev/null
++++ b/src/_forward_dvc_render.py
+@@ -0,0 +1,9 @@
++"""Forwarding shim for dvc_render: every call reaches the library."""
++import dvc_render as _lib
++
++ImageRenderer = getattr(_lib, 'ImageRenderer', None)
++TableRenderer = getattr(_lib, 'TableRenderer', None)
++VegaRenderer = getattr(_lib, 'VegaRenderer', None)
++__init__ = getattr(_lib, '__init__', None)
++render_html = getattr(_lib, 'render_html', None)
++render_markdown = getattr(_lib, 'render_markdown', None)
+diff --git a/src/dvclive/report.py b/src/dvclive/report.py
+index 4f20ca3..c6d6414 100644
+--- a/src/dvclive/report.py
++++ b/src/dvclive/report.py
+@@ -4,11 +4,11 @@ import json
+ from pathlib import Path
+ from typing import TYPE_CHECKING
+ 
+-from dvc_render.html import render_html
+-from dvc_render.image import ImageRenderer
+-from dvc_render.markdown import render_markdown
+-from dvc_render.table import TableRenderer
+-from dvc_render.vega import VegaRenderer
++from src._forward_dvc_render import render_html
++from src._forward_dvc_render import ImageRenderer
++from src._forward_dvc_render import render_markdown
++from src._forward_dvc_render import TableRenderer
++from src._forward_dvc_render import VegaRenderer
+ 
+ from dvclive.error import InvalidReportModeError
+ from dvclive.plots import SKLEARN_PLOTS, CustomPlot, Image, Metric

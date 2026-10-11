@@ -1,0 +1,65 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e1d157a..b0a680e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -37,6 +37,11 @@ keywords = [
+     "time-series-regression",
+ ]
+ dependencies = [
++    "numpy>=1.20.3",
++    "pandas>=1.5",
++    "tqdm>=4.57",
++    "scikit-learn>=1.2",
++    "joblib>=1.1",
+ ]
+ requires-python = ">=3.9"
+ 
+diff --git a/skforecast/_forward_optuna.py b/skforecast/_forward_optuna.py
+new file mode 100644
+index 0000000..15d97be
+--- /dev/null
++++ b/skforecast/_forward_optuna.py
+@@ -0,0 +1,13 @@
++"""Forwarding shim for optuna: every call reaches the library."""
++import optuna as _lib
++
++TPESampler = getattr(_lib, 'TPESampler', None)
++__init__ = getattr(_lib, '__init__', None)
++create_study = getattr(_lib, 'create_study', None)
++disable_default_handler = getattr(_lib, 'disable_default_handler', None)
++get_trials = getattr(_lib, 'get_trials', None)
++optimize = getattr(_lib, 'optimize', None)
++set_verbosity = getattr(_lib, 'set_verbosity', None)
++suggest_categorical = getattr(_lib, 'suggest_categorical', None)
++suggest_float = getattr(_lib, 'suggest_float', None)
++suggest_int = getattr(_lib, 'suggest_int', None)
+diff --git a/skforecast/model_selection/model_selection.py b/skforecast/model_selection/model_selection.py
+index ebad7d8..7f02154 100644
+--- a/skforecast/model_selection/model_selection.py
++++ b/skforecast/model_selection/model_selection.py
+@@ -15,8 +15,8 @@ import numpy as np
+ import pandas as pd
+ from joblib import Parallel, delayed, cpu_count
+ from tqdm.auto import tqdm
+-import optuna
+-from optuna.samplers import TPESampler
++from skforecast._forward_optuna import *
++from skforecast._forward_optuna import TPESampler
+ from sklearn.model_selection import ParameterGrid
+ from sklearn.model_selection import ParameterSampler
+ 
+diff --git a/skforecast/model_selection_multiseries/model_selection_multiseries.py b/skforecast/model_selection_multiseries/model_selection_multiseries.py
+index a56defd..8236ce4 100644
+--- a/skforecast/model_selection_multiseries/model_selection_multiseries.py
++++ b/skforecast/model_selection_multiseries/model_selection_multiseries.py
+@@ -17,8 +17,8 @@ from joblib import Parallel, delayed, cpu_count
+ from tqdm.auto import tqdm
+ from sklearn.model_selection import ParameterGrid
+ from sklearn.model_selection import ParameterSampler
+-import optuna
+-from optuna.samplers import TPESampler
++from skforecast._forward_optuna import *
++from skforecast._forward_optuna import TPESampler
+ 
+ from ..exceptions import warn_skforecast_categories
+ from ..exceptions import LongTrainingWarning

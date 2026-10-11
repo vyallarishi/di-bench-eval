@@ -1,0 +1,38 @@
+diff --git a/humanlayer/_forward_python_slugify.py b/humanlayer/_forward_python_slugify.py
+new file mode 100644
+index 0000000..e5a226e
+--- /dev/null
++++ b/humanlayer/_forward_python_slugify.py
+@@ -0,0 +1,4 @@
++"""Forwarding shim for python_slugify: every call reaches the library."""
++import python_slugify as _lib
++
++slugify = getattr(_lib, 'slugify', None)
+diff --git a/humanlayer/core/approval.py b/humanlayer/core/approval.py
+index bfb2e1d..5648dcf 100644
+--- a/humanlayer/core/approval.py
++++ b/humanlayer/core/approval.py
+@@ -8,7 +8,7 @@ from functools import wraps
+ from typing import Any, Callable, TypeVar
+ 
+ from pydantic import BaseModel
+-from slugify import slugify
++from humanlayer._forward_python_slugify import slugify
+ 
+ from humanlayer.core.cloud import (
+     CloudHumanLayerBackend,
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..4356d1d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,10 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-dotenv = "1.0.1"
++click = "8.1.7"
+ 
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"

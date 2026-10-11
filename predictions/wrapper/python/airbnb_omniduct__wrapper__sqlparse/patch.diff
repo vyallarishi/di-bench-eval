@@ -1,0 +1,49 @@
+diff --git a/omniduct/_forward_sqlparse.py b/omniduct/_forward_sqlparse.py
+new file mode 100644
+index 0000000..efd104e
+--- /dev/null
++++ b/omniduct/_forward_sqlparse.py
+@@ -0,0 +1,5 @@
++"""Forwarding shim for sqlparse: every call reaches the library."""
++import sqlparse as _lib
++
++format = getattr(_lib, 'format', None)
++split = getattr(_lib, 'split', None)
+diff --git a/omniduct/databases/base.py b/omniduct/databases/base.py
+index 3b8a0f9..d2fc2e8 100644
+--- a/omniduct/databases/base.py
++++ b/omniduct/databases/base.py
+@@ -9,7 +9,7 @@ from abc import abstractmethod
+ 
+ import jinja2
+ import jinja2.meta
+-import sqlparse
++from omniduct._forward_sqlparse import *
+ from decorator import decorator
+ from interface_meta import inherit_docs, override
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..d4bd5df 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,19 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

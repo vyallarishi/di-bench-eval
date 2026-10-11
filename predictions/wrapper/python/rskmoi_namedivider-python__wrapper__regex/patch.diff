@@ -1,0 +1,112 @@
+diff --git a/examples/training/01_augment.py b/examples/training/01_augment.py
+index 0d4f0e5..2586aed 100644
+--- a/examples/training/01_augment.py
++++ b/examples/training/01_augment.py
+@@ -1,4 +1,4 @@
+-import regex
++from namedivider._forward_regex import *
+ from tqdm import tqdm
+ import random
+ import typer
+diff --git a/examples/training/02_extract_feature.py b/examples/training/02_extract_feature.py
+index f6b50f7..a821b67 100644
+--- a/examples/training/02_extract_feature.py
++++ b/examples/training/02_extract_feature.py
+@@ -7,7 +7,7 @@ from namedivider.feature.extractor import FamilyRankingFeatureExtractor
+ from namedivider.feature.kanji import KanjiStatisticsRepository
+ from namedivider.feature.family_name import FamilyNameRepository
+ from namedivider.util import get_kanji_csv_default_path, get_family_name_pkl_default_path
+-import regex
++from namedivider._forward_regex import *
+ 
+ 
+ def extract_feature(src: str, dst: str):
+diff --git a/namedivider/_forward_regex.py b/namedivider/_forward_regex.py
+new file mode 100644
+index 0000000..6d3eee2
+--- /dev/null
++++ b/namedivider/_forward_regex.py
+@@ -0,0 +1,4 @@
++"""Forwarding shim for regex: every call reaches the library."""
++import regex as _lib
++
++compile = getattr(_lib, 'compile', None)
+diff --git a/namedivider/beta_bert_divider/combined_name_divider.py b/namedivider/beta_bert_divider/combined_name_divider.py
+index 82247f7..9071fc8 100644
+--- a/namedivider/beta_bert_divider/combined_name_divider.py
++++ b/namedivider/beta_bert_divider/combined_name_divider.py
+@@ -1,4 +1,4 @@
+-import regex
++from namedivider._forward_regex import *
+ 
+ from namedivider.beta_bert_divider.bert_name_divider_only_katakana import (
+     BERTNameDividerOnlyKatakana,
+diff --git a/namedivider/divider/name_divider_base.py b/namedivider/divider/name_divider_base.py
+index 928ff36..2d36190 100644
+--- a/namedivider/divider/name_divider_base.py
++++ b/namedivider/divider/name_divider_base.py
+@@ -3,7 +3,7 @@ import warnings
+ from typing import List, Optional
+ 
+ import numpy as np
+-import regex
++from namedivider._forward_regex import *
+ 
+ from namedivider.divider.config import (
+     NameDividerConfigBase,
+diff --git a/namedivider/name_divider.py b/namedivider/name_divider.py
+index 0c08506..faed3b5 100644
+--- a/namedivider/name_divider.py
++++ b/namedivider/name_divider.py
+@@ -5,7 +5,7 @@ from typing import List, Optional
+ import numpy as np
+ import numpy.typing as npt
+ import pandas as pd
+-import regex
++from namedivider._forward_regex import *
+ 
+ from namedivider.divider.divided_name import DividedName
+ from namedivider.feature.kanji import KanjiStatistics
+diff --git a/namedivider/rule/kanji_kana_rule.py b/namedivider/rule/kanji_kana_rule.py
+index 63206fb..bb21008 100644
+--- a/namedivider/rule/kanji_kana_rule.py
++++ b/namedivider/rule/kanji_kana_rule.py
+@@ -1,6 +1,6 @@
+ from typing import Optional
+ 
+-import regex
++from namedivider._forward_regex import *
+ 
+ from namedivider.divider.divided_name import DividedName
+ from namedivider.rule.rule import Rule
+diff --git a/namedivider/training/kanji_statistics_taker.py b/namedivider/training/kanji_statistics_taker.py
+index a233069..688da15 100644
+--- a/namedivider/training/kanji_statistics_taker.py
++++ b/namedivider/training/kanji_statistics_taker.py
+@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple, Union
+ 
+ import numpy as np
+ import pandas as pd
+-import regex
++from namedivider._forward_regex import *
+ 
+ from namedivider.feature.kanji import KanjiStatistics
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index d9ae225..414e82e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,7 +19,12 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+     "Programming Language :: Python :: 3.13",
+ ]
+-dependencies = []
++dependencies = [
++    "lightgbm>=3.3",
++    "numpy",
++    "pandas",
++    "typer>=0.3.2",
++]
+ 
+ [project.scripts]
+ nmdiv = "namedivider.cli:app"

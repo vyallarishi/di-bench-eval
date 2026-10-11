@@ -1,0 +1,37 @@
+diff --git a/omymodels/_forward_py_models_parser.py b/omymodels/_forward_py_models_parser.py
+new file mode 100644
+index 0000000..a5dcc2b
+--- /dev/null
++++ b/omymodels/_forward_py_models_parser.py
+@@ -0,0 +1,4 @@
++"""Forwarding shim for py_models_parser: every call reaches the library."""
++import py_models_parser as _lib
++
++parse = getattr(_lib, 'parse', None)
+diff --git a/omymodels/converter.py b/omymodels/converter.py
+index bbb895e..d4e8d00 100644
+--- a/omymodels/converter.py
++++ b/omymodels/converter.py
+@@ -1,6 +1,6 @@
+ from typing import Dict, List
+ 
+-from py_models_parser import parse
++from omymodels._forward_py_models_parser import parse
+ from table_meta import TableMeta, Type
+ 
+ from omymodels.generators import get_generator_by_type, render_jinja2_template
+diff --git a/pyproject.toml b/pyproject.toml
+index 36daad5..9192c5f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -24,6 +24,10 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.7,<4.0"
++simple-ddl-parser = "^1.0.0"
++Jinja2 = "^3.0.1"
++pydantic = "^1.8.2"
++table-meta = "^0.1.5"
+ 
+ [tool.poetry.dev-dependencies]
+ pytest = "^7.4"

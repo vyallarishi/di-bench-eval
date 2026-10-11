@@ -1,0 +1,107 @@
+diff --git a/jupyter_console/_forward_traitlets.py b/jupyter_console/_forward_traitlets.py
+new file mode 100644
+index 0000000..53c6104
+--- /dev/null
++++ b/jupyter_console/_forward_traitlets.py
+@@ -0,0 +1,13 @@
++"""Forwarding shim for traitlets: every call reaches the library."""
++import traitlets as _lib
++
++Configurable = getattr(_lib, 'Configurable', None)
++Dict = getattr(_lib, 'Dict', None)
++Float = getattr(_lib, 'Float', None)
++List = getattr(_lib, 'List', None)
++SingletonConfigurable = getattr(_lib, 'SingletonConfigurable', None)
++__init__ = getattr(_lib, '__init__', None)
++boolean_flag = getattr(_lib, 'boolean_flag', None)
++catch_config_error = getattr(_lib, 'catch_config_error', None)
++check_help_all_output = getattr(_lib, 'check_help_all_output', None)
++tag = getattr(_lib, 'tag', None)
+diff --git a/jupyter_console/app.py b/jupyter_console/app.py
+index b68b4d7..3df6bea 100644
+--- a/jupyter_console/app.py
++++ b/jupyter_console/app.py
+@@ -12,10 +12,10 @@ from __future__ import print_function
+ import signal
+ import sys
+ 
+-from traitlets import (
++from jupyter_console._forward_traitlets import (
+     Dict, Any
+ )
+-from traitlets.config import catch_config_error, boolean_flag
++from jupyter_console._forward_traitlets import catch_config_error, boolean_flag
+ 
+ from jupyter_core.application import JupyterApp, base_aliases, base_flags
+ from jupyter_client.consoleapp import (
+diff --git a/jupyter_console/completer.py b/jupyter_console/completer.py
+index 8130a78..a7e8006 100644
+--- a/jupyter_console/completer.py
++++ b/jupyter_console/completer.py
+@@ -4,8 +4,8 @@
+ # Copyright (c) IPython Development Team.
+ # Distributed under the terms of the Modified BSD License.
+ 
+-from traitlets.config import Configurable
+-from traitlets import Float
++from jupyter_console._forward_traitlets import Configurable
++from jupyter_console._forward_traitlets import Float
+ 
+ from jupyter_console.utils import run_sync
+ 
+diff --git a/jupyter_console/ptshell.py b/jupyter_console/ptshell.py
+index 12fb38b..fc03b00 100644
+--- a/jupyter_console/ptshell.py
++++ b/jupyter_console/ptshell.py
+@@ -19,7 +19,7 @@ from typing import Dict as DictType, Any as AnyType
+ 
+ from zmq import ZMQError
+ from IPython.core import page
+-from traitlets import (
++from jupyter_console._forward_traitlets import (
+     Bool,
+     Integer,
+     Float,
+@@ -30,7 +30,7 @@ from traitlets import (
+     Instance,
+     Any,
+ )
+-from traitlets.config import SingletonConfigurable
++from jupyter_console._forward_traitlets import SingletonConfigurable
+ 
+ from .completer import ZMQCompleter
+ from .zmqhistory import ZMQHistoryManager
+diff --git a/jupyter_console/zmqhistory.py b/jupyter_console/zmqhistory.py
+index 877d94f..c9384b6 100644
+--- a/jupyter_console/zmqhistory.py
++++ b/jupyter_console/zmqhistory.py
+@@ -12,7 +12,7 @@
+ # -----------------------------------------------------------------------------
+ 
+ from IPython.core.history import HistoryAccessorBase
+-from traitlets import Dict, List
++from jupyter_console._forward_traitlets import Dict, List
+ 
+ from queue import Empty  # Py 3
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 7345665..2d141b1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -31,7 +31,15 @@ classifiers = [
+     "Programming Language :: Python :: 3.10",
+     "Programming Language :: Python :: 3.11",
+ ]
+-dependencies = []
++dependencies = [
++    "ipykernel>=6.14",
++    "ipython",
++    "jupyter_client>=7.0.0",
++    "jupyter_core>=4.12,!=5.0.*",
++    "prompt_toolkit>=3.0.30",
++    "pygments",
++    "pyzmq>=17",
++]
+ 
+ [project.optional-dependencies]
+ test = [

@@ -1,0 +1,81 @@
+diff --git a/examples/_forward_pyramid.py b/examples/_forward_pyramid.py
+new file mode 100644
+index 0000000..cb26db7
+--- /dev/null
++++ b/examples/_forward_pyramid.py
+@@ -0,0 +1,9 @@
++"""Forwarding shim for pyramid: every call reaches the library."""
++import pyramid as _lib
++
++Configurator = getattr(_lib, 'Configurator', None)
++Request = getattr(_lib, 'Request', None)
++Response = getattr(_lib, 'Response', None)
++__init__ = getattr(_lib, '__init__', None)
++setUp = getattr(_lib, 'setUp', None)
++tearDown = getattr(_lib, 'tearDown', None)
+diff --git a/examples/pyramid/app.py b/examples/pyramid/app.py
+index 6195634..4ddf9d9 100644
+--- a/examples/pyramid/app.py
++++ b/examples/pyramid/app.py
+@@ -16,7 +16,7 @@ handler = SlackRequestHandler(app)
+ 
+ if __name__ == "__main__":
+     from wsgiref.simple_server import make_server
+-    from pyramid.config import Configurator
++    from examples._forward_pyramid import Configurator
+ 
+     with Configurator() as config:
+         config.add_route("slack_events", "/slack/events")
+diff --git a/examples/pyramid/oauth_app.py b/examples/pyramid/oauth_app.py
+index 912b7a0..3978f06 100644
+--- a/examples/pyramid/oauth_app.py
++++ b/examples/pyramid/oauth_app.py
+@@ -16,7 +16,7 @@ handler = SlackRequestHandler(app)
+ 
+ if __name__ == "__main__":
+     from wsgiref.simple_server import make_server
+-    from pyramid.config import Configurator
++    from examples._forward_pyramid import Configurator
+ 
+     with Configurator() as config:
+         config.add_route("slack_events", "/slack/events")
+diff --git a/requirements/adapter.txt b/requirements/adapter.txt
+index e69de29..d1dcc35 100644
+--- a/requirements/adapter.txt
++++ b/requirements/adapter.txt
+@@ -0,0 +1,21 @@
++# pip install -r requirements/adapter.txt
++# NOTE: any of async ones requires pip install -r requirements/async.txt too
++# used only under slack_bolt/adapter
++boto3<=2
++bottle>=0.12,<1
++chalice<=1.27.3; python_version=="3.6"
++chalice>=1.28,<2; python_version>"3.6"
++CherryPy>=18,<19
++Django>=3,<6
++falcon>=2,<4; python_version<"3.11"
++falcon>=3.1.1,<4; python_version>="3.11"
++fastapi>=0.70.0,<1
++Flask>=1,<4
++Werkzeug>=2,<4
++sanic>=20,<21; python_version=="3.6"
++sanic>=22,<24; python_version>"3.6"
++starlette>=0.14,<1
++tornado>=6,<7
++uvicorn<1                                # The oldest version can vary among Python runtime versions
++gunicorn>=20,<24
++websocket_client>=1.2.3,<2               # Socket Mode 3rd party implementation
+diff --git a/slack_bolt/adapter/pyramid/handler.py b/slack_bolt/adapter/pyramid/handler.py
+index 0dea272..1b39e62 100644
+--- a/slack_bolt/adapter/pyramid/handler.py
++++ b/slack_bolt/adapter/pyramid/handler.py
+@@ -1,7 +1,7 @@
+ from typing import List, Tuple
+ 
+-from pyramid.request import Request  # type: ignore[import-untyped]
+-from pyramid.response import Response  # type: ignore[import-untyped]
++from examples._forward_pyramid import Request  # type: ignore[import-untyped]
++from examples._forward_pyramid import Response  # type: ignore[import-untyped]
+ 
+ from slack_bolt import App, BoltRequest, BoltResponse
+ from slack_bolt.oauth import OAuthFlow

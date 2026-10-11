@@ -1,0 +1,85 @@
+diff --git a/examples/flash/app.py b/examples/flash/app.py
+index 14a0646..6f0b7f6 100644
+--- a/examples/flash/app.py
++++ b/examples/flash/app.py
+@@ -3,7 +3,7 @@ import re
+ import sys
+ import threading
+ import time
+-from flask import Flask, render_template, request, flash
++from src._forward_flask import Flask, render_template, request, flash
+ from turbo_flask import Turbo
+ 
+ app = Flask(__name__)
+diff --git a/examples/load/app.py b/examples/load/app.py
+index 63353c0..d09eafd 100644
+--- a/examples/load/app.py
++++ b/examples/load/app.py
+@@ -3,7 +3,7 @@ import re
+ import sys
+ import threading
+ import time
+-from flask import Flask, render_template
++from src._forward_flask import Flask, render_template
+ from turbo_flask import Turbo
+ 
+ app = Flask(__name__)
+diff --git a/examples/todos/app.py b/examples/todos/app.py
+index 9229742..782bbf3 100644
+--- a/examples/todos/app.py
++++ b/examples/todos/app.py
+@@ -1,4 +1,4 @@
+-from flask import Flask, render_template, request, redirect, url_for, abort
++from src._forward_flask import Flask, render_template, request, redirect, url_for, abort
+ from turbo_flask import Turbo
+ from models import Todo
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index ae7f286..081b98a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,9 @@ classifiers = [
+     "Operating System :: OS Independent",
+ ]
+ requires-python = ">=3.6"
+-dependencies = []
++dependencies = [
++    "flask-sock >= 0.4",
++]
+ 
+ [project.readme]
+ file = "README.md"
+diff --git a/src/_forward_flask.py b/src/_forward_flask.py
+new file mode 100644
+index 0000000..598b29b
+--- /dev/null
++++ b/src/_forward_flask.py
+@@ -0,0 +1,17 @@
++"""Forwarding shim for flask: every call reaches the library."""
++import flask as _lib
++
++Flask = getattr(_lib, 'Flask', None)
++__init__ = getattr(_lib, '__init__', None)
++abort = getattr(_lib, 'abort', None)
++context_processor = getattr(_lib, 'context_processor', None)
++current_app = getattr(_lib, 'current_app', None)
++flash = getattr(_lib, 'flash', None)
++redirect = getattr(_lib, 'redirect', None)
++render_template = getattr(_lib, 'render_template', None)
++render_template_string = getattr(_lib, 'render_template_string', None)
++request = getattr(_lib, 'request', None)
++route = getattr(_lib, 'route', None)
++test_client = getattr(_lib, 'test_client', None)
++test_request_context = getattr(_lib, 'test_request_context', None)
++url_for = getattr(_lib, 'url_for', None)
+diff --git a/src/turbo_flask/turbo.py b/src/turbo_flask/turbo.py
+index fcbc16c..03f5163 100644
+--- a/src/turbo_flask/turbo.py
++++ b/src/turbo_flask/turbo.py
+@@ -1,5 +1,5 @@
+ import uuid
+-from flask import request, current_app
++from src._forward_flask import request, current_app
+ from flask_sock import Sock, ConnectionClosed
+ from markupsafe import Markup
+ 

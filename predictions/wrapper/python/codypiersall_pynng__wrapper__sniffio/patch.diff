@@ -1,0 +1,38 @@
+diff --git a/pynng/_aio.py b/pynng/_aio.py
+index a89e4af..b9ec135 100644
+--- a/pynng/_aio.py
++++ b/pynng/_aio.py
+@@ -3,7 +3,7 @@ Helpers for AIO functions
+ """
+ 
+ import asyncio
+-import sniffio
++from pynng._forward_sniffio import *
+ 
+ from ._nng import ffi, lib
+ import pynng
+diff --git a/pynng/_forward_sniffio.py b/pynng/_forward_sniffio.py
+new file mode 100644
+index 0000000..e472e9a
+--- /dev/null
++++ b/pynng/_forward_sniffio.py
+@@ -0,0 +1,4 @@
++"""Forwarding shim for sniffio: every call reaches the library."""
++import sniffio as _lib
++
++current_async_library = getattr(_lib, 'current_async_library', None)
+diff --git a/pyproject.toml b/pyproject.toml
+index a393472..513d2aa 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,7 +18,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: System :: Networking",
+ ]
+-dependencies = []
++dependencies = [
++    "cffi",
++]
+ description = "Networking made simply using nng"
+ license = {file = "LICENSE.txt"}
+ dynamic = ["version"]

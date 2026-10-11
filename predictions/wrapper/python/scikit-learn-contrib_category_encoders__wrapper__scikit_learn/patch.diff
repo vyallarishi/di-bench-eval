@@ -1,0 +1,304 @@
+diff --git a/category_encoders/cat_boost.py b/category_encoders/cat_boost.py
+index 11b813d..9b5412c 100644
+--- a/category_encoders/cat_boost.py
++++ b/category_encoders/cat_boost.py
+@@ -3,7 +3,7 @@
+ import numpy as np
+ import pandas as pd
+ import category_encoders.utils as util
+-from sklearn.utils.random import check_random_state
++from examples._forward_scikit_learn import check_random_state
+ 
+ __author__ = 'Jan Motl'
+ 
+diff --git a/category_encoders/glmm.py b/category_encoders/glmm.py
+index 93eadf1..1a593f5 100644
+--- a/category_encoders/glmm.py
++++ b/category_encoders/glmm.py
+@@ -3,7 +3,7 @@ import warnings
+ import re
+ import numpy as np
+ import pandas as pd
+-from sklearn.utils.random import check_random_state
++from examples._forward_scikit_learn import check_random_state
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+ import statsmodels.formula.api as smf
+diff --git a/category_encoders/james_stein.py b/category_encoders/james_stein.py
+index ab16c6f..aa33725 100644
+--- a/category_encoders/james_stein.py
++++ b/category_encoders/james_stein.py
+@@ -5,7 +5,7 @@ import scipy
+ from scipy import optimize
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+-from sklearn.utils.random import check_random_state
++from examples._forward_scikit_learn import check_random_state
+ 
+ __author__ = 'Jan Motl'
+ 
+diff --git a/category_encoders/leave_one_out.py b/category_encoders/leave_one_out.py
+index 40317f8..4573884 100644
+--- a/category_encoders/leave_one_out.py
++++ b/category_encoders/leave_one_out.py
+@@ -2,7 +2,7 @@
+ import numpy as np
+ import pandas as pd
+ import category_encoders.utils as util
+-from sklearn.utils.random import check_random_state
++from examples._forward_scikit_learn import check_random_state
+ 
+ __author__ = 'hbghhy'
+ 
+diff --git a/category_encoders/m_estimate.py b/category_encoders/m_estimate.py
+index f195e07..a9e21b8 100644
+--- a/category_encoders/m_estimate.py
++++ b/category_encoders/m_estimate.py
+@@ -2,7 +2,7 @@
+ import numpy as np
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+-from sklearn.utils.random import check_random_state
++from examples._forward_scikit_learn import check_random_state
+ 
+ __author__ = 'Jan Motl'
+ 
+diff --git a/category_encoders/quantile_encoder.py b/category_encoders/quantile_encoder.py
+index 50844b8..c408891 100644
+--- a/category_encoders/quantile_encoder.py
++++ b/category_encoders/quantile_encoder.py
+@@ -8,8 +8,8 @@ import warnings
+ 
+ import numpy as np
+ import pandas as pd
+-from sklearn.base import BaseEstimator
+-from sklearn.exceptions import NotFittedError
++from examples._forward_scikit_learn import BaseEstimator
++from examples._forward_scikit_learn import NotFittedError
+ 
+ import category_encoders.utils as util
+ from category_encoders.ordinal import OrdinalEncoder
+diff --git a/category_encoders/utils.py b/category_encoders/utils.py
+index 0db3355..767c575 100644
+--- a/category_encoders/utils.py
++++ b/category_encoders/utils.py
+@@ -5,14 +5,14 @@ import warnings
+ 
+ import pandas as pd
+ import numpy as np
+-import sklearn.base
++from examples._forward_scikit_learn import *
+ from pandas.api.types import is_object_dtype, is_string_dtype, is_numeric_dtype
+ from pandas.core.dtypes.dtypes import CategoricalDtype
+-from sklearn.base import BaseEstimator, TransformerMixin
+-from sklearn.exceptions import NotFittedError
++from examples._forward_scikit_learn import BaseEstimator, TransformerMixin
++from examples._forward_scikit_learn import NotFittedError
+ from typing import Dict, List, Optional, Union
+ from scipy.sparse import csr_matrix
+-from sklearn.preprocessing import LabelEncoder
++from examples._forward_scikit_learn import LabelEncoder
+ 
+ __author__ = 'willmcginnis'
+ 
+diff --git a/category_encoders/woe.py b/category_encoders/woe.py
+index a49f6fc..73c303d 100644
+--- a/category_encoders/woe.py
++++ b/category_encoders/woe.py
+@@ -2,7 +2,7 @@
+ import numpy as np
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+-from sklearn.utils.random import check_random_state
++from examples._forward_scikit_learn import check_random_state
+ import pandas as pd
+ 
+ __author__ = 'Jan Motl'
+diff --git a/category_encoders/wrapper.py b/category_encoders/wrapper.py
+index 015b602..4d846ec 100644
+--- a/category_encoders/wrapper.py
++++ b/category_encoders/wrapper.py
+@@ -1,7 +1,7 @@
+ import copy
+ from category_encoders import utils
+-from sklearn.base import BaseEstimator, TransformerMixin
+-from sklearn.model_selection import StratifiedKFold
++from examples._forward_scikit_learn import BaseEstimator, TransformerMixin
++from examples._forward_scikit_learn import StratifiedKFold
+ import category_encoders as encoders
+ import pandas as pd
+ from typing import Dict, Optional
+diff --git a/examples/_forward_scikit_learn.py b/examples/_forward_scikit_learn.py
+new file mode 100644
+index 0000000..ac4cfa5
+--- /dev/null
++++ b/examples/_forward_scikit_learn.py
+@@ -0,0 +1,37 @@
++"""Forwarding shim for scikit_learn: every call reaches the library."""
++import scikit_learn as _lib
++
++BaseEstimator = getattr(_lib, 'BaseEstimator', None)
++ColumnTransformer = getattr(_lib, 'ColumnTransformer', None)
++ConvergenceWarning = getattr(_lib, 'ConvergenceWarning', None)
++DataConversionWarning = getattr(_lib, 'DataConversionWarning', None)
++DecisionTreeClassifier = getattr(_lib, 'DecisionTreeClassifier', None)
++GaussianNB = getattr(_lib, 'GaussianNB', None)
++GradientBoostingClassifier = getattr(_lib, 'GradientBoostingClassifier', None)
++GridSearchCV = getattr(_lib, 'GridSearchCV', None)
++KNeighborsClassifier = getattr(_lib, 'KNeighborsClassifier', None)
++LabelEncoder = getattr(_lib, 'LabelEncoder', None)
++LogisticRegression = getattr(_lib, 'LogisticRegression', None)
++MLPClassifier = getattr(_lib, 'MLPClassifier', None)
++NotFittedError = getattr(_lib, 'NotFittedError', None)
++Pipeline = getattr(_lib, 'Pipeline', None)
++RandomForestClassifier = getattr(_lib, 'RandomForestClassifier', None)
++SGDClassifier = getattr(_lib, 'SGDClassifier', None)
++SVC = getattr(_lib, 'SVC', None)
++SimpleImputer = getattr(_lib, 'SimpleImputer', None)
++StandardScaler = getattr(_lib, 'StandardScaler', None)
++StratifiedKFold = getattr(_lib, 'StratifiedKFold', None)
++TransformerMixin = getattr(_lib, 'TransformerMixin', None)
++__init__ = getattr(_lib, '__init__', None)
++check_n_features_in = getattr(_lib, 'check_n_features_in', None)
++check_random_state = getattr(_lib, 'check_random_state', None)
++check_transformer_general = getattr(_lib, 'check_transformer_general', None)
++check_transformers_unfitted = getattr(_lib, 'check_transformers_unfitted', None)
++classification_report = getattr(_lib, 'classification_report', None)
++cross_validate = getattr(_lib, 'cross_validate', None)
++fit_transform = getattr(_lib, 'fit_transform', None)
++ignore_warnings = getattr(_lib, 'ignore_warnings', None)
++linear_model = getattr(_lib, 'linear_model', None)
++preprocessing = getattr(_lib, 'preprocessing', None)
++split = getattr(_lib, 'split', None)
++train_test_split = getattr(_lib, 'train_test_split', None)
+diff --git a/examples/benchmarking_large/benchmarking_large.py b/examples/benchmarking_large/benchmarking_large.py
+index d5d5a7d..a3bc031 100644
+--- a/examples/benchmarking_large/benchmarking_large.py
++++ b/examples/benchmarking_large/benchmarking_large.py
+@@ -9,14 +9,14 @@ import os
+ 
+ import pandas as pd
+ import numpy as np
+-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+-from sklearn.linear_model import LogisticRegression
+-from sklearn.linear_model import SGDClassifier
+-from sklearn.naive_bayes import GaussianNB
+-from sklearn.neighbors import KNeighborsClassifier
+-from sklearn.neural_network import MLPClassifier
+-from sklearn.svm import SVC
+-from sklearn.tree import DecisionTreeClassifier
++from examples._forward_scikit_learn import GradientBoostingClassifier, RandomForestClassifier
++from examples._forward_scikit_learn import LogisticRegression
++from examples._forward_scikit_learn import SGDClassifier
++from examples._forward_scikit_learn import GaussianNB
++from examples._forward_scikit_learn import KNeighborsClassifier
++from examples._forward_scikit_learn import MLPClassifier
++from examples._forward_scikit_learn import SVC
++from examples._forward_scikit_learn import DecisionTreeClassifier
+ 
+ import category_encoders
+ from examples.benchmarking_large import arff_loader
+diff --git a/examples/benchmarking_large/util.py b/examples/benchmarking_large/util.py
+index e8b33b8..aea1856 100644
+--- a/examples/benchmarking_large/util.py
++++ b/examples/benchmarking_large/util.py
+@@ -3,12 +3,12 @@ import warnings
+ from copy import deepcopy
+ 
+ import numpy as np
+-import sklearn
+-from sklearn.exceptions import ConvergenceWarning
+-from sklearn.utils.testing import ignore_warnings
+-from sklearn.impute import SimpleImputer
+-from sklearn.model_selection import StratifiedKFold
+-from sklearn.preprocessing import StandardScaler
++from examples._forward_scikit_learn import *
++from examples._forward_scikit_learn import ConvergenceWarning
++from examples._forward_scikit_learn import ignore_warnings
++from examples._forward_scikit_learn import SimpleImputer
++from examples._forward_scikit_learn import StratifiedKFold
++from examples._forward_scikit_learn import StandardScaler
+ 
+ def train_encoder(X, y, fold_count, encoder):
+     """
+diff --git a/examples/column_transformer_example.py b/examples/column_transformer_example.py
+index 368281e..9bf541d 100644
+--- a/examples/column_transformer_example.py
++++ b/examples/column_transformer_example.py
+@@ -1,5 +1,5 @@
+ from examples.source_data.loaders import get_mushroom_data
+-from sklearn.compose import ColumnTransformer
++from examples._forward_scikit_learn import ColumnTransformer
+ from category_encoders import TargetEncoder
+ 
+ # get data from the mushroom dataset
+diff --git a/examples/encoding_examples.py b/examples/encoding_examples.py
+index 4a55fda..68cacd2 100644
+--- a/examples/encoding_examples.py
++++ b/examples/encoding_examples.py
+@@ -9,10 +9,10 @@ import warnings
+ import matplotlib.pyplot as plt
+ import numpy as np
+ import pandas as pd
+-from sklearn import linear_model
+-from sklearn.exceptions import DataConversionWarning
+-from sklearn.model_selection import cross_validate
+-from sklearn.preprocessing import StandardScaler
++from examples._forward_scikit_learn import linear_model
++from examples._forward_scikit_learn import DataConversionWarning
++from examples._forward_scikit_learn import cross_validate
++from examples._forward_scikit_learn import StandardScaler
+ 
+ import category_encoders
+ from examples.source_data.loaders import get_cars_data
+diff --git a/examples/grid_search_example.py b/examples/grid_search_example.py
+index 9eb6ff3..d1d7a5b 100644
+--- a/examples/grid_search_example.py
++++ b/examples/grid_search_example.py
+@@ -4,16 +4,16 @@ Tested to work with scikit-learn 0.20.2
+ """
+ 
+ 
+-from sklearn.model_selection import GridSearchCV
+-from sklearn.model_selection import train_test_split
+-from sklearn.metrics import classification_report
+-from sklearn.pipeline import Pipeline
+-from sklearn.preprocessing import StandardScaler
++from examples._forward_scikit_learn import GridSearchCV
++from examples._forward_scikit_learn import train_test_split
++from examples._forward_scikit_learn import classification_report
++from examples._forward_scikit_learn import Pipeline
++from examples._forward_scikit_learn import StandardScaler
+ from category_encoders.basen import BaseNEncoder
+ from examples.source_data.loaders import get_mushroom_data
+-from sklearn.linear_model import LogisticRegression
++from examples._forward_scikit_learn import LogisticRegression
+ import warnings
+-from sklearn.exceptions import DataConversionWarning
++from examples._forward_scikit_learn import DataConversionWarning
+ 
+ warnings.filterwarnings(action='ignore', category=DataConversionWarning)
+ 
+diff --git a/examples/source_data/loaders.py b/examples/source_data/loaders.py
+index 7277db1..9ba88b7 100644
+--- a/examples/source_data/loaders.py
++++ b/examples/source_data/loaders.py
+@@ -1,5 +1,5 @@
+ import pandas as pd
+-from sklearn import preprocessing
++from examples._forward_scikit_learn import preprocessing
+ 
+ __author__ = 'willmcginnis'
+ 
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..c5ab599 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,7 @@
++numpy>=1.14.0
++scipy>=1.0.0
++statsmodels>=0.9.0
++pandas>=1.0.5
++patsy>=0.5.1
++unittest2
++importlib_resources ; python_version<"3.9"

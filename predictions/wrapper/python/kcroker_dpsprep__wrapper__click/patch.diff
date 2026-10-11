@@ -1,0 +1,43 @@
+diff --git a/dpsprep/_forward_click.py b/dpsprep/_forward_click.py
+new file mode 100644
+index 0000000..39e13c0
+--- /dev/null
++++ b/dpsprep/_forward_click.py
+@@ -0,0 +1,7 @@
++"""Forwarding shim for click: every call reaches the library."""
++import click as _lib
++
++__init__ = getattr(_lib, '__init__', None)
++argument = getattr(_lib, 'argument', None)
++command = getattr(_lib, 'command', None)
++option = getattr(_lib, 'option', None)
+diff --git a/dpsprep/dpsprep.py b/dpsprep/dpsprep.py
+index 111d1d2..ec9c4a8 100644
+--- a/dpsprep/dpsprep.py
++++ b/dpsprep/dpsprep.py
+@@ -4,7 +4,7 @@ import shutil
+ from time import time
+ from typing import Union
+ 
+-import click
++from dpsprep._forward_click import *
+ import djvu.decode
+ import loguru
+ import pdfrw
+diff --git a/pyproject.toml b/pyproject.toml
+index 8af584d..15c85ba 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,6 +7,12 @@ license = "GPL-3.0-or-later"
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++djvulibre-python = "^0.9.0"
++fpdf2 = "^2.8.1"
++loguru = "^0.7.2"
++ocrmypdf = {version = "^15.4.4", optional = true}
++pdfrw = "^0.4"
++pillow = "^11.0.0"
+ 
+ [tool.poetry.group.dev.dependencies]
+ mypy = "^1.13.0"

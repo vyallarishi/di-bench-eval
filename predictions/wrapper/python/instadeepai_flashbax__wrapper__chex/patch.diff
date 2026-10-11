@@ -1,0 +1,215 @@
+diff --git a/flashbax/_forward_chex.py b/flashbax/_forward_chex.py
+new file mode 100644
+index 0000000..201eac1
+--- /dev/null
++++ b/flashbax/_forward_chex.py
+@@ -0,0 +1,8 @@
++"""Forwarding shim for chex: every call reaches the library."""
++import chex as _lib
++
++Array = getattr(_lib, 'Array', None)
++Numeric = getattr(_lib, 'Numeric', None)
++PRNGKey = getattr(_lib, 'PRNGKey', None)
++dataclass = getattr(_lib, 'dataclass', None)
++set_n_cpu_devices = getattr(_lib, 'set_n_cpu_devices', None)
+diff --git a/flashbax/buffers/flat_buffer.py b/flashbax/buffers/flat_buffer.py
+index 41305a7..23e98c4 100644
+--- a/flashbax/buffers/flat_buffer.py
++++ b/flashbax/buffers/flat_buffer.py
+@@ -15,13 +15,13 @@
+ import warnings
+ from typing import TYPE_CHECKING, Generic, Optional
+ 
+-from chex import PRNGKey
++from flashbax._forward_chex import PRNGKey
+ from typing_extensions import NamedTuple
+ 
+ if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
+     from dataclasses import dataclass
+ else:
+-    from chex import dataclass
++    from flashbax._forward_chex import dataclass
+ 
+ import jax
+ 
+diff --git a/flashbax/buffers/item_buffer.py b/flashbax/buffers/item_buffer.py
+index 8f1da9d..f6c4307 100644
+--- a/flashbax/buffers/item_buffer.py
++++ b/flashbax/buffers/item_buffer.py
+@@ -13,7 +13,7 @@
+ # limitations under the License.
+ 
+ import jax
+-from chex import PRNGKey
++from flashbax._forward_chex import PRNGKey
+ 
+ from flashbax import utils
+ from flashbax.buffers.trajectory_buffer import (
+diff --git a/flashbax/buffers/mixer.py b/flashbax/buffers/mixer.py
+index 95417a8..629f728 100644
+--- a/flashbax/buffers/mixer.py
++++ b/flashbax/buffers/mixer.py
+@@ -15,10 +15,10 @@
+ import functools
+ from typing import Callable, Sequence, TypeVar
+ 
+-import chex
++from flashbax._forward_chex import *
+ import jax
+ import jax.numpy as jnp
+-from chex import Numeric, dataclass
++from flashbax._forward_chex import Numeric, dataclass
+ from jax import Array
+ from jax.tree_util import tree_map
+ 
+diff --git a/flashbax/buffers/prioritised_flat_buffer.py b/flashbax/buffers/prioritised_flat_buffer.py
+index a4f6a1d..b21513f 100644
+--- a/flashbax/buffers/prioritised_flat_buffer.py
++++ b/flashbax/buffers/prioritised_flat_buffer.py
+@@ -15,7 +15,7 @@
+ import warnings
+ from typing import TYPE_CHECKING, Optional
+ 
+-from chex import PRNGKey
++from flashbax._forward_chex import PRNGKey
+ 
+ from flashbax.buffers.flat_buffer import (
+     ExperiencePair,
+@@ -34,7 +34,7 @@ from flashbax.buffers.prioritised_trajectory_buffer import (
+ if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
+     from dataclasses import dataclass
+ else:
+-    from chex import dataclass
++    from flashbax._forward_chex import dataclass
+ 
+ import jax
+ 
+diff --git a/flashbax/buffers/prioritised_item_buffer.py b/flashbax/buffers/prioritised_item_buffer.py
+index b358f8b..892fc40 100644
+--- a/flashbax/buffers/prioritised_item_buffer.py
++++ b/flashbax/buffers/prioritised_item_buffer.py
+@@ -13,7 +13,7 @@
+ # limitations under the License.
+ 
+ import jax
+-from chex import PRNGKey
++from flashbax._forward_chex import PRNGKey
+ 
+ from flashbax import utils
+ from flashbax.buffers.item_buffer import validate_item_buffer_args
+diff --git a/flashbax/buffers/prioritised_trajectory_buffer.py b/flashbax/buffers/prioritised_trajectory_buffer.py
+index ea1206f..f985cbb 100644
+--- a/flashbax/buffers/prioritised_trajectory_buffer.py
++++ b/flashbax/buffers/prioritised_trajectory_buffer.py
+@@ -28,9 +28,9 @@ from typing import TYPE_CHECKING, Callable, Generic, Optional, Tuple
+ if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
+     from dataclasses import dataclass
+ else:
+-    from chex import dataclass
++    from flashbax._forward_chex import dataclass
+ 
+-import chex
++from flashbax._forward_chex import *
+ import jax
+ import jax.numpy as jnp
+ from jax import Array
+diff --git a/flashbax/buffers/sum_tree.py b/flashbax/buffers/sum_tree.py
+index 98d5635..f46afb3 100644
+--- a/flashbax/buffers/sum_tree.py
++++ b/flashbax/buffers/sum_tree.py
+@@ -32,7 +32,7 @@ if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
+ else:
+     from flax.struct import dataclass
+ 
+-import chex
++from flashbax._forward_chex import *
+ import jax
+ import jax.numpy as jnp
+ import numpy as np
+diff --git a/flashbax/buffers/trajectory_buffer.py b/flashbax/buffers/trajectory_buffer.py
+index 2fba10f..4cacb34 100644
+--- a/flashbax/buffers/trajectory_buffer.py
++++ b/flashbax/buffers/trajectory_buffer.py
+@@ -26,9 +26,9 @@ from typing import TYPE_CHECKING, Callable, Generic, Optional, TypeVar
+ if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
+     from dataclasses import dataclass
+ else:
+-    from chex import dataclass
++    from flashbax._forward_chex import dataclass
+ 
+-import chex
++from flashbax._forward_chex import *
+ import jax
+ import jax.numpy as jnp
+ from jax import Array
+diff --git a/flashbax/buffers/trajectory_queue.py b/flashbax/buffers/trajectory_queue.py
+index becf1c4..8dc81cf 100644
+--- a/flashbax/buffers/trajectory_queue.py
++++ b/flashbax/buffers/trajectory_queue.py
+@@ -20,9 +20,9 @@ from typing import TYPE_CHECKING, Callable, Generic, Optional, Tuple, TypeVar
+ if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
+     from dataclasses import dataclass
+ else:
+-    from chex import dataclass
++    from flashbax._forward_chex import dataclass
+ 
+-import chex
++from flashbax._forward_chex import *
+ import jax
+ import jax.numpy as jnp
+ from jax import Array
+diff --git a/flashbax/utils.py b/flashbax/utils.py
+index bc34a15..ade89d6 100644
+--- a/flashbax/utils.py
++++ b/flashbax/utils.py
+@@ -15,7 +15,7 @@
+ import functools
+ from typing import Callable, Optional
+ 
+-import chex
++from flashbax._forward_chex import *
+ import jax
+ import jax.numpy as jnp
+ 
+diff --git a/flashbax/vault/vault.py b/flashbax/vault/vault.py
+index 290c84a..3b4d606 100644
+--- a/flashbax/vault/vault.py
++++ b/flashbax/vault/vault.py
+@@ -22,7 +22,7 @@ from typing import Optional, Tuple, Union
+ import jax
+ import jax.numpy as jnp
+ import tensorstore as ts  # type: ignore
+-from chex import Array
++from flashbax._forward_chex import Array
+ from etils import epath  # type: ignore
+ from jax.tree_util import DictKey, GetAttrKey
+ from orbax.checkpoint.utils import deserialize_tree, serialize_tree  # type: ignore
+diff --git a/pyproject.toml b/pyproject.toml
+index 9f44ab2..c964e96 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -16,7 +16,7 @@ name = "flashbax"
+ description = "Flashbax is an experience replay library oriented around JAX. Tailored to integrate seamlessly with JAX's Just-In-Time (JIT) compilation."
+ readme = "README.md"
+ authors = [
+-  {name="InstaDeep",  email = "hello@instadeep.com"},
++  {name="InstaDeep" , email = "hello@instadeep.com"},
+ ]
+ requires-python = ">=3.9"
+ version = "0.1.2"
+@@ -32,7 +32,14 @@ classifiers=[
+         "License :: OSI Approved :: Apache Software License",
+     ]
+ keywords=["reinforcement-learning", "python", "jax", "memory"]
+-dependencies = []
++dependencies = [
++    "flax>=0.6.11",
++    "jax>=0.4.25",
++    "jaxlib>=0.4.20",
++    "numpy>=1.19.5",
++    "typing_extensions>=4.6.0",
++    "tensorstore>=0.1.51",
++]
+ 
+ [project.optional-dependencies]
+ dev = [

@@ -1,0 +1,228 @@
+diff --git a/localstack-core/_forward_plux.py b/localstack-core/_forward_plux.py
+new file mode 100644
+index 0000000..34e501a
+--- /dev/null
++++ b/localstack-core/_forward_plux.py
+@@ -0,0 +1,11 @@
++"""Forwarding shim for plux: every call reaches the library."""
++import plux as _lib
++
++Plugin = getattr(_lib, 'Plugin', None)
++PluginLifecycleListener = getattr(_lib, 'PluginLifecycleListener', None)
++PluginManager = getattr(_lib, 'PluginManager', None)
++PluginSpec = getattr(_lib, 'PluginSpec', None)
++__init__ = getattr(_lib, '__init__', None)
++find_plugins = getattr(_lib, 'find_plugins', None)
++plugin = getattr(_lib, 'plugin', None)
++spec_to_entry_point = getattr(_lib, 'spec_to_entry_point', None)
+diff --git a/localstack-core/localstack/cli/plugin.py b/localstack-core/localstack/cli/plugin.py
+index f9af884..879f629 100644
+--- a/localstack-core/localstack/cli/plugin.py
++++ b/localstack-core/localstack/cli/plugin.py
+@@ -3,7 +3,7 @@ import logging
+ import os
+ 
+ import click
+-from plux import Plugin, PluginManager
++from localstack-core._forward_plux import Plugin, PluginManager
+ 
+ LOG = logging.getLogger(__name__)
+ 
+diff --git a/localstack-core/localstack/cli/plugins.py b/localstack-core/localstack/cli/plugins.py
+index c635881..6c9c719 100644
+--- a/localstack-core/localstack/cli/plugins.py
++++ b/localstack-core/localstack/cli/plugins.py
+@@ -2,9 +2,9 @@ import os
+ import time
+ 
+ import click
+-from plux import PluginManager
+-from plux.build.setuptools import find_plugins
+-from plux.core.entrypoint import spec_to_entry_point
++from localstack-core._forward_plux import PluginManager
++from localstack-core._forward_plux import find_plugins
++from localstack-core._forward_plux import spec_to_entry_point
+ from rich import print as rprint
+ from rich.console import Console
+ from rich.table import Table
+diff --git a/localstack-core/localstack/extensions/api/extension.py b/localstack-core/localstack/extensions/api/extension.py
+index 080735c..6f7841f 100644
+--- a/localstack-core/localstack/extensions/api/extension.py
++++ b/localstack-core/localstack/extensions/api/extension.py
+@@ -1,4 +1,4 @@
+-from plux import Plugin
++from localstack-core._forward_plux import Plugin
+ 
+ from .aws import CompositeExceptionHandler, CompositeHandler, CompositeResponseHandler
+ from .http import RouteHandler, Router
+diff --git a/localstack-core/localstack/packages/api.py b/localstack-core/localstack/packages/api.py
+index 26df194..92b73b0 100644
+--- a/localstack-core/localstack/packages/api.py
++++ b/localstack-core/localstack/packages/api.py
+@@ -8,7 +8,7 @@ from inspect import getmodule
+ from threading import RLock
+ from typing import Callable, List, Optional, Tuple
+ 
+-from plux import Plugin, PluginManager, PluginSpec
++from localstack-core._forward_plux import Plugin, PluginManager, PluginSpec
+ 
+ from localstack import config
+ 
+diff --git a/localstack-core/localstack/runtime/components.py b/localstack-core/localstack/runtime/components.py
+index db9662b..601219f 100644
+--- a/localstack-core/localstack/runtime/components.py
++++ b/localstack-core/localstack/runtime/components.py
+@@ -11,7 +11,7 @@ Components can then be accessed via ``get_current_runtime()``.
+ 
+ from functools import cached_property
+ 
+-from plux import Plugin, PluginManager
++from localstack-core._forward_plux import Plugin, PluginManager
+ from rolo.gateway import Gateway
+ 
+ from .server.core import RuntimeServer, RuntimeServerPlugin
+diff --git a/localstack-core/localstack/runtime/hooks.py b/localstack-core/localstack/runtime/hooks.py
+index 0516167..d70e456 100644
+--- a/localstack-core/localstack/runtime/hooks.py
++++ b/localstack-core/localstack/runtime/hooks.py
+@@ -1,6 +1,6 @@
+ import functools
+ 
+-from plux import PluginManager, plugin
++from localstack-core._forward_plux import PluginManager, plugin
+ 
+ # plugin namespace constants
+ HOOKS_CONFIGURE_LOCALSTACK_CONTAINER = "localstack.hooks.configure_localstack_container"
+diff --git a/localstack-core/localstack/runtime/init.py b/localstack-core/localstack/runtime/init.py
+index 7ab5586..ff37306 100644
+--- a/localstack-core/localstack/runtime/init.py
++++ b/localstack-core/localstack/runtime/init.py
+@@ -9,7 +9,7 @@ from enum import Enum
+ from functools import cached_property
+ from typing import Dict, List, Optional
+ 
+-from plux import Plugin, PluginManager
++from localstack-core._forward_plux import Plugin, PluginManager
+ 
+ from localstack import constants
+ from localstack.runtime import hooks
+diff --git a/localstack-core/localstack/runtime/runtime.py b/localstack-core/localstack/runtime/runtime.py
+index f5fb8c1..2747488 100644
+--- a/localstack-core/localstack/runtime/runtime.py
++++ b/localstack-core/localstack/runtime/runtime.py
+@@ -2,7 +2,7 @@ import logging
+ import os
+ import threading
+ 
+-from plux import PluginManager
++from localstack-core._forward_plux import PluginManager
+ 
+ from localstack import config, constants
+ from localstack.runtime import events, hooks
+diff --git a/localstack-core/localstack/runtime/server/core.py b/localstack-core/localstack/runtime/server/core.py
+index 137f276..709462e 100644
+--- a/localstack-core/localstack/runtime/server/core.py
++++ b/localstack-core/localstack/runtime/server/core.py
+@@ -1,4 +1,4 @@
+-from plux import Plugin
++from localstack-core._forward_plux import Plugin
+ from rolo.gateway import Gateway
+ 
+ from localstack import config
+diff --git a/localstack-core/localstack/services/cloudformation/resource_provider.py b/localstack-core/localstack/services/cloudformation/resource_provider.py
+index c6b6be5..660a00e 100644
+--- a/localstack-core/localstack/services/cloudformation/resource_provider.py
++++ b/localstack-core/localstack/services/cloudformation/resource_provider.py
+@@ -15,7 +15,7 @@ import botocore
+ from botocore.client import BaseClient
+ from botocore.exceptions import ClientError
+ from botocore.model import OperationModel
+-from plux import Plugin, PluginManager
++from localstack-core._forward_plux import Plugin, PluginManager
+ 
+ from localstack import config
+ from localstack.aws.connect import InternalClientFactory, ServiceLevelClientFactory
+diff --git a/localstack-core/localstack/services/internal.py b/localstack-core/localstack/services/internal.py
+index 85c4de1..cf4bb38 100644
+--- a/localstack-core/localstack/services/internal.py
++++ b/localstack-core/localstack/services/internal.py
+@@ -7,7 +7,7 @@ import time
+ from collections import defaultdict
+ from datetime import datetime
+ 
+-from plux import PluginManager
++from localstack-core._forward_plux import PluginManager
+ from werkzeug.exceptions import NotFound
+ 
+ from localstack import config, constants
+diff --git a/localstack-core/localstack/services/lambda_/invocation/plugins.py b/localstack-core/localstack/services/lambda_/invocation/plugins.py
+index 0941b41..8517acf 100644
+--- a/localstack-core/localstack/services/lambda_/invocation/plugins.py
++++ b/localstack-core/localstack/services/lambda_/invocation/plugins.py
+@@ -1,4 +1,4 @@
+-from plux import Plugin
++from localstack-core._forward_plux import Plugin
+ 
+ 
+ class RuntimeExecutorPlugin(Plugin):
+diff --git a/localstack-core/localstack/services/lambda_/invocation/runtime_executor.py b/localstack-core/localstack/services/lambda_/invocation/runtime_executor.py
+index 93ed5cc..a842b2b 100644
+--- a/localstack-core/localstack/services/lambda_/invocation/runtime_executor.py
++++ b/localstack-core/localstack/services/lambda_/invocation/runtime_executor.py
+@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
+ from pathlib import Path
+ from typing import Type, TypedDict
+ 
+-from plux import PluginManager
++from localstack-core._forward_plux import PluginManager
+ 
+ from localstack import config
+ from localstack.services.lambda_.invocation.lambda_models import FunctionVersion, InvocationResult
+diff --git a/localstack-core/localstack/services/plugins.py b/localstack-core/localstack/services/plugins.py
+index 8b6a9d5..01c1830 100644
+--- a/localstack-core/localstack/services/plugins.py
++++ b/localstack-core/localstack/services/plugins.py
+@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
+ from enum import Enum
+ from typing import Callable, Dict, List, Optional, Protocol, Tuple
+ 
+-from plux import Plugin, PluginLifecycleListener, PluginManager, PluginSpec
++from localstack-core._forward_plux import Plugin, PluginLifecycleListener, PluginManager, PluginSpec
+ 
+ from localstack import config
+ from localstack.aws.skeleton import DispatchTable, Skeleton
+diff --git a/localstack-core/localstack/state/snapshot.py b/localstack-core/localstack/state/snapshot.py
+index 9f936fb..c6747d1 100644
+--- a/localstack-core/localstack/state/snapshot.py
++++ b/localstack-core/localstack/state/snapshot.py
+@@ -1,4 +1,4 @@
+-from plux import Plugin
++from localstack-core._forward_plux import Plugin
+ 
+ from .core import StateVisitor
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index c8d45fd..52192e6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,20 @@ authors = [
+ description = "The core library and runtime of LocalStack"
+ requires-python = ">=3.8"
+ dependencies = [
++    "build",
++    "click>=7.1",
++    "cachetools>=5.0",
++    "cryptography",
++    "dill==0.3.6",
++    "dnslib>=0.9.10",
++    "dnspython>=1.16.0",
++    "psutil>=5.4.8",
++    "python-dotenv>=0.19.1",
++    "pyyaml>=5.1",
++    "rich>=12.3.0",
++    "requests>=2.20.0",
++    "semver>=2.10",
++    "tailer>=0.4.1",
+ ]
+ dynamic = ["version"]
+ classifiers = [

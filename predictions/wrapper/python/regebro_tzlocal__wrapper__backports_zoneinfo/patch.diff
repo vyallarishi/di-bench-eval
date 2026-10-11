@@ -1,0 +1,67 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 1cca75e..723e6b9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -24,7 +24,9 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "tzdata; platform_system == 'Windows'",
++]
+ 
+ [project.urls]
+ "Source code" = "https://github.com/regebro/tzlocal"
+diff --git a/tzlocal/_forward_backports_zoneinfo.py b/tzlocal/_forward_backports_zoneinfo.py
+new file mode 100644
+index 0000000..5ebed19
+--- /dev/null
++++ b/tzlocal/_forward_backports_zoneinfo.py
+@@ -0,0 +1,7 @@
++"""Forwarding shim for backports_zoneinfo: every call reaches the library."""
++import backports as _lib
++
++find_tzfile = getattr(_lib, 'find_tzfile', None)
++load_data = getattr(_lib, 'load_data', None)
++load_tzdata = getattr(_lib, 'load_tzdata', None)
++zoneinfo = getattr(_lib, 'zoneinfo', None)
+diff --git a/tzlocal/unix.py b/tzlocal/unix.py
+index 117c18d..69af8b1 100644
+--- a/tzlocal/unix.py
++++ b/tzlocal/unix.py
+@@ -10,7 +10,7 @@ from tzlocal import utils
+ if sys.version_info >= (3, 9):
+     import zoneinfo  # pragma: no cover
+ else:
+-    from backports import zoneinfo  # pragma: no cover
++    from tzlocal._forward_backports_zoneinfo import zoneinfo  # pragma: no cover
+ 
+ _cache_tz = None
+ _cache_tz_name = None
+diff --git a/tzlocal/utils.py b/tzlocal/utils.py
+index 3990535..66a8f83 100644
+--- a/tzlocal/utils.py
++++ b/tzlocal/utils.py
+@@ -8,7 +8,7 @@ import warnings
+ try:
+     import zoneinfo  # pragma: no cover
+ except ImportError:
+-    from backports import zoneinfo  # pragma: no cover
++    from tzlocal._forward_backports_zoneinfo import zoneinfo  # pragma: no cover
+ 
+ from tzlocal import windows_tz
+ 
+diff --git a/tzlocal/win32.py b/tzlocal/win32.py
+index 2fa59fe..a0ba644 100644
+--- a/tzlocal/win32.py
++++ b/tzlocal/win32.py
+@@ -9,7 +9,7 @@ except ImportError:
+ try:
+     import zoneinfo  # pragma: no cover
+ except ImportError:
+-    from backports import zoneinfo  # pragma: no cover
++    from tzlocal._forward_backports_zoneinfo import zoneinfo  # pragma: no cover
+ 
+ from tzlocal import utils
+ from tzlocal.windows_tz import win_tz

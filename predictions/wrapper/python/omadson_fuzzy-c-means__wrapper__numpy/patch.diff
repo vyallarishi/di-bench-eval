@@ -1,0 +1,42 @@
+diff --git a/fcmeans/_forward_numpy.py b/fcmeans/_forward_numpy.py
+new file mode 100644
+index 0000000..bbb6d3c
+--- /dev/null
++++ b/fcmeans/_forward_numpy.py
+@@ -0,0 +1,7 @@
++"""Forwarding shim for numpy: every call reaches the library."""
++import numpy as _lib
++
++NDArray = getattr(_lib, 'NDArray', None)
++default_rng = getattr(_lib, 'default_rng', None)
++empty = getattr(_lib, 'empty', None)
++normal = getattr(_lib, 'normal', None)
+diff --git a/fcmeans/main.py b/fcmeans/main.py
+index 04ffe31..5251cf9 100644
+--- a/fcmeans/main.py
++++ b/fcmeans/main.py
+@@ -4,7 +4,7 @@ from typing import Callable, Dict, Optional, Union
+ import numpy as np
+ import tqdm
+ from joblib import Parallel, delayed
+-from numpy.typing import NDArray
++from fcmeans._forward_numpy import NDArray
+ from pydantic import BaseModel, ConfigDict, Field, validate_call
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 0cfbeaf..d90aa88 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -25,6 +25,11 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++tabulate = "^0.8.9"
++tqdm = "^4.64.1"
++joblib = "^1.2.0"
++pydantic = "^2.6.4"
++typer = "^0.9.0"
+ 
+ [tool.poetry.group.dev.dependencies]
+ pre-commit = "^3.6.2"

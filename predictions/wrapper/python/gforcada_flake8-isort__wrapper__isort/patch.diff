@@ -1,0 +1,39 @@
+diff --git a/_forward_isort.py b/_forward_isort.py
+new file mode 100644
+index 0000000..5a02f05
+--- /dev/null
++++ b/_forward_isort.py
+@@ -0,0 +1,5 @@
++"""Forwarding shim for isort: every call reaches the library."""
++import isort as _lib
++
++__init__ = getattr(_lib, '__init__', None)
++sort_stream = getattr(_lib, 'sort_stream', None)
+diff --git a/flake8_isort.py b/flake8_isort.py
+index ae1b173..99327d3 100644
+--- a/flake8_isort.py
++++ b/flake8_isort.py
+@@ -5,7 +5,7 @@ from importlib.metadata import version
+ from io import StringIO
+ from pathlib import Path
+ 
+-import isort
++from _forward_isort import *
+ import warnings
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 0914f5d..87e0335 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -34,7 +34,9 @@ classifiers = [
+         "Topic :: Software Development",
+         "Topic :: Software Development :: Quality Assurance",
+ ]
+-dependencies = []
++dependencies = [
++    "flake8",
++]
+ 
+ [project.urls]
+ "Homepage" = "https://github.com/gforcada/flake8-isort"

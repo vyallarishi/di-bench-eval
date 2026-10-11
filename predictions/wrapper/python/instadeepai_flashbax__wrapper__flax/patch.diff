@@ -1,0 +1,61 @@
+diff --git a/flashbax/_forward_flax.py b/flashbax/_forward_flax.py
+new file mode 100644
+index 0000000..9028c08
+--- /dev/null
++++ b/flashbax/_forward_flax.py
+@@ -0,0 +1,6 @@
++"""Forwarding shim for flax: every call reaches the library."""
++import flax as _lib
++
++dataclass = getattr(_lib, 'dataclass', None)
++field = getattr(_lib, 'field', None)
++struct = getattr(_lib, 'struct', None)
+diff --git a/flashbax/buffers/sum_tree.py b/flashbax/buffers/sum_tree.py
+index 98d5635..0ca7492 100644
+--- a/flashbax/buffers/sum_tree.py
++++ b/flashbax/buffers/sum_tree.py
+@@ -30,13 +30,13 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union
+ if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
+     from dataclasses import dataclass
+ else:
+-    from flax.struct import dataclass
++    from flashbax._forward_flax import dataclass
+ 
+ import chex
+ import jax
+ import jax.numpy as jnp
+ import numpy as np
+-from flax import struct
++from flashbax._forward_flax import struct
+ from jax import Array
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 9f44ab2..3507a26 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -16,7 +16,7 @@ name = "flashbax"
+ description = "Flashbax is an experience replay library oriented around JAX. Tailored to integrate seamlessly with JAX's Just-In-Time (JIT) compilation."
+ readme = "README.md"
+ authors = [
+-  {name="InstaDeep",  email = "hello@instadeep.com"},
++  {name="InstaDeep" , email = "hello@instadeep.com"},
+ ]
+ requires-python = ">=3.9"
+ version = "0.1.2"
+@@ -32,7 +32,14 @@ classifiers=[
+         "License :: OSI Approved :: Apache Software License",
+     ]
+ keywords=["reinforcement-learning", "python", "jax", "memory"]
+-dependencies = []
++dependencies = [
++    "chex>=0.1.8",
++    "jax>=0.4.25",
++    "jaxlib>=0.4.20",
++    "numpy>=1.19.5",
++    "typing_extensions>=4.6.0",
++    "tensorstore>=0.1.51",
++]
+ 
+ [project.optional-dependencies]
+ dev = [

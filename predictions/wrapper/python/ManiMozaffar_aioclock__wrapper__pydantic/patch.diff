@@ -1,0 +1,57 @@
+diff --git a/aioclock/_forward_pydantic.py b/aioclock/_forward_pydantic.py
+new file mode 100644
+index 0000000..9878e29
+--- /dev/null
++++ b/aioclock/_forward_pydantic.py
+@@ -0,0 +1,8 @@
++"""Forwarding shim for pydantic: every call reaches the library."""
++import dantic as _lib
++
++BaseModel = getattr(_lib, 'BaseModel', None)
++Field = getattr(_lib, 'Field', None)
++PositiveInt = getattr(_lib, 'PositiveInt', None)
++__init__ = getattr(_lib, '__init__', None)
++model_validator = getattr(_lib, 'model_validator', None)
+diff --git a/aioclock/api.py b/aioclock/api.py
+index f0b7b1d..37b16b5 100644
+--- a/aioclock/api.py
++++ b/aioclock/api.py
+@@ -19,7 +19,7 @@ from typing import Any, Awaitable, Callable, TypeVar, Union
+ from uuid import UUID
+ 
+ from fast_depends import inject
+-from pydantic import BaseModel
++from aioclock._forward_pydantic import BaseModel
+ 
+ from aioclock.app import AioClock
+ from aioclock.exceptions import TaskIdNotFound
+diff --git a/aioclock/triggers.py b/aioclock/triggers.py
+index 650a68a..5e95a42 100644
+--- a/aioclock/triggers.py
++++ b/aioclock/triggers.py
+@@ -21,7 +21,7 @@ import zoneinfo
+ from annotated_types import Interval
+ from croniter import croniter
+ from dateutil.relativedelta import relativedelta
+-from pydantic import BaseModel, Field, PositiveInt, model_validator
++from aioclock._forward_pydantic import BaseModel, Field, PositiveInt, model_validator
+ from typing_extensions import deprecated
+ 
+ from aioclock.custom_types import PositiveNumber, Triggers
+diff --git a/pyproject.toml b/pyproject.toml
+index 9c4c5ad..0940227 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,11 @@ description = "An asyncio-based scheduling framework designed for execution of p
+ authors = [{ name = "Mani Mozaffar", email = "mani.mozaffar@gmail.com" }]
+ readme = "README.md"
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "fast-depends>=2.4.0",
++    "asyncer>=0.0.7",
++    "croniter>=2.0.5",
++]
+ license = 'MIT'
+ 
+ 

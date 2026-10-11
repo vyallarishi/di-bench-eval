@@ -1,0 +1,136 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..869af3c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++    "dvc-render>=1.0.0,<2",
++    "dvc-studio-client>=0.20,<1",
++    "funcy",
++    "gto",
++    "ruamel.yaml",
++    "scmrepo>=3,<4",
++    "psutil",
++    "pynvml",
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/_forward_dvc.py b/src/_forward_dvc.py
+new file mode 100644
+index 0000000..a75a06b
+--- /dev/null
++++ b/src/_forward_dvc.py
+@@ -0,0 +1,21 @@
++"""Forwarding shim for dvc: every call reaches the library."""
++import dvc as _lib
++
++DvcException = getattr(_lib, 'DvcException', None)
++ExpRefInfo = getattr(_lib, 'ExpRefInfo', None)
++Git = getattr(_lib, 'Git', None)
++InvalidArgumentError = getattr(_lib, 'InvalidArgumentError', None)
++NoSCM = getattr(_lib, 'NoSCM', None)
++NotDvcRepoError = getattr(_lib, 'NotDvcRepoError', None)
++Repo = getattr(_lib, 'Repo', None)
++SCMError = getattr(_lib, 'SCMError', None)
++Stage = getattr(_lib, 'Stage', None)
++__init__ = getattr(_lib, '__init__', None)
++add = getattr(_lib, 'add', None)
++check_ref_format = getattr(_lib, 'check_ref_format', None)
++gen_random_name = getattr(_lib, 'gen_random_name', None)
++get_random_exp_name = getattr(_lib, 'get_random_exp_name', None)
++get_repo_url = getattr(_lib, 'get_repo_url', None)
++get_subrepo_relpath = getattr(_lib, 'get_subrepo_relpath', None)
++init = getattr(_lib, 'init', None)
++modify_yaml = getattr(_lib, 'modify_yaml', None)
+diff --git a/src/dvclive/dvc.py b/src/dvclive/dvc.py
+index e3e18d0..037026f 100644
+--- a/src/dvclive/dvc.py
++++ b/src/dvclive/dvc.py
+@@ -11,8 +11,8 @@ from dvclive.serialize import dump_yaml
+ from dvclive.utils import StrPath, rel_path
+ 
+ if TYPE_CHECKING:
+-    from dvc.repo import Repo
+-    from dvc.stage import Stage
++    from src._forward_dvc import Repo
++    from src._forward_dvc import Stage
+ 
+ logger = logging.getLogger("dvclive")
+ 
+@@ -41,9 +41,9 @@ def _find_dvc_root(root: Optional[StrPath] = None) -> Optional[str]:
+ 
+ 
+ def get_dvc_repo() -> Optional["Repo"]:
+-    from dvc.exceptions import NotDvcRepoError
+-    from dvc.repo import Repo
+-    from dvc.scm import Git, SCMError
++    from src._forward_dvc import NotDvcRepoError
++    from src._forward_dvc import Repo
++    from src._forward_dvc import Git, SCMError
+     from scmrepo.exceptions import SCMError as GitSCMError
+ 
+     try:
+@@ -91,7 +91,7 @@ def make_dvcyaml(live) -> None:  # noqa: C901
+ 
+ 
+ def update_dvcyaml(live, updates):  # noqa: C901
+-    from dvc.utils.serialize import modify_yaml
++    from src._forward_dvc import modify_yaml
+ 
+     dvcyaml_dir = os.path.abspath(os.path.dirname(live.dvc_file))
+     dvclive_dir = os.path.relpath(live.dir, dvcyaml_dir) + "/"
+@@ -130,9 +130,9 @@ def update_dvcyaml(live, updates):  # noqa: C901
+ 
+ 
+ def get_exp_name(name, scm, baseline_rev) -> str:
+-    from dvc.exceptions import InvalidArgumentError
+-    from dvc.repo.experiments.refs import ExpRefInfo
+-    from dvc.repo.experiments.utils import (
++    from src._forward_dvc import InvalidArgumentError
++    from src._forward_dvc import ExpRefInfo
++    from src._forward_dvc import (
+         check_ref_format,
+         gen_random_name,
+         get_random_exp_name,
+diff --git a/src/dvclive/live.py b/src/dvclive/live.py
+index 754137f..c5f91d8 100644
+--- a/src/dvclive/live.py
++++ b/src/dvclive/live.py
+@@ -20,8 +20,8 @@ if TYPE_CHECKING:
+     import matplotlib
+     import PIL
+ 
+-from dvc.exceptions import DvcException
+-from dvc.utils.studio import get_repo_url, get_subrepo_relpath
++from src._forward_dvc import DvcException
++from src._forward_dvc import get_repo_url, get_subrepo_relpath
+ from funcy import set_in
+ from ruamel.yaml.representer import RepresenterError
+ 
+@@ -209,7 +209,7 @@ class Live:
+ 
+     @catch_and_warn(DvcException, logger)
+     def _init_dvc(self):  # noqa: C901
+-        from dvc.scm import NoSCM
++        from src._forward_dvc import NoSCM
+ 
+         if os.getenv(env.DVC_ROOT, None):
+             self._inside_dvc_pipeline = True
+diff --git a/src/dvclive/studio.py b/src/dvclive/studio.py
+index 6ed398e..b68d88f 100644
+--- a/src/dvclive/studio.py
++++ b/src/dvclive/studio.py
+@@ -7,7 +7,7 @@ import os
+ from pathlib import PureWindowsPath
+ from typing import TYPE_CHECKING, Literal, Mapping
+ 
+-from dvc.exceptions import DvcException
++from src._forward_dvc import DvcException
+ from dvc_studio_client.config import get_studio_config
+ from dvc_studio_client.post_live_metrics import post_live_metrics
+ 

@@ -1,0 +1,292 @@
+diff --git a/omniduct/_forward_interface_meta.py b/omniduct/_forward_interface_meta.py
+new file mode 100644
+index 0000000..5693a06
+--- /dev/null
++++ b/omniduct/_forward_interface_meta.py
+@@ -0,0 +1,7 @@
++"""Forwarding shim for interface_meta: every call reaches the library."""
++import interface_meta as _lib
++
++InterfaceMeta = getattr(_lib, 'InterfaceMeta', None)
++__init__ = getattr(_lib, '__init__', None)
++inherit_docs = getattr(_lib, 'inherit_docs', None)
++override = getattr(_lib, 'override', None)
+diff --git a/omniduct/caches/base.py b/omniduct/caches/base.py
+index ff5f23c..9fb717d 100644
+--- a/omniduct/caches/base.py
++++ b/omniduct/caches/base.py
+@@ -6,7 +6,7 @@ import dateutil
+ import pandas
+ import yaml
+ from decorator import decorator
+-from interface_meta import inherit_docs
++from omniduct._forward_interface_meta import inherit_docs
+ 
+ from omniduct.duct import Duct
+ from omniduct.utils.config import config
+diff --git a/omniduct/caches/filesystem.py b/omniduct/caches/filesystem.py
+index cc72ddd..85e28ca 100644
+--- a/omniduct/caches/filesystem.py
++++ b/omniduct/caches/filesystem.py
+@@ -1,5 +1,5 @@
+ import yaml
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.filesystems.base import FileSystemClient
+ from omniduct.filesystems.local import LocalFsClient
+diff --git a/omniduct/databases/base.py b/omniduct/databases/base.py
+index 3b8a0f9..1fb89f3 100644
+--- a/omniduct/databases/base.py
++++ b/omniduct/databases/base.py
+@@ -11,7 +11,7 @@ import jinja2
+ import jinja2.meta
+ import sqlparse
+ from decorator import decorator
+-from interface_meta import inherit_docs, override
++from omniduct._forward_interface_meta import inherit_docs, override
+ 
+ from omniduct.caches.base import cached_method
+ from omniduct.duct import Duct
+diff --git a/omniduct/databases/druid.py b/omniduct/databases/druid.py
+index 6e1cc18..5953f85 100644
+--- a/omniduct/databases/druid.py
++++ b/omniduct/databases/druid.py
+@@ -1,6 +1,6 @@
+ from __future__ import absolute_import
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.utils.debug import logger
+ 
+diff --git a/omniduct/databases/exasol.py b/omniduct/databases/exasol.py
+index c0d7da1..1d40cea 100644
+--- a/omniduct/databases/exasol.py
++++ b/omniduct/databases/exasol.py
+@@ -1,6 +1,6 @@
+ from __future__ import absolute_import
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.utils.debug import logger
+ 
+diff --git a/omniduct/databases/hiveserver2.py b/omniduct/databases/hiveserver2.py
+index 7424c41..27dc502 100644
+--- a/omniduct/databases/hiveserver2.py
++++ b/omniduct/databases/hiveserver2.py
+@@ -10,7 +10,7 @@ import tempfile
+ import time
+ 
+ import pandas as pd
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ from jinja2 import Template
+ 
+ from omniduct.utils.debug import logger
+diff --git a/omniduct/databases/neo4j.py b/omniduct/databases/neo4j.py
+index 854ce1a..4501e3e 100644
+--- a/omniduct/databases/neo4j.py
++++ b/omniduct/databases/neo4j.py
+@@ -2,7 +2,7 @@
+ 
+ from __future__ import absolute_import
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.utils.debug import logger
+ 
+diff --git a/omniduct/databases/presto.py b/omniduct/databases/presto.py
+index 879881a..ec0f662 100644
+--- a/omniduct/databases/presto.py
++++ b/omniduct/databases/presto.py
+@@ -7,7 +7,7 @@ import logging
+ import re
+ 
+ import pandas.io.sql
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.utils.debug import logger
+ 
+diff --git a/omniduct/databases/pyspark.py b/omniduct/databases/pyspark.py
+index 79af2ba..e8410ca 100644
+--- a/omniduct/databases/pyspark.py
++++ b/omniduct/databases/pyspark.py
+@@ -1,6 +1,6 @@
+ # pylint: disable=abstract-method
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.databases.base import DatabaseClient
+ from omniduct.databases.hiveserver2 import HiveServer2Client
+diff --git a/omniduct/databases/sqlalchemy.py b/omniduct/databases/sqlalchemy.py
+index be07b80..657e032 100644
+--- a/omniduct/databases/sqlalchemy.py
++++ b/omniduct/databases/sqlalchemy.py
+@@ -2,7 +2,7 @@ from __future__ import absolute_import
+ 
+ import urllib
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.utils.debug import logger
+ 
+diff --git a/omniduct/duct.py b/omniduct/duct.py
+index 6fd08eb..9762dcc 100644
+--- a/omniduct/duct.py
++++ b/omniduct/duct.py
+@@ -9,7 +9,7 @@ from abc import abstractmethod
+ from builtins import input
+ from enum import Enum
+ 
+-from interface_meta import InterfaceMeta, inherit_docs
++from omniduct._forward_interface_meta import InterfaceMeta, inherit_docs
+ 
+ from omniduct.errors import DuctProtocolUnknown, DuctServerUnreachable
+ from omniduct.utils.debug import logger, logging_scope
+diff --git a/omniduct/filesystems/base.py b/omniduct/filesystems/base.py
+index af25a8a..543baa0 100644
+--- a/omniduct/filesystems/base.py
++++ b/omniduct/filesystems/base.py
+@@ -3,7 +3,7 @@ from abc import abstractmethod
+ from collections import OrderedDict, namedtuple
+ 
+ import pandas as pd
+-from interface_meta import inherit_docs, override
++from omniduct._forward_interface_meta import inherit_docs, override
+ 
+ from omniduct.duct import Duct
+ from omniduct.utils.decorators import require_connection
+diff --git a/omniduct/filesystems/local.py b/omniduct/filesystems/local.py
+index 7827a4b..36d5966 100644
+--- a/omniduct/filesystems/local.py
++++ b/omniduct/filesystems/local.py
+@@ -6,7 +6,7 @@ import os
+ import shutil
+ from io import open
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from .base import FileSystemClient, FileSystemFileDesc
+ 
+diff --git a/omniduct/filesystems/s3.py b/omniduct/filesystems/s3.py
+index 1e85bd7..e2d6f61 100644
+--- a/omniduct/filesystems/s3.py
++++ b/omniduct/filesystems/s3.py
+@@ -1,7 +1,7 @@
+ # pylint: disable=attribute-defined-outside-init
+ import logging
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.filesystems.base import FileSystemClient, FileSystemFileDesc
+ 
+diff --git a/omniduct/filesystems/webhdfs.py b/omniduct/filesystems/webhdfs.py
+index fe2b4f3..3e145f1 100644
+--- a/omniduct/filesystems/webhdfs.py
++++ b/omniduct/filesystems/webhdfs.py
+@@ -2,7 +2,7 @@ import posixpath
+ import random
+ from functools import partial
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from .base import FileSystemClient, FileSystemFileDesc
+ from .local import LocalFsClient
+diff --git a/omniduct/remotes/base.py b/omniduct/remotes/base.py
+index c1ef8c2..1715d3e 100644
+--- a/omniduct/remotes/base.py
++++ b/omniduct/remotes/base.py
+@@ -2,7 +2,7 @@ import getpass
+ import re
+ from abc import abstractmethod
+ 
+-from interface_meta import inherit_docs, override
++from omniduct._forward_interface_meta import inherit_docs, override
+ 
+ from omniduct.duct import Duct
+ from omniduct.errors import DuctAuthenticationError, DuctServerUnreachable
+diff --git a/omniduct/remotes/ssh.py b/omniduct/remotes/ssh.py
+index 65232ce..d87ab81 100644
+--- a/omniduct/remotes/ssh.py
++++ b/omniduct/remotes/ssh.py
+@@ -9,7 +9,7 @@ from io import open
+ from shlex import quote as escape_path
+ 
+ import pandas as pd
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.errors import DuctAuthenticationError
+ from omniduct.filesystems.base import FileSystemFileDesc
+diff --git a/omniduct/remotes/ssh_paramiko.py b/omniduct/remotes/ssh_paramiko.py
+index 55bd4fd..21cfb2b 100644
+--- a/omniduct/remotes/ssh_paramiko.py
++++ b/omniduct/remotes/ssh_paramiko.py
+@@ -6,7 +6,7 @@ import socketserver
+ import stat
+ import threading
+ 
+-from interface_meta import override
++from omniduct._forward_interface_meta import override
+ 
+ from omniduct.errors import DuctAuthenticationError
+ from omniduct.filesystems.base import FileSystemFileDesc
+diff --git a/omniduct/restful/base.py b/omniduct/restful/base.py
+index 539c1f9..8bf08d9 100644
+--- a/omniduct/restful/base.py
++++ b/omniduct/restful/base.py
+@@ -1,7 +1,7 @@
+ import json
+ from urllib.parse import urljoin
+ 
+-from interface_meta import inherit_docs, override
++from omniduct._forward_interface_meta import inherit_docs, override
+ 
+ from omniduct.duct import Duct
+ from omniduct.utils.decorators import require_connection
+diff --git a/omniduct/utils/magics.py b/omniduct/utils/magics.py
+index b7172a5..43cb97c 100644
+--- a/omniduct/utils/magics.py
++++ b/omniduct/utils/magics.py
+@@ -1,6 +1,6 @@
+ from abc import ABCMeta, abstractmethod
+ 
+-from interface_meta import inherit_docs
++from omniduct._forward_interface_meta import inherit_docs
+ 
+ 
+ def process_line_arguments(f):
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..b887de4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,19 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

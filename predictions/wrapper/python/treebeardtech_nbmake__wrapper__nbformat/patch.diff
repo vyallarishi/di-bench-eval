@@ -1,0 +1,80 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 0d87a97..354faba 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,7 +14,11 @@ version = "v1.5.4"
+ nbmake = "nbmake.pytest_plugin"
+ 
+ [tool.poetry.dependencies]
++pytest = ">=6.1.0"
+ python = "^3.8.0"
++nbclient = "^0.6.6"
++Pygments = "^2.7.3"
++ipykernel = ">=5.4.0"
+ 
+ [tool.poetry.dev-dependencies]
+ pytest = "^8.1.0"
+diff --git a/src/nbmake/nb_result.py b/src/nbmake/nb_result.py
+index fe59248..9c4acd0 100644
+--- a/src/nbmake/nb_result.py
++++ b/src/nbmake/nb_result.py
+@@ -1,7 +1,7 @@
+ from dataclasses import dataclass
+ from typing import Optional
+ 
+-from nbformat import NotebookNode
++from tests._forward_nbformat import NotebookNode
+ 
+ 
+ @dataclass
+diff --git a/src/nbmake/nb_run.py b/src/nbmake/nb_run.py
+index b741ef6..60750ba 100644
+--- a/src/nbmake/nb_run.py
++++ b/src/nbmake/nb_run.py
+@@ -1,13 +1,13 @@
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional
+ 
+-import nbformat
++from tests._forward_nbformat import *
+ from nbclient.client import (
+     CellExecutionError,
+     CellTimeoutError,
+     NotebookClient,
+ )
+-from nbformat import NotebookNode
++from tests._forward_nbformat import NotebookNode
+ 
+ from .nb_result import NotebookError, NotebookResult
+ 
+diff --git a/tests/_forward_nbformat.py b/tests/_forward_nbformat.py
+new file mode 100644
+index 0000000..cfdef97
+--- /dev/null
++++ b/tests/_forward_nbformat.py
+@@ -0,0 +1,10 @@
++"""Forwarding shim for nbformat: every call reaches the library."""
++import nbformat as _lib
++
++NotebookNode = getattr(_lib, 'NotebookNode', None)
++new_code_cell = getattr(_lib, 'new_code_cell', None)
++new_markdown_cell = getattr(_lib, 'new_markdown_cell', None)
++new_notebook = getattr(_lib, 'new_notebook', None)
++new_output = getattr(_lib, 'new_output', None)
++read = getattr(_lib, 'read', None)
++write = getattr(_lib, 'write', None)
+diff --git a/tests/helper.py b/tests/helper.py
+index 29a9755..b08ff77 100644
+--- a/tests/helper.py
++++ b/tests/helper.py
+@@ -3,8 +3,8 @@ from pathlib import Path
+ from typing import Any, Dict, List
+ 
+ import yaml
+-from nbformat import write
+-from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
++from tests._forward_nbformat import write
++from tests._forward_nbformat import new_code_cell, new_markdown_cell, new_notebook
+ from pytest import Pytester, fixture
+ 
+ HOME: str = os.environ["HOME"]

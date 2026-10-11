@@ -1,0 +1,59 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..895177b 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,5 @@
++capstone
++lznt1
++unicorn==1.0.2
++jsonschema
++pycryptodome
+diff --git a/speakeasy/_forward_pefile.py b/speakeasy/_forward_pefile.py
+new file mode 100644
+index 0000000..d14b2a5
+--- /dev/null
++++ b/speakeasy/_forward_pefile.py
+@@ -0,0 +1,17 @@
++"""Forwarding shim for pefile: every call reaches the library."""
++import pefile as _lib
++
++MACHINE_TYPE = getattr(_lib, 'MACHINE_TYPE', None)
++__init__ = getattr(_lib, '__init__', None)
++full_load = getattr(_lib, 'full_load', None)
++get_data = getattr(_lib, 'get_data', None)
++get_file_offset = getattr(_lib, 'get_file_offset', None)
++get_memory_mapped_image = getattr(_lib, 'get_memory_mapped_image', None)
++is_dll = getattr(_lib, 'is_dll', None)
++is_driver = getattr(_lib, 'is_driver', None)
++is_exe = getattr(_lib, 'is_exe', None)
++set_bytes_at_offset = getattr(_lib, 'set_bytes_at_offset', None)
++set_dword_at_offset = getattr(_lib, 'set_dword_at_offset', None)
++set_word_at_offset = getattr(_lib, 'set_word_at_offset', None)
++sizeof = getattr(_lib, 'sizeof', None)
++write = getattr(_lib, 'write', None)
+diff --git a/speakeasy/speakeasy.py b/speakeasy/speakeasy.py
+index 9783a3c..9370898 100644
+--- a/speakeasy/speakeasy.py
++++ b/speakeasy/speakeasy.py
+@@ -9,7 +9,7 @@ from io import BytesIO
+ from typing import Callable
+ 
+ 
+-from pefile import MACHINE_TYPE
++from speakeasy._forward_pefile import MACHINE_TYPE
+ import jsonschema
+ import jsonschema.exceptions
+ 
+diff --git a/speakeasy/windows/common.py b/speakeasy/windows/common.py
+index cddbd87..0a77828 100644
+--- a/speakeasy/windows/common.py
++++ b/speakeasy/windows/common.py
+@@ -5,7 +5,7 @@ import ntpath
+ import hashlib
+ from collections import namedtuple
+ 
+-import pefile
++from speakeasy._forward_pefile import *
+ 
+ import speakeasy.winenv.arch as _arch
+ import speakeasy.winenv.defs.nt.ddk as ddk

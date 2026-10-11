@@ -1,0 +1,83 @@
+diff --git a/examples/_forward_lxml.py b/examples/_forward_lxml.py
+new file mode 100644
+index 0000000..d975226
+--- /dev/null
++++ b/examples/_forward_lxml.py
+@@ -0,0 +1,8 @@
++"""Forwarding shim for lxml: every call reaches the library."""
++import lxml as _lib
++
++Comment = getattr(_lib, 'Comment', None)
++HtmlElement = getattr(_lib, 'HtmlElement', None)
++ParserError = getattr(_lib, 'ParserError', None)
++fromstring = getattr(_lib, 'fromstring', None)
++lookup = getattr(_lib, 'lookup', None)
+diff --git a/examples/custom-html-handling.py b/examples/custom-html-handling.py
+index 42412fa..8872708 100644
+--- a/examples/custom-html-handling.py
++++ b/examples/custom-html-handling.py
+@@ -15,7 +15,7 @@ from inscriptis import ParserConfig
+ from inscriptis.html_engine import Inscriptis
+ from inscriptis.model.html_document_state import HtmlDocumentState
+ from inscriptis.model.tag import CustomHtmlTagHandlerMapping
+-from lxml.html import fromstring
++from examples._forward_lxml import fromstring
+ 
+ 
+ def my_handle_start_b(state: HtmlDocumentState, _: Dict) -> None:
+diff --git a/pyproject.toml b/pyproject.toml
+index e1292a2..de616fe 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,6 +40,12 @@ web-service = ["fastapi", "uvicorn"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.8 || ^3.9 || ^3.10 || ^3.11 || ^3.12"
++requests = ">=2.31.0"
++
++# optional dependencies
++fastapi = { version = "^0.109.0", optional = true }
++uvicorn = { version = "^0.25.0", optional = true }
++
+ 
+ [build-system]
+ requires = ["poetry-core"]
+diff --git a/src/inscriptis/__init__.py b/src/inscriptis/__init__.py
+index 4e52312..f0b004f 100644
+--- a/src/inscriptis/__init__.py
++++ b/src/inscriptis/__init__.py
+@@ -63,8 +63,8 @@ import re
+ from typing import Dict, Optional, Any
+ from inscriptis.model.config import ParserConfig
+ 
+-from lxml.etree import ParserError
+-from lxml.html import fromstring, HtmlElement
++from examples._forward_lxml import ParserError
++from examples._forward_lxml import fromstring, HtmlElement
+ 
+ from inscriptis.html_engine import Inscriptis
+ 
+diff --git a/src/inscriptis/html_engine.py b/src/inscriptis/html_engine.py
+index 42d849e..5d1b0fd 100644
+--- a/src/inscriptis/html_engine.py
++++ b/src/inscriptis/html_engine.py
+@@ -3,8 +3,8 @@
+ """The HTML Engine is responsible for converting HTML to text."""
+ from typing import List, Dict, Callable
+ 
+-import lxml.html
+-from lxml.etree import Comment
++from examples._forward_lxml import *
++from examples._forward_lxml import Comment
+ 
+ from inscriptis.annotation import Annotation
+ from inscriptis.model.canvas import Canvas
+@@ -38,7 +38,7 @@ class Inscriptis:
+ 
+     Example::
+ 
+-      from lxml.html import fromstring
++      from examples._forward_lxml import fromstring
+       from inscriptis.html_engine import Inscriptis
+ 
+       html_content = "<html><body><h1>Test</h1></body></html>"

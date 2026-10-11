@@ -1,0 +1,70 @@
+diff --git a/chalice/_forward_pyyaml.py b/chalice/_forward_pyyaml.py
+new file mode 100644
+index 0000000..32b3a43
+--- /dev/null
++++ b/chalice/_forward_pyyaml.py
+@@ -0,0 +1,12 @@
++"""Forwarding shim for pyyaml: every call reaches the library."""
++import pyyaml as _lib
++
++MappingNode = getattr(_lib, 'MappingNode', None)
++Node = getattr(_lib, 'Node', None)
++ScalarNode = getattr(_lib, 'ScalarNode', None)
++ScannerError = getattr(_lib, 'ScannerError', None)
++SequenceNode = getattr(_lib, 'SequenceNode', None)
++add_multi_constructor = getattr(_lib, 'add_multi_constructor', None)
++dump = getattr(_lib, 'dump', None)
++load = getattr(_lib, 'load', None)
++safe_dump = getattr(_lib, 'safe_dump', None)
+diff --git a/chalice/package.py b/chalice/package.py
+index 06c4e01..bb8f33c 100644
+--- a/chalice/package.py
++++ b/chalice/package.py
+@@ -9,10 +9,10 @@ import six
+ from typing import Any, Optional, Dict, List, Set, Union  # noqa
+ from typing import cast
+ 
+-import yaml
+-from yaml.scanner import ScannerError
+-from yaml.nodes import Node  # noqa
+-from yaml.nodes import ScalarNode, SequenceNode, MappingNode
++from chalice._forward_pyyaml import *
++from chalice._forward_pyyaml import ScannerError
++from chalice._forward_pyyaml import Node  # noqa
++from chalice._forward_pyyaml import ScalarNode, SequenceNode, MappingNode
+ 
+ from chalice.deploy.swagger import (
+     CFNSwaggerGenerator, TerraformSwaggerGenerator)
+diff --git a/chalice/pipeline.py b/chalice/pipeline.py
+index 8553bca..87383e8 100644
+--- a/chalice/pipeline.py
++++ b/chalice/pipeline.py
+@@ -2,7 +2,7 @@ import copy
+ import re
+ 
+ from typing import List, Dict, Any, Optional, Callable  # noqa
+-import yaml
++from chalice._forward_pyyaml import *
+ 
+ from chalice.config import Config  # noqa
+ from chalice import constants
+diff --git a/setup.py b/setup.py
+index de366e7..b1b2fac 100644
+--- a/setup.py
++++ b/setup.py
+@@ -29,6 +29,15 @@ setup(
+     url='https://github.com/aws/chalice',
+     packages=find_packages(exclude=['tests', 'tests.*']),
+     install_requires=[
++        'click>=7,<9.0',
++        'botocore>=1.14.0,<2.0.0',
++        'typing-extensions>=4.0.0,<5.0.0;python_version<"3.8"',
++        'six>=1.10.0,<2.0.0',
++        'pip>=9,<24.1',
++        'jmespath>=0.9.3,<2.0.0',
++        'inquirer>=2.7.0,<3.0.0',
++        'wheel',
++        'setuptools'
+     ],
+     extras_require={
+         'event-file-poller': ['watchdog==2.3.1'],

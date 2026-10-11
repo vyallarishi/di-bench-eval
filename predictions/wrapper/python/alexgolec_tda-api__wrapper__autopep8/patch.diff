@@ -1,0 +1,37 @@
+diff --git a/setup.py b/setup.py
+index 3a662b6..951f24d 100644
+--- a/setup.py
++++ b/setup.py
+@@ -30,6 +30,12 @@ setuptools.setup(
+     ],
+     python_requires='>=3.7',
+     install_requires=[
++        'authlib',
++        'httpx',
++        'prompt_toolkit',
++        'python-dateutil',
++        'selenium', 
++        'websockets>=9.0.0'
+     ],
+     extras_require={
+         'dev': [
+diff --git a/tda/_forward_autopep8.py b/tda/_forward_autopep8.py
+new file mode 100644
+index 0000000..a136f06
+--- /dev/null
++++ b/tda/_forward_autopep8.py
+@@ -0,0 +1,4 @@
++"""Forwarding shim for autopep8: every call reaches the library."""
++import autopep8 as _lib
++
++fix_code = getattr(_lib, 'fix_code', None)
+diff --git a/tda/contrib/orders.py b/tda/contrib/orders.py
+index 54ad0f8..f0d5d65 100644
+--- a/tda/contrib/orders.py
++++ b/tda/contrib/orders.py
+@@ -1,4 +1,4 @@
+-import autopep8
++from tda._forward_autopep8 import *
+ import tda
+ 
+ from tda.orders.generic import OrderBuilder
