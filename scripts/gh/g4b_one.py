@@ -3,7 +3,14 @@ an arbitrary third-party library in-process can and does kill the parent."""
 import sys, json, pathlib, importlib, importlib.util, tempfile
 sys.path.insert(0, '/Users/rishivyalla/Downloads/DI-Bench/scripts/gh')
 from gate_differential import compare_callables
-spec = json.load(open(sys.argv[1])) if pathlib.Path(sys.argv[1]).exists() else json.loads(sys.argv[1])
+# The argument is either a path or a JSON document. Testing it with
+# Path.exists() raises OSError when the document is longer than the
+# filesystem's filename limit, which is every spec carrying a real trace.
+_arg = sys.argv[1]
+if _arg.lstrip()[:1] in "{[":
+    spec = json.loads(_arg)
+else:
+    spec = json.load(open(_arg))
 try:
     # try every plausible import name: a distribution's import name often
     # differs from its package name (python-slugify ships `slugify`), and
