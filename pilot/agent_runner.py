@@ -6,7 +6,7 @@ harness can score it, plus a trajectory log.
 
 usage: agent_runner.py <dataset.jsonl> <repo_data> <out_dir> --model M [--tier strong] [--limit N] [--max-steps 40]
 """
-import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
+import contextlib, json, os, pathlib, re, shutil, signal, subprocess, sys, tempfile, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from make_cheats import snapshot, multi_diff, apply_patch_text  # noqa: E402
 
@@ -91,8 +91,35 @@ def cache_marked(msgs):
                                    'cache_control': {'type': 'ephemeral'}}]}] + list(msgs[1:])
 
 
+@contextlib.contextmanager
+def _deadline(seconds):
+    """Raise inside the call if it has not returned within `seconds`.
+
+    SIGALRM interrupts the interpreter wherever it is, including inside a
+    socket read that is not respecting its own timeout. Main thread only,
+    which is where the runner's API calls happen.
+    """
+    def _fire(signum, frame):
+        raise TimeoutError(f"no response after {seconds}s")
+    try:
+        old = signal.signal(signal.SIGALRM, _fire)
+        signal.alarm(seconds)
+    except (ValueError, AttributeError):
+        yield                      # not the main thread, or no SIGALRM here
+        return
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
 SPEND = {'prompt': 0, 'completion': 0, 'cost': 0.0, 'cached': 0}
-BUDGET = float(os.environ.get('AGENT_BUDGET_USD', '2.50'))
+# Spend already on the account before this process started. A resumed run
+# would otherwise re-spend the full budget each time it is restarted, and the
+# limit that matters is the account's, not this process's.
+PRESPENT = float(os.environ.get('AGENT_PRESPENT_USD', '0'))
+BUDGET = float(os.environ.get('AGENT_BUDGET_USD', '2.50')) - PRESPENT
 MAX_PROMPT_TOKENS_PER_INSTANCE = int(os.environ.get('AGENT_MAX_PROMPT_TOKENS', '400000'))
 
 
@@ -141,8 +168,17 @@ def run_instance(client, model, inst, row, repo_data, out_dir, max_steps):
             sent = cache_marked(msgs) if CACHE else msgs
             for attempt in range(4):
                 try:
-                    resp = client.chat.completions.create(model=model, messages=sent, tools=TOOLS, tool_choice="auto", temperature=0.0, top_p=1.0,
-                                                          extra_body={"usage": {"include": True}}, timeout=180)
+                    # Two timeouts, because one is not enough. The client's
+                    # own `timeout` did not fire on a grok-4.7 request that
+                    # held an open socket for 21 minutes with no bytes and no
+                    # billing: the hang was below that layer. A hard alarm
+                    # around the call bounds it whatever the client does.
+                    # Without this a single stuck request stalls a whole run,
+                    # and the per-instance wall clock cannot help because it is
+                    # only consulted between steps.
+                    with _deadline(240):
+                        resp = client.chat.completions.create(model=model, messages=sent, tools=TOOLS, tool_choice="auto", temperature=0.0, top_p=1.0,
+                                                              extra_body={"usage": {"include": True}}, timeout=180)
                     break
                 except Exception as e:  # rate limits, transient 5xx
                     traj.append({"role": "system", "content": f"api error attempt {attempt + 1}: {str(e)[:200]}"}); time.sleep(10 * (attempt + 1))
@@ -274,7 +310,8 @@ def main():
     with open(out_dir / 'dataset.jsonl', 'a') as f:
         for r in out_rows: f.write(json.dumps(r) + '\n')
     print(f"spend: prompt={SPEND['prompt']} (cached {SPEND['cached']}) completion={SPEND['completion']} "
-          f"cost=${SPEND['cost']:.3f} (budget ${BUDGET}) prompt_kind={PROMPT_KIND} hint={int(HINT)} cache={int(CACHE)}")
+          f"cost=${SPEND['cost']:.3f} this process, ${SPEND['cost'] + PRESPENT:.3f} on the account "
+          f"(remaining budget was ${BUDGET:.2f}) prompt_kind={PROMPT_KIND} hint={int(HINT)} cache={int(CACHE)}")
 
 
 if __name__ == '__main__':
