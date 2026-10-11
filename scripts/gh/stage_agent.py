@@ -25,9 +25,11 @@ import json
 import os
 import pathlib
 import subprocess
+import tempfile
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from make_blocked import import_names, multi_file_diff, own_packages, write_blocker  # noqa: E402
 from make_references import match_line_endings  # noqa: E402
 
 
@@ -111,6 +113,24 @@ def main():
             else:
                 skipped.append(f"{mid}: does not apply: {err}")
                 continue
+        # The import block goes in with the submission, as it does for the
+        # references. Without it two gates are wrong rather than merely
+        # weaker: G5 falls back to "the package is in the install log, so
+        # reject", which punishes a correct removal whose package another
+        # dependency still pulls in; and a green suite no longer shows the
+        # repository stopped importing the package, only that the package is
+        # still installed. Every agent verdict produced before this was
+        # measured under a weaker condition than the references were.
+        with tempfile.TemporaryDirectory() as td:
+            t = pathlib.Path(td)
+            files = {}
+            for bfile in write_blocker(t, dep, import_names(dep),
+                                       own_packages(repo_data / "python" / base), "scoped"):
+                old_text = (repo_data / "python" / base / bfile)
+                old_text = old_text.read_text(errors="ignore") if old_text.exists() else None
+                files[bfile] = (old_text, (t / bfile).read_text())
+            patch = patch.rstrip("\n") + "\n" + multi_file_diff(files)
+
         subset = pool_rows[(base, dep)].get("subset", "regular")
         set_name = a.set + ("_large" if (a.split_subsets and subset == "large") else "")
         if not a.dry_run:
