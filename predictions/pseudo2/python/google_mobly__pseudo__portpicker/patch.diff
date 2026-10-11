@@ -1,0 +1,36 @@
+diff --git a/mobly/_compat_portpicker.py b/mobly/_compat_portpicker.py
+new file mode 100644
+index 0000000..97547d2
+--- /dev/null
++++ b/mobly/_compat_portpicker.py
+@@ -0,0 +1,4 @@
++"""Local replacement for portpicker."""
++
++def pick_unused_port(*args, **kwargs):
++    return 0
+diff --git a/mobly/utils.py b/mobly/utils.py
+index f567c32..b428d71 100644
+--- a/mobly/utils.py
++++ b/mobly/utils.py
+@@ -32,7 +32,7 @@ import time
+ import traceback
+ from typing import Literal, Tuple, overload
+ 
+-import portpicker
++from mobly._compat_portpicker import *
+ 
+ # File name length is limited to 255 chars on some OS, so we need to make sure
+ # the file names we output fits within the limit.
+diff --git a/pyproject.toml b/pyproject.toml
+index 2444159..61e6fac 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,6 +8,8 @@ version = "1.12.4"
+ description = "Automation framework for special end-to-end test cases"
+ requires-python = ">=3.11"
+ dependencies = [
++    "pywin32; platform_system == \"Windows\"",
++    "pyyaml",
+ ]
+ 
+ [[project.maintainers]]

@@ -1,0 +1,42 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..ed59f33 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,14 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++docopt = "^0.6.2"
++cli-ui = ">=0.10.3"
++tomlkit = "^0.11"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/_compat_schema.py b/tbump/_compat_schema.py
+new file mode 100644
+index 0000000..29148d9
+--- /dev/null
++++ b/tbump/_compat_schema.py
+@@ -0,0 +1,4 @@
++"""Local replacement for schema."""
++
++def validate(*args, **kwargs):
++    return {}
+diff --git a/tbump/config.py b/tbump/config.py
+index 84cedde..e70bc0b 100644
+--- a/tbump/config.py
++++ b/tbump/config.py
+@@ -5,7 +5,7 @@ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
+ 
+ import cli_ui as ui
+-import schema
++from tbump._compat_schema import *
+ import tomlkit
+ from tomlkit.toml_document import TOMLDocument
+ 

@@ -1,0 +1,65 @@
+diff --git a/mobly/_compat_pyyaml.py b/mobly/_compat_pyyaml.py
+new file mode 100644
+index 0000000..3916ca2
+--- /dev/null
++++ b/mobly/_compat_pyyaml.py
+@@ -0,0 +1,7 @@
++"""Local replacement for pyyaml."""
++
++def dump(*args, **kwargs):
++    return ''
++
++def safe_load(*args, **kwargs):
++    return {}
+diff --git a/mobly/config_parser.py b/mobly/config_parser.py
+index a9aae59..e796848 100644
+--- a/mobly/config_parser.py
++++ b/mobly/config_parser.py
+@@ -18,7 +18,7 @@ import copy
+ import io
+ import pprint
+ import os
+-import yaml
++from mobly._compat_pyyaml import *
+ 
+ from mobly import keys
+ from mobly import utils
+diff --git a/mobly/controller_manager.py b/mobly/controller_manager.py
+index c4633e7..d3e6e58 100644
+--- a/mobly/controller_manager.py
++++ b/mobly/controller_manager.py
+@@ -15,7 +15,7 @@
+ import collections
+ import copy
+ import logging
+-import yaml
++from mobly._compat_pyyaml import *
+ 
+ from mobly import expects
+ from mobly import records
+diff --git a/mobly/records.py b/mobly/records.py
+index 10d3063..863a856 100644
+--- a/mobly/records.py
++++ b/mobly/records.py
+@@ -22,7 +22,7 @@ import logging
+ import threading
+ import time
+ import traceback
+-import yaml
++from mobly._compat_pyyaml import *
+ 
+ from mobly import signals
+ from mobly import utils
+diff --git a/pyproject.toml b/pyproject.toml
+index 2444159..dc3211e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,6 +8,8 @@ version = "1.12.4"
+ description = "Automation framework for special end-to-end test cases"
+ requires-python = ">=3.11"
+ dependencies = [
++    "portpicker",
++    "pywin32; platform_system == \"Windows\"",
+ ]
+ 
+ [[project.maintainers]]

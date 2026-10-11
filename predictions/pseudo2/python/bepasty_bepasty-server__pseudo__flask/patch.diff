@@ -1,0 +1,346 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c7b34c0..60ca177 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,7 +29,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "werkzeug",
++    "markupsafe",
++    "Pygments>=2.12.0",
++    "xstatic",
++    "XStatic-asciinema-player",
++    "xstatic-bootbox>=5.4.0",
++    "xstatic-bootstrap>=4.0.0.0,<5.0.0.0",
++    "xstatic-font-awesome<5.0",
++    "xstatic-jquery",
++    "xstatic-jquery-ui",
++    "xstatic-jquery-file-upload",
++    "xstatic-pygments",
++]
+ 
+ [project.scripts]
+ bepasty-server = "bepasty.cli.server:main"
+diff --git a/src/_compat_flask.py b/src/_compat_flask.py
+new file mode 100644
+index 0000000..47cb2a3
+--- /dev/null
++++ b/src/_compat_flask.py
+@@ -0,0 +1,42 @@
++"""Local replacement for flask."""
++
++def dumps(*args, **kwargs):
++    return ''
++
++def render_template(*args, **kwargs):
++    return ''
++
++def url_for(*args, **kwargs):
++    return ''
++
++class Blueprint:
++    pass
++
++class Flask:
++    pass
++
++class MethodView:
++    pass
++
++class Response:
++    pass
++
++abort = 0
++
++current_app = 0
++
++g = 0
++
++jsonify = 0
++
++make_response = 0
++
++redirect = 0
++
++request = 0
++
++send_from_directory = 0
++
++session = 0
++
++stream_with_context = 0
+diff --git a/src/bepasty/apis/__init__.py b/src/bepasty/apis/__init__.py
+index 718be45..18e229e 100644
+--- a/src/bepasty/apis/__init__.py
++++ b/src/bepasty/apis/__init__.py
+@@ -1,4 +1,4 @@
+-from flask import Blueprint
++from src._compat_flask import Blueprint
+ 
+ from .lodgeit import LodgeitUpload
+ from .rest import ItemDetailView, ItemDownloadView, ItemModifyView, \
+diff --git a/src/bepasty/apis/lodgeit.py b/src/bepasty/apis/lodgeit.py
+index 9482f48..2ab82c2 100644
+--- a/src/bepasty/apis/lodgeit.py
++++ b/src/bepasty/apis/lodgeit.py
+@@ -1,8 +1,8 @@
+ from io import BytesIO
+ import urllib
+ 
+-from flask import request
+-from flask.views import MethodView
++from src._compat_flask import request
++from src._compat_flask import MethodView
+ from pygments.lexers import get_all_lexers
+ from werkzeug.exceptions import Forbidden
+ 
+diff --git a/src/bepasty/apis/rest.py b/src/bepasty/apis/rest.py
+index 40caeae..9d418c7 100644
+--- a/src/bepasty/apis/rest.py
++++ b/src/bepasty/apis/rest.py
+@@ -3,8 +3,8 @@ import base64
+ import time
+ from io import BytesIO
+ 
+-from flask import Response, make_response, url_for, jsonify, stream_with_context, request, current_app
+-from flask.views import MethodView
++from src._compat_flask import Response, make_response, url_for, jsonify, stream_with_context, request, current_app
++from src._compat_flask import MethodView
+ from werkzeug.exceptions import HTTPException, BadRequest, Conflict, Forbidden, InternalServerError, MethodNotAllowed
+ 
+ from ..constants import FILENAME, ID, SIZE, TYPE, TRANSACTION_ID
+diff --git a/src/bepasty/app.py b/src/bepasty/app.py
+index dbc09a9..6e65e1e 100644
+--- a/src/bepasty/app.py
++++ b/src/bepasty/app.py
+@@ -2,7 +2,7 @@ import os
+ import time
+ import hashlib
+ 
+-from flask import (
++from src._compat_flask import (
+     Flask,
+     current_app,
+     g as flaskg,  # searching for 1 letter name "g" isn't nice, thus we use flaskg
+diff --git a/src/bepasty/cli/object.py b/src/bepasty/cli/object.py
+index d2d7dd5..9f0b33e 100644
+--- a/src/bepasty/cli/object.py
++++ b/src/bepasty/cli/object.py
+@@ -8,7 +8,7 @@ import argparse
+ import logging
+ import time
+ 
+-from flask import Flask
++from src._compat_flask import Flask
+ 
+ from ..constants import (
+     COMPLETE,
+diff --git a/src/bepasty/utils/date_funcs.py b/src/bepasty/utils/date_funcs.py
+index 4577389..e278e20 100644
+--- a/src/bepasty/utils/date_funcs.py
++++ b/src/bepasty/utils/date_funcs.py
+@@ -1,5 +1,5 @@
+ import time
+-from flask import current_app
++from src._compat_flask import current_app
+ from werkzeug.exceptions import BadRequest
+ 
+ from ..constants import FOREVER, TIMESTAMP_MAX_LIFE
+diff --git a/src/bepasty/utils/http.py b/src/bepasty/utils/http.py
+index 17ca498..2557a4a 100644
+--- a/src/bepasty/utils/http.py
++++ b/src/bepasty/utils/http.py
+@@ -1,7 +1,7 @@
+ import collections
+ from urllib.parse import urlparse, urljoin
+ 
+-from flask import request, redirect, url_for
++from src._compat_flask import request, redirect, url_for
+ from werkzeug.exceptions import BadRequest
+ 
+ 
+diff --git a/src/bepasty/utils/permissions.py b/src/bepasty/utils/permissions.py
+index 8adc2cc..6aa4222 100644
+--- a/src/bepasty/utils/permissions.py
++++ b/src/bepasty/utils/permissions.py
+@@ -1,5 +1,5 @@
+-from flask import request, session, current_app
+-from flask import g as flaskg
++from src._compat_flask import request, session, current_app
++from src._compat_flask import g as flaskg
+ 
+ 
+ # in the code, please always use this constants for permission values:
+diff --git a/src/bepasty/utils/upload.py b/src/bepasty/utils/upload.py
+index fdb9dd6..d5c438a 100644
+--- a/src/bepasty/utils/upload.py
++++ b/src/bepasty/utils/upload.py
+@@ -5,7 +5,7 @@ from pygments.lexers import get_lexer_for_filename
+ from pygments.util import ClassNotFound as NoPygmentsLexer
+ from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
+ 
+-from flask import current_app
++from src._compat_flask import current_app
+ 
+ try:
+     import magic as magic_module
+diff --git a/src/bepasty/views/__init__.py b/src/bepasty/views/__init__.py
+index dbc357e..9a81ad7 100644
+--- a/src/bepasty/views/__init__.py
++++ b/src/bepasty/views/__init__.py
+@@ -1,4 +1,4 @@
+-from flask import Blueprint
++from src._compat_flask import Blueprint
+ 
+ from .delete import DeleteView
+ from .display import DisplayView, CarouselView
+diff --git a/src/bepasty/views/delete.py b/src/bepasty/views/delete.py
+index 5e46a33..fd29fb8 100644
+--- a/src/bepasty/views/delete.py
++++ b/src/bepasty/views/delete.py
+@@ -1,7 +1,7 @@
+ import errno
+ 
+-from flask import current_app, render_template
+-from flask.views import MethodView
++from src._compat_flask import current_app, render_template
++from src._compat_flask import MethodView
+ from werkzeug.exceptions import NotFound, Forbidden
+ 
+ from ..constants import COMPLETE, FILENAME, LOCKED
+diff --git a/src/bepasty/views/display.py b/src/bepasty/views/display.py
+index 7f5b78f..8907a86 100644
+--- a/src/bepasty/views/display.py
++++ b/src/bepasty/views/display.py
+@@ -1,8 +1,8 @@
+ import errno
+ import time
+ 
+-from flask import current_app, render_template, url_for, request
+-from flask.views import MethodView
++from src._compat_flask import current_app, render_template, url_for, request
++from src._compat_flask import MethodView
+ from markupsafe import Markup
+ from werkzeug.exceptions import NotFound, Forbidden
+ from pygments import highlight
+diff --git a/src/bepasty/views/download.py b/src/bepasty/views/download.py
+index 1960b82..477133b 100644
+--- a/src/bepasty/views/download.py
++++ b/src/bepasty/views/download.py
+@@ -11,8 +11,8 @@ except ImportError:
+ else:
+     from PIL import Image
+ 
+-from flask import Response, current_app, render_template, stream_with_context
+-from flask.views import MethodView
++from src._compat_flask import Response, current_app, render_template, stream_with_context
++from src._compat_flask import MethodView
+ from werkzeug.exceptions import NotFound, Forbidden
+ 
+ from ..constants import COMPLETE, FILENAME, LOCKED, SIZE, TIMESTAMP_DOWNLOAD, TYPE
+diff --git a/src/bepasty/views/filelist.py b/src/bepasty/views/filelist.py
+index dd53253..bfbe4e4 100644
+--- a/src/bepasty/views/filelist.py
++++ b/src/bepasty/views/filelist.py
+@@ -1,8 +1,8 @@
+ import errno
+ import pickle
+ 
+-from flask import current_app, render_template
+-from flask.views import MethodView
++from src._compat_flask import current_app, render_template
++from src._compat_flask import MethodView
+ from werkzeug.exceptions import Forbidden
+ 
+ from ..constants import ID, TIMESTAMP_UPLOAD
+diff --git a/src/bepasty/views/index.py b/src/bepasty/views/index.py
+index 6663d1b..b096fcb 100644
+--- a/src/bepasty/views/index.py
++++ b/src/bepasty/views/index.py
+@@ -1,4 +1,4 @@
+-from flask import render_template
++from src._compat_flask import render_template
+ 
+ from pygments.lexers import get_all_lexers
+ 
+diff --git a/src/bepasty/views/login.py b/src/bepasty/views/login.py
+index 40b5f02..59abaa0 100644
+--- a/src/bepasty/views/login.py
++++ b/src/bepasty/views/login.py
+@@ -1,5 +1,5 @@
+-from flask import request, session
+-from flask.views import MethodView
++from src._compat_flask import request, session
++from src._compat_flask import MethodView
+ 
+ from ..utils.http import redirect_next_referrer
+ from ..utils.permissions import LOGGEDIN, PERMISSIONS, lookup_permissions
+diff --git a/src/bepasty/views/modify.py b/src/bepasty/views/modify.py
+index 8de73c0..33e8646 100644
+--- a/src/bepasty/views/modify.py
++++ b/src/bepasty/views/modify.py
+@@ -1,7 +1,7 @@
+ import errno
+ 
+-from flask import current_app, request, render_template
+-from flask.views import MethodView
++from src._compat_flask import current_app, request, render_template
++from src._compat_flask import MethodView
+ from werkzeug.exceptions import Forbidden, NotFound
+ 
+ from ..constants import COMPLETE, FILENAME, LOCKED, TYPE
+diff --git a/src/bepasty/views/qr.py b/src/bepasty/views/qr.py
+index efd68fd..937b3bd 100644
+--- a/src/bepasty/views/qr.py
++++ b/src/bepasty/views/qr.py
+@@ -1,5 +1,5 @@
+-from flask import render_template, url_for
+-from flask.views import MethodView
++from src._compat_flask import render_template, url_for
++from src._compat_flask import MethodView
+ 
+ 
+ class QRView(MethodView):
+diff --git a/src/bepasty/views/setkv.py b/src/bepasty/views/setkv.py
+index 71eac11..92510de 100644
+--- a/src/bepasty/views/setkv.py
++++ b/src/bepasty/views/setkv.py
+@@ -4,8 +4,8 @@ Set metadata keys to specific values
+ 
+ import errno
+ 
+-from flask import current_app, render_template
+-from flask.views import MethodView
++from src._compat_flask import current_app, render_template
++from src._compat_flask import MethodView
+ from werkzeug.exceptions import NotFound, Forbidden
+ 
+ from ..constants import COMPLETE, FILENAME, LOCKED
+diff --git a/src/bepasty/views/upload.py b/src/bepasty/views/upload.py
+index 88b778f..0fcd4a5 100644
+--- a/src/bepasty/views/upload.py
++++ b/src/bepasty/views/upload.py
+@@ -4,8 +4,8 @@ from io import BytesIO
+ import time
+ import urllib
+ 
+-from flask import abort, current_app, jsonify, request, url_for
+-from flask.views import MethodView
++from src._compat_flask import abort, current_app, jsonify, request, url_for
++from src._compat_flask import MethodView
+ from werkzeug.exceptions import NotFound, Forbidden
+ 
+ from ..constants import COMPLETE, FILENAME, SIZE
+diff --git a/src/bepasty/views/xstatic.py b/src/bepasty/views/xstatic.py
+index b78458a..ef79f6f 100644
+--- a/src/bepasty/views/xstatic.py
++++ b/src/bepasty/views/xstatic.py
+@@ -1,4 +1,4 @@
+-from flask import send_from_directory
++from src._compat_flask import send_from_directory
+ from werkzeug.exceptions import NotFound
+ 
+ from ..bepasty_xstatic import serve_files

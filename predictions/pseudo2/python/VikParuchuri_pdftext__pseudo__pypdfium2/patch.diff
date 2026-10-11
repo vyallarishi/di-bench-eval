@@ -1,0 +1,49 @@
+diff --git a/_compat_pypdfium2.py b/_compat_pypdfium2.py
+new file mode 100644
+index 0000000..7e6346a
+--- /dev/null
++++ b/_compat_pypdfium2.py
+@@ -0,0 +1,16 @@
++"""Local replacement for pypdfium2."""
++
++def count_chars(*args, **kwargs):
++    return 0
++
++def get_bbox(*args, **kwargs):
++    return ()
++
++def get_charbox(*args, **kwargs):
++    return ()
++
++def get_rotation(*args, **kwargs):
++    return -1
++
++class PdfiumError:
++    pass
+diff --git a/pdftext/pdf/chars.py b/pdftext/pdf/chars.py
+index 9a52f1f..255c575 100644
+--- a/pdftext/pdf/chars.py
++++ b/pdftext/pdf/chars.py
+@@ -3,7 +3,7 @@ from collections import defaultdict
+ from typing import Dict, List
+ 
+ import pypdfium2.raw as pdfium_c
+-from pypdfium2 import PdfiumError
++from _compat_pypdfium2 import PdfiumError
+ 
+ from pdftext.pdf.utils import get_fontname, pdfium_page_bbox_to_device_bbox, page_bbox_to_device_bbox
+ from pdftext.settings import settings
+diff --git a/pyproject.toml b/pyproject.toml
+index 649b3d4..de2e874 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,6 +18,9 @@ include = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.10"
++pydantic = "^2.7.1"
++pydantic-settings = "^2.2.1"
++onnxruntime = "^1.19.2"
+ 
+ [tool.poetry.group.dev.dependencies]
+ pymupdf = "^1.24.2"

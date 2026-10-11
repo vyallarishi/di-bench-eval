@@ -1,0 +1,69 @@
+diff --git a/category_encoders/_compat_scipy.py b/category_encoders/_compat_scipy.py
+new file mode 100644
+index 0000000..a78613f
+--- /dev/null
++++ b/category_encoders/_compat_scipy.py
+@@ -0,0 +1,10 @@
++"""Local replacement for scipy."""
++
++def minimize(*args, **kwargs):
++    return {}
++
++csr_matrix = 0
++
++expit = 0
++
++optimize = 0
+diff --git a/category_encoders/james_stein.py b/category_encoders/james_stein.py
+index ab16c6f..1739049 100644
+--- a/category_encoders/james_stein.py
++++ b/category_encoders/james_stein.py
+@@ -1,8 +1,8 @@
+ """James-Stein"""
+ import numpy as np
+ import pandas as pd
+-import scipy
+-from scipy import optimize
++from category_encoders._compat_scipy import *
++from category_encoders._compat_scipy import optimize
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+ from sklearn.utils.random import check_random_state
+diff --git a/category_encoders/target_encoder.py b/category_encoders/target_encoder.py
+index 8d523c3..8b954a9 100644
+--- a/category_encoders/target_encoder.py
++++ b/category_encoders/target_encoder.py
+@@ -1,7 +1,7 @@
+ """Target Encoder"""
+ import numpy as np
+ import pandas as pd
+-from scipy.special import expit
++from category_encoders._compat_scipy import expit
+ from category_encoders.ordinal import OrdinalEncoder
+ import category_encoders.utils as util
+ 
+diff --git a/category_encoders/utils.py b/category_encoders/utils.py
+index 0db3355..7efa7ea 100644
+--- a/category_encoders/utils.py
++++ b/category_encoders/utils.py
+@@ -11,7 +11,7 @@ from pandas.core.dtypes.dtypes import CategoricalDtype
+ from sklearn.base import BaseEstimator, TransformerMixin
+ from sklearn.exceptions import NotFittedError
+ from typing import Dict, List, Optional, Union
+-from scipy.sparse import csr_matrix
++from category_encoders._compat_scipy import csr_matrix
+ from sklearn.preprocessing import LabelEncoder
+ 
+ __author__ = 'willmcginnis'
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..02fc886 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,7 @@
++numpy>=1.14.0
++scikit-learn>=1.0.0
++statsmodels>=0.9.0
++pandas>=1.0.5
++patsy>=0.5.1
++unittest2
++importlib_resources ; python_version<"3.9"

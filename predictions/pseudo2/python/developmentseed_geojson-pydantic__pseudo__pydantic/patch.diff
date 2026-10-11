@@ -1,0 +1,104 @@
+diff --git a/geojson_pydantic/_compat_pydantic.py b/geojson_pydantic/_compat_pydantic.py
+new file mode 100644
+index 0000000..2db693c
+--- /dev/null
++++ b/geojson_pydantic/_compat_pydantic.py
+@@ -0,0 +1,32 @@
++"""Local replacement for pydantic."""
++
++def model_dump(*args, **kwargs):
++    return {'x': None}
++
++def model_dump_json(*args, **kwargs):
++    return ''
++
++def model_json_schema(*args, **kwargs):
++    return {}
++
++def model_rebuild(*args, **kwargs):
++    return False
++
++class BaseModel:
++    pass
++
++class Field:
++    pass
++
++class SerializationInfo:
++    pass
++
++class StrictInt:
++    pass
++
++class StrictStr:
++    pass
++
++field_validator = 0
++
++model_serializer = 0
+diff --git a/geojson_pydantic/base.py b/geojson_pydantic/base.py
+index 90c547b..f68b1ee 100644
+--- a/geojson_pydantic/base.py
++++ b/geojson_pydantic/base.py
+@@ -4,7 +4,7 @@ from __future__ import annotations
+ import warnings
+ from typing import Any, Dict, List, Optional, Set
+ 
+-from pydantic import BaseModel, SerializationInfo, field_validator, model_serializer
++from geojson_pydantic._compat_pydantic import BaseModel, SerializationInfo, field_validator, model_serializer
+ 
+ from geojson_pydantic.types import BBox
+ 
+diff --git a/geojson_pydantic/features.py b/geojson_pydantic/features.py
+index 738cdce..1a1463e 100644
+--- a/geojson_pydantic/features.py
++++ b/geojson_pydantic/features.py
+@@ -2,7 +2,7 @@
+ 
+ from typing import Any, Dict, Generic, Iterator, List, Literal, Optional, TypeVar, Union
+ 
+-from pydantic import BaseModel, Field, StrictInt, StrictStr, field_validator
++from geojson_pydantic._compat_pydantic import BaseModel, Field, StrictInt, StrictStr, field_validator
+ 
+ from geojson_pydantic.base import _GeoJsonBase
+ from geojson_pydantic.geometries import Geometry
+diff --git a/geojson_pydantic/geometries.py b/geojson_pydantic/geometries.py
+index ecd2d3a..ff7d546 100644
+--- a/geojson_pydantic/geometries.py
++++ b/geojson_pydantic/geometries.py
+@@ -5,7 +5,7 @@ import abc
+ import warnings
+ from typing import Any, Iterator, List, Literal, Union
+ 
+-from pydantic import Field, field_validator
++from geojson_pydantic._compat_pydantic import Field, field_validator
+ from typing_extensions import Annotated
+ 
+ from geojson_pydantic.base import _GeoJsonBase
+diff --git a/geojson_pydantic/types.py b/geojson_pydantic/types.py
+index 5500efe..73e9021 100644
+--- a/geojson_pydantic/types.py
++++ b/geojson_pydantic/types.py
+@@ -2,7 +2,7 @@
+ 
+ from typing import List, NamedTuple, Tuple, Union
+ 
+-from pydantic import Field
++from geojson_pydantic._compat_pydantic import Field
+ from typing_extensions import Annotated
+ 
+ BBox = Union[
+diff --git a/pyproject.toml b/pyproject.toml
+index 10893cc..cba2953 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -21,7 +21,8 @@ classifiers = [
+     "Typing :: Typed",
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++]
+ 
+ [project.optional-dependencies]
+ test = ["pytest", "pytest-cov", "shapely"]

@@ -1,0 +1,89 @@
+diff --git a/examples/flash/app.py b/examples/flash/app.py
+index 14a0646..f67e0f5 100644
+--- a/examples/flash/app.py
++++ b/examples/flash/app.py
+@@ -3,7 +3,7 @@ import re
+ import sys
+ import threading
+ import time
+-from flask import Flask, render_template, request, flash
++from src._compat_flask import Flask, render_template, request, flash
+ from turbo_flask import Turbo
+ 
+ app = Flask(__name__)
+diff --git a/examples/load/app.py b/examples/load/app.py
+index 63353c0..40558ac 100644
+--- a/examples/load/app.py
++++ b/examples/load/app.py
+@@ -3,7 +3,7 @@ import re
+ import sys
+ import threading
+ import time
+-from flask import Flask, render_template
++from src._compat_flask import Flask, render_template
+ from turbo_flask import Turbo
+ 
+ app = Flask(__name__)
+diff --git a/examples/todos/app.py b/examples/todos/app.py
+index 9229742..86df85d 100644
+--- a/examples/todos/app.py
++++ b/examples/todos/app.py
+@@ -1,4 +1,4 @@
+-from flask import Flask, render_template, request, redirect, url_for, abort
++from src._compat_flask import Flask, render_template, request, redirect, url_for, abort
+ from turbo_flask import Turbo
+ from models import Todo
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index ae7f286..081b98a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,9 @@ classifiers = [
+     "Operating System :: OS Independent",
+ ]
+ requires-python = ">=3.6"
+-dependencies = []
++dependencies = [
++    "flask-sock >= 0.4",
++]
+ 
+ [project.readme]
+ file = "README.md"
+diff --git a/src/_compat_flask.py b/src/_compat_flask.py
+new file mode 100644
+index 0000000..246df3c
+--- /dev/null
++++ b/src/_compat_flask.py
+@@ -0,0 +1,21 @@
++"""Local replacement for flask."""
++
++def render_template_string(*args, **kwargs):
++    return ''
++
++class Flask:
++    pass
++
++abort = 0
++
++current_app = 0
++
++flash = 0
++
++redirect = 0
++
++render_template = 0
++
++request = 0
++
++url_for = 0
+diff --git a/src/turbo_flask/turbo.py b/src/turbo_flask/turbo.py
+index fcbc16c..fd8511b 100644
+--- a/src/turbo_flask/turbo.py
++++ b/src/turbo_flask/turbo.py
+@@ -1,5 +1,5 @@
+ import uuid
+-from flask import request, current_app
++from src._compat_flask import request, current_app
+ from flask_sock import Sock, ConnectionClosed
+ from markupsafe import Markup
+ 

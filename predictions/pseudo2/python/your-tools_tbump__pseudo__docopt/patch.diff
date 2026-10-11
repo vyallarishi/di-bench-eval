@@ -1,0 +1,42 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..9dbecd4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,14 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++tomlkit = "^0.11"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/_compat_docopt.py b/tbump/_compat_docopt.py
+new file mode 100644
+index 0000000..321d3d4
+--- /dev/null
++++ b/tbump/_compat_docopt.py
+@@ -0,0 +1,4 @@
++"""Local replacement for docopt."""
++
++def docopt(*args, **kwargs):
++    return {}
+diff --git a/tbump/cli.py b/tbump/cli.py
+index e2b726e..2149df3 100644
+--- a/tbump/cli.py
++++ b/tbump/cli.py
+@@ -8,7 +8,7 @@ from pathlib import Path
+ from typing import Dict, List, Optional, Union, cast
+ 
+ import cli_ui as ui
+-import docopt
++from tbump._compat_docopt import *
+ from packaging.version import InvalidVersion
+ from packaging.version import parse as parse_version
+ 

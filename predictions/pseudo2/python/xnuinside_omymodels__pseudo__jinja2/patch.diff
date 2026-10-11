@@ -1,0 +1,54 @@
+diff --git a/omymodels/_compat_jinja2.py b/omymodels/_compat_jinja2.py
+new file mode 100644
+index 0000000..0d3a799
+--- /dev/null
++++ b/omymodels/_compat_jinja2.py
+@@ -0,0 +1,7 @@
++"""Local replacement for jinja2."""
++
++def render(*args, **kwargs):
++    return ''
++
++class Template:
++    pass
+diff --git a/omymodels/generators.py b/omymodels/generators.py
+index d7c4ebb..6fe9791 100644
+--- a/omymodels/generators.py
++++ b/omymodels/generators.py
+@@ -1,7 +1,7 @@
+ import pathlib
+ from types import ModuleType
+ 
+-from jinja2 import Template
++from omymodels._compat_jinja2 import Template
+ 
+ from omymodels.models.dataclass import core as d
+ from omymodels.models.gino import core as g
+diff --git a/omymodels/models/enum/core.py b/omymodels/models/enum/core.py
+index a975f1c..7523f68 100644
+--- a/omymodels/models/enum/core.py
++++ b/omymodels/models/enum/core.py
+@@ -1,7 +1,7 @@
+ import pathlib
+ from typing import Dict, List, Tuple
+ 
+-from jinja2 import Template
++from omymodels._compat_jinja2 import Template
+ from table_meta import Type
+ 
+ from omymodels.helpers import create_class_name, enum_number_name_list
+diff --git a/pyproject.toml b/pyproject.toml
+index 36daad5..9eeac64 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -24,6 +24,10 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.7,<4.0"
++simple-ddl-parser = "^1.0.0"
++py-models-parser = "^0.7.0"
++pydantic = "^1.8.2"
++table-meta = "^0.1.5"
+ 
+ [tool.poetry.dev-dependencies]
+ pytest = "^7.4"

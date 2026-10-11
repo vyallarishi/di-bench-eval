@@ -1,0 +1,112 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 693b8da..952a2df 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -52,6 +52,20 @@ include = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.9,<=3.13"
++setuptools = ">=41"
++Cython = "^3.0.3"
++cairocffi = {version = "^1.6.1", markers = "sys_platform=='linux' or sys_platform=='darwin'"}
++pycairo = {version = "^1.24.0", markers = "sys_platform=='win32'"}
++igraph = "^0.11.3"
++leidenalg = "^0.10.1"
++scipy = "^1.11.3"
++spacy = "^3.7.4"
++spacy-lookups-data = "^1.0.5"
++toolz = "^0.12.0"
++tqdm = "^4.64.1"
++wasabi = "^1.1.2"
++concepts = {version = "^0.9.2", optional = true}
++pyarrow = {version = "^14.0.1", markers = "implementation_name!='pypy'"}
+ 
+ [tool.poetry.group.doc.dependencies]
+ en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
+diff --git a/textnets/_compat_pandas.py b/textnets/_compat_pandas.py
+new file mode 100644
+index 0000000..2fdb77f
+--- /dev/null
++++ b/textnets/_compat_pandas.py
+@@ -0,0 +1,43 @@
++"""Local replacement for pandas."""
++
++def max(*args, **kwargs):
++    return 0.0
++
++def mean(*args, **kwargs):
++    return 0.0
++
++def median(*args, **kwargs):
++    return 0.0
++
++def quantile(*args, **kwargs):
++    return 0.0
++
++def skew(*args, **kwargs):
++    return 0.0
++
++def std(*args, **kwargs):
++    return 0.0
++
++def to_dict(*args, **kwargs):
++    return {}
++
++def to_html(*args, **kwargs):
++    return ''
++
++def to_sql(*args, **kwargs):
++    return 0
++
++def tolist(*args, **kwargs):
++    return []
++
++class DataFrame:
++    pass
++
++class Index:
++    pass
++
++class Series:
++    pass
++
++class SparseDtype:
++    pass
+diff --git a/textnets/_util.py b/textnets/_util.py
+index 355733a..2babc4e 100644
+--- a/textnets/_util.py
++++ b/textnets/_util.py
+@@ -5,7 +5,7 @@ from __future__ import annotations
+ from typing import Any, Union
+ 
+ import numpy as np
+-from pandas import DataFrame, Index, Series, SparseDtype
++from textnets._compat_pandas import DataFrame, Index, Series, SparseDtype
+ from scipy.sparse import csr_array
+ 
+ 
+diff --git a/textnets/examples.py b/textnets/examples.py
+index 6759898..4e6e8bd 100644
+--- a/textnets/examples.py
++++ b/textnets/examples.py
+@@ -1,6 +1,6 @@
+ """Example data for feature demonstrations."""
+ 
+-from pandas import Series
++from textnets._compat_pandas import Series
+ 
+ 
+ #: Example dataset with newspaper headlines about the Apollo 11 landing.
+diff --git a/textnets/viz.py b/textnets/viz.py
+index a1d6bc5..7d6de72 100644
+--- a/textnets/viz.py
++++ b/textnets/viz.py
+@@ -16,7 +16,7 @@ from igraph.drawing.colors import (
+     lighten,
+     PrecalculatedPalette,
+ )
+-from pandas import Series
++from textnets._compat_pandas import Series
+ 
+ import textnets as tn
+ 

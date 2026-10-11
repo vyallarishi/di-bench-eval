@@ -1,0 +1,61 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..8ff3117 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++    "dvc>=3.48.4",
++    "dvc-render>=1.0.0,<2",
++    "dvc-studio-client>=0.20,<1",
++    "gto",
++    "ruamel.yaml",
++    "scmrepo>=3,<4",
++    "psutil",
++    "pynvml",
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/_compat_funcy.py b/src/_compat_funcy.py
+new file mode 100644
+index 0000000..c53bb0f
+--- /dev/null
++++ b/src/_compat_funcy.py
+@@ -0,0 +1,7 @@
++"""Local replacement for funcy."""
++
++def merge_with(*args, **kwargs):
++    return {}
++
++def set_in(*args, **kwargs):
++    return {}
+diff --git a/src/dvclive/live.py b/src/dvclive/live.py
+index 754137f..9df26aa 100644
+--- a/src/dvclive/live.py
++++ b/src/dvclive/live.py
+@@ -22,7 +22,7 @@ if TYPE_CHECKING:
+ 
+ from dvc.exceptions import DvcException
+ from dvc.utils.studio import get_repo_url, get_subrepo_relpath
+-from funcy import set_in
++from src._compat_funcy import set_in
+ from ruamel.yaml.representer import RepresenterError
+ 
+ from . import env
+diff --git a/src/dvclive/monitor_system.py b/src/dvclive/monitor_system.py
+index f6d26d8..acb65de 100644
+--- a/src/dvclive/monitor_system.py
++++ b/src/dvclive/monitor_system.py
+@@ -5,7 +5,7 @@ from typing import Dict, Union, Tuple
+ import psutil
+ from statistics import mean
+ from threading import Event, Thread
+-from funcy import merge_with
++from src._compat_funcy import merge_with
+ 
+ try:
+     from pynvml import (

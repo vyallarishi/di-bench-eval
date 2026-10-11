@@ -145,7 +145,19 @@ def inputs_for(recorded: list[dict], rnd: random.Random, n: int) -> list[tuple]:
         seeds.append(tuple(args))
     if not seeds:
         return []
-    out = list(dict.fromkeys(seeds))          # the recorded calls themselves
+    # the recorded calls themselves, de-duplicated. dict.fromkeys needs
+    # hashable tuples, and a reconstructed argument is often a list or a dict,
+    # which raised TypeError and lost the pair -- 35 of 498 in one batch, all
+    # reported as a generic error rather than as a gate verdict.
+    out, seen = [], set()
+    for t in seeds:
+        try:
+            k = hash(t)
+        except TypeError:
+            k = repr(t)
+        if k not in seen:
+            seen.add(k)
+            out.append(t)
     # edge cases, substituted position by position
     for base in seeds[:4]:
         for i, v in enumerate(base):

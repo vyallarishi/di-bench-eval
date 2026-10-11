@@ -1,0 +1,38 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..78f1a11 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "regex >= 2022.9.11",
++]
+ dynamic = [
+     "version",
+ ]
+diff --git a/wikitextparser/_compat_wcwidth.py b/wikitextparser/_compat_wcwidth.py
+new file mode 100644
+index 0000000..8b08c65
+--- /dev/null
++++ b/wikitextparser/_compat_wcwidth.py
+@@ -0,0 +1,4 @@
++"""Local replacement for wcwidth."""
++
++def wcswidth(*args, **kwargs):
++    return 0
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..7754163 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -22,7 +22,7 @@ from regex import (
+     match,
+     search,
+ )
+-from wcwidth import wcswidth
++from wikitextparser._compat_wcwidth import wcswidth
+ 
+ # noinspection PyProtectedMember
+ from ._config import (

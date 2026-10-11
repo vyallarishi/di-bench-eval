@@ -1,0 +1,51 @@
+diff --git a/omniduct/_compat_sqlparse.py b/omniduct/_compat_sqlparse.py
+new file mode 100644
+index 0000000..84d864a
+--- /dev/null
++++ b/omniduct/_compat_sqlparse.py
+@@ -0,0 +1,7 @@
++"""Local replacement for sqlparse."""
++
++def format(*args, **kwargs):
++    return ''
++
++def split(*args, **kwargs):
++    return []
+diff --git a/omniduct/databases/base.py b/omniduct/databases/base.py
+index 3b8a0f9..b0bb5ab 100644
+--- a/omniduct/databases/base.py
++++ b/omniduct/databases/base.py
+@@ -9,7 +9,7 @@ from abc import abstractmethod
+ 
+ import jinja2
+ import jinja2.meta
+-import sqlparse
++from omniduct._compat_sqlparse import *
+ from decorator import decorator
+ from interface_meta import inherit_docs, override
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..d4bd5df 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,19 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "jinja2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

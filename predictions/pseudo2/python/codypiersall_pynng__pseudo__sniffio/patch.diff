@@ -1,0 +1,38 @@
+diff --git a/pynng/_aio.py b/pynng/_aio.py
+index a89e4af..f5d0f5b 100644
+--- a/pynng/_aio.py
++++ b/pynng/_aio.py
+@@ -3,7 +3,7 @@ Helpers for AIO functions
+ """
+ 
+ import asyncio
+-import sniffio
++from pynng._compat_sniffio import *
+ 
+ from ._nng import ffi, lib
+ import pynng
+diff --git a/pynng/_compat_sniffio.py b/pynng/_compat_sniffio.py
+new file mode 100644
+index 0000000..d36a70c
+--- /dev/null
++++ b/pynng/_compat_sniffio.py
+@@ -0,0 +1,4 @@
++"""Local replacement for sniffio."""
++
++def current_async_library(*args, **kwargs):
++    return ''
+diff --git a/pyproject.toml b/pyproject.toml
+index a393472..513d2aa 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,7 +18,9 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: System :: Networking",
+ ]
+-dependencies = []
++dependencies = [
++    "cffi",
++]
+ description = "Networking made simply using nng"
+ license = {file = "LICENSE.txt"}
+ dynamic = ["version"]

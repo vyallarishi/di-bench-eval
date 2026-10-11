@@ -1,0 +1,118 @@
+diff --git a/adaptive/_compat_cloudpickle.py b/adaptive/_compat_cloudpickle.py
+new file mode 100644
+index 0000000..b7a91e8
+--- /dev/null
++++ b/adaptive/_compat_cloudpickle.py
+@@ -0,0 +1,4 @@
++"""Local replacement for cloudpickle."""
++
++def dumps(*args, **kwargs):
++    return b''
+diff --git a/adaptive/learner/average_learner.py b/adaptive/learner/average_learner.py
+index c3d4892..6b0fdae 100644
+--- a/adaptive/learner/average_learner.py
++++ b/adaptive/learner/average_learner.py
+@@ -3,7 +3,7 @@ from __future__ import annotations
+ from math import sqrt
+ from typing import Callable
+ 
+-import cloudpickle
++from adaptive._compat_cloudpickle import *
+ import numpy as np
+ 
+ from adaptive.learner.base_learner import BaseLearner
+diff --git a/adaptive/learner/base_learner.py b/adaptive/learner/base_learner.py
+index 73720dd..6a1be1d 100644
+--- a/adaptive/learner/base_learner.py
++++ b/adaptive/learner/base_learner.py
+@@ -4,7 +4,7 @@ import abc
+ from contextlib import suppress
+ from typing import TYPE_CHECKING, Any, Callable, TypeVar
+ 
+-import cloudpickle
++from adaptive._compat_cloudpickle import *
+ 
+ from adaptive.utils import load, save
+ 
+diff --git a/adaptive/learner/integrator_learner.py b/adaptive/learner/integrator_learner.py
+index 0fc97df..68115fe 100644
+--- a/adaptive/learner/integrator_learner.py
++++ b/adaptive/learner/integrator_learner.py
+@@ -7,7 +7,7 @@ from math import sqrt
+ from operator import attrgetter
+ from typing import TYPE_CHECKING, Callable
+ 
+-import cloudpickle
++from adaptive._compat_cloudpickle import *
+ import numpy as np
+ from scipy.linalg import norm
+ from sortedcontainers import SortedSet
+diff --git a/adaptive/learner/learner1D.py b/adaptive/learner/learner1D.py
+index bf04743..6e7fdd9 100644
+--- a/adaptive/learner/learner1D.py
++++ b/adaptive/learner/learner1D.py
+@@ -8,7 +8,7 @@ from collections.abc import Sequence
+ from copy import copy, deepcopy
+ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+ 
+-import cloudpickle
++from adaptive._compat_cloudpickle import *
+ import numpy as np
+ from sortedcollections.recipes import ItemSortedDict
+ from sortedcontainers.sorteddict import SortedDict
+diff --git a/adaptive/learner/learner2D.py b/adaptive/learner/learner2D.py
+index 58d4f6d..b5478eb 100644
+--- a/adaptive/learner/learner2D.py
++++ b/adaptive/learner/learner2D.py
+@@ -8,7 +8,7 @@ from copy import copy
+ from math import sqrt
+ from typing import Callable
+ 
+-import cloudpickle
++from adaptive._compat_cloudpickle import *
+ import numpy as np
+ from scipy import interpolate
+ from scipy.interpolate.interpnd import LinearNDInterpolator
+diff --git a/adaptive/learner/sequence_learner.py b/adaptive/learner/sequence_learner.py
+index c307744..e9ec5bb 100644
+--- a/adaptive/learner/sequence_learner.py
++++ b/adaptive/learner/sequence_learner.py
+@@ -4,7 +4,7 @@ import sys
+ from copy import copy
+ from typing import TYPE_CHECKING, Any
+ 
+-import cloudpickle
++from adaptive._compat_cloudpickle import *
+ from sortedcontainers import SortedDict, SortedSet
+ 
+ from adaptive.learner.base_learner import BaseLearner
+diff --git a/adaptive/utils.py b/adaptive/utils.py
+index ff80f62..f00a120 100644
+--- a/adaptive/utils.py
++++ b/adaptive/utils.py
+@@ -13,7 +13,7 @@ from functools import wraps
+ from itertools import product
+ from typing import TYPE_CHECKING, Any, Callable, TypeVar
+ 
+-import cloudpickle
++from adaptive._compat_cloudpickle import *
+ 
+ if TYPE_CHECKING:
+     from dask.distributed import Client as AsyncDaskClient
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..a554170 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,12 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "sortedcontainers >= 2.0",
++    "loky >= 2.9",
++    "typing_extensions; python_version < '3.10'",
++    "versioningit",
+ ]
+ 
+ [project.optional-dependencies]

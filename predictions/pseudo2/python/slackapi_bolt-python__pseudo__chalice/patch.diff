@@ -1,0 +1,125 @@
+diff --git a/examples/_compat_chalice.py b/examples/_compat_chalice.py
+new file mode 100644
+index 0000000..bb143d6
+--- /dev/null
++++ b/examples/_compat_chalice.py
+@@ -0,0 +1,28 @@
++"""Local replacement for chalice."""
++
++def handle_request(*args, **kwargs):
++    return {}
++
++def to_dict(*args, **kwargs):
++    return {}
++
++class BaseClient:
++    pass
++
++class Chalice:
++    pass
++
++class Config:
++    pass
++
++class InvokeResponse:
++    pass
++
++class LambdaContext:
++    pass
++
++class Request:
++    pass
++
++class Response:
++    pass
+diff --git a/examples/aws_chalice/app.py b/examples/aws_chalice/app.py
+index 6c41942..7da7661 100644
+--- a/examples/aws_chalice/app.py
++++ b/examples/aws_chalice/app.py
+@@ -1,7 +1,7 @@
+ import logging
+ import time
+ 
+-from chalice import Chalice, Response
++from examples._compat_chalice import Chalice, Response
+ 
+ from slack_bolt import App
+ from slack_bolt.adapter.aws_lambda.chalice_handler import ChaliceSlackRequestHandler
+diff --git a/examples/aws_chalice/oauth_app.py b/examples/aws_chalice/oauth_app.py
+index 075c765..e1433d6 100644
+--- a/examples/aws_chalice/oauth_app.py
++++ b/examples/aws_chalice/oauth_app.py
+@@ -1,6 +1,6 @@
+ import logging
+ 
+-from chalice import Chalice, Response
++from examples._compat_chalice import Chalice, Response
+ 
+ from slack_bolt import App
+ from slack_bolt.adapter.aws_lambda.chalice_handler import ChaliceSlackRequestHandler
+diff --git a/examples/aws_chalice/simple_app.py b/examples/aws_chalice/simple_app.py
+index a4423e5..b9826a8 100644
+--- a/examples/aws_chalice/simple_app.py
++++ b/examples/aws_chalice/simple_app.py
+@@ -1,6 +1,6 @@
+ import logging
+ 
+-from chalice import Chalice, Response
++from examples._compat_chalice import Chalice, Response
+ 
+ from slack_bolt import App
+ from slack_bolt.adapter.aws_lambda.chalice_handler import ChaliceSlackRequestHandler
+diff --git a/requirements/adapter.txt b/requirements/adapter.txt
+index e69de29..3b783cb 100644
+--- a/requirements/adapter.txt
++++ b/requirements/adapter.txt
+@@ -0,0 +1,20 @@
++# pip install -r requirements/adapter.txt
++# NOTE: any of async ones requires pip install -r requirements/async.txt too
++# used only under slack_bolt/adapter
++boto3<=2
++bottle>=0.12,<1
++CherryPy>=18,<19
++Django>=3,<6
++falcon>=2,<4; python_version<"3.11"
++falcon>=3.1.1,<4; python_version>="3.11"
++fastapi>=0.70.0,<1
++Flask>=1,<4
++Werkzeug>=2,<4
++pyramid>=1,<3
++sanic>=20,<21; python_version=="3.6"
++sanic>=22,<24; python_version>"3.6"
++starlette>=0.14,<1
++tornado>=6,<7
++uvicorn<1                                # The oldest version can vary among Python runtime versions
++gunicorn>=20,<24
++websocket_client>=1.2.3,<2               # Socket Mode 3rd party implementation
+diff --git a/slack_bolt/adapter/aws_lambda/chalice_handler.py b/slack_bolt/adapter/aws_lambda/chalice_handler.py
+index 00200b6..6a185fe 100644
+--- a/slack_bolt/adapter/aws_lambda/chalice_handler.py
++++ b/slack_bolt/adapter/aws_lambda/chalice_handler.py
+@@ -4,7 +4,7 @@ from typing import Optional
+ 
+ from botocore.client import BaseClient  # type: ignore[import-untyped]
+ 
+-from chalice.app import Request, Response, Chalice
++from examples._compat_chalice import Request, Response, Chalice
+ 
+ from slack_bolt.adapter.aws_lambda.chalice_lazy_listener_runner import (
+     ChaliceLazyListenerRunner,
+diff --git a/slack_bolt/adapter/aws_lambda/local_lambda_client.py b/slack_bolt/adapter/aws_lambda/local_lambda_client.py
+index fdab90b..f1dde44 100644
+--- a/slack_bolt/adapter/aws_lambda/local_lambda_client.py
++++ b/slack_bolt/adapter/aws_lambda/local_lambda_client.py
+@@ -1,8 +1,8 @@
+ import json
+ 
+-from chalice.app import Chalice
+-from chalice.config import Config
+-from chalice.test import BaseClient, LambdaContext, InvokeResponse
++from examples._compat_chalice import Chalice
++from examples._compat_chalice import Config
++from examples._compat_chalice import BaseClient, LambdaContext, InvokeResponse
+ 
+ 
+ class LocalLambdaClient(BaseClient):

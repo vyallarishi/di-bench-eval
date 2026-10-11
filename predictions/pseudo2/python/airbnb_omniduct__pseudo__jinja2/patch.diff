@@ -1,0 +1,79 @@
+diff --git a/omniduct/_compat_jinja2.py b/omniduct/_compat_jinja2.py
+new file mode 100644
+index 0000000..0d3a799
+--- /dev/null
++++ b/omniduct/_compat_jinja2.py
+@@ -0,0 +1,7 @@
++"""Local replacement for jinja2."""
++
++def render(*args, **kwargs):
++    return ''
++
++class Template:
++    pass
+diff --git a/omniduct/databases/base.py b/omniduct/databases/base.py
+index 3b8a0f9..62029aa 100644
+--- a/omniduct/databases/base.py
++++ b/omniduct/databases/base.py
+@@ -7,8 +7,8 @@ import logging
+ import os
+ from abc import abstractmethod
+ 
+-import jinja2
+-import jinja2.meta
++from omniduct._compat_jinja2 import *
++from omniduct._compat_jinja2 import *
+ import sqlparse
+ from decorator import decorator
+ from interface_meta import inherit_docs, override
+diff --git a/omniduct/databases/hiveserver2.py b/omniduct/databases/hiveserver2.py
+index 7424c41..83eab49 100644
+--- a/omniduct/databases/hiveserver2.py
++++ b/omniduct/databases/hiveserver2.py
+@@ -11,7 +11,7 @@ import time
+ 
+ import pandas as pd
+ from interface_meta import override
+-from jinja2 import Template
++from omniduct._compat_jinja2 import Template
+ 
+ from omniduct.utils.debug import logger
+ from omniduct.utils.processes import Timeout, run_in_subprocess
+diff --git a/omniduct/utils/about.py b/omniduct/utils/about.py
+index c1349f1..c6ed11d 100644
+--- a/omniduct/utils/about.py
++++ b/omniduct/utils/about.py
+@@ -2,7 +2,7 @@ import base64
+ import textwrap
+ import urllib.parse
+ 
+-import jinja2
++from omniduct._compat_jinja2 import *
+ 
+ import omniduct
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 943d1f1..7cbbed3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -28,7 +28,19 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ requires-python = ">=3.7"
+-dependencies = []
++dependencies = [
++    "decorator",
++    "interface_meta>=1.2.0,<2",
++    "lazy-object-proxy",
++    "packaging",
++    "pandas>=0.20.3",
++    "progressbar2>=3.30.0",
++    "python-dateutil",
++    "pyyaml",
++    "sqlalchemy",
++    "sqlparse",
++    "wrapt",
++]
+ 
+ [project.optional-dependencies]
+ all = [

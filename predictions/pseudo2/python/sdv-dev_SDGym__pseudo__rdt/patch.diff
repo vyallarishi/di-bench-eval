@@ -1,0 +1,81 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 7710df3..efea71b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,36 @@ dynamic = ['version']
+ license = { text = 'BSL-1.1' }
+ requires-python = '>=3.8,<3.13'
+ readme = 'README.md'
+-dependencies = []
++dependencies = [
++    "appdirs>=1.3",
++    "boto3>=1.28,<2",
++    "botocore>=1.31,<2",
++    "cloudpickle>=2.1.0",
++    "compress-pickle>=1.2.0",
++    "humanfriendly>=8.2",
++    "numpy>=1.21.0,<2.0.0;python_version<'3.10'",
++    "numpy>=1.23.3,<2.0.0;python_version>='3.10' and python_version<'3.12'",
++    "numpy>=1.26.0,<2.0.0;python_version>='3.12'",
++    "pandas>=1.4.0;python_version<'3.11'",
++    "pandas>=1.5.0;python_version>='3.11' and python_version<'3.12'",
++    "pandas>=2.1.1;python_version>='3.12'",
++    "psutil>=5.7",
++    "scikit-learn>=1.0.2;python_version<'3.10'",
++    "scikit-learn>=1.1.0;python_version>='3.10' and python_version<'3.11'",
++    "scikit-learn>=1.1.3;python_version>='3.11' and python_version<'3.12'",
++    "scikit-learn>=1.3.1;python_version>='3.12'",
++    "scipy>=1.7.3;python_version<'3.10'",
++    "scipy>=1.9.2;python_version>='3.10' and python_version<'3.12'",
++    "scipy>=1.12.0;python_version>='3.12'",
++    "tabulate>=0.8.3,<0.9",
++    "torch>=1.9.0;python_version<'3.10'",
++    "torch>=2.0.0;python_version>='3.10' and python_version<'3.12'",
++    "torch>=2.2.0;python_version>='3.12'",
++    "tqdm>=4.29",
++    "XlsxWriter>=1.2.8",
++    "sdmetrics>=0.14.1",
++    "sdv>=1.13.1",
++]
+ 
+ [project.urls]
+ "Source Code"= "https://github.com/sdv-dev/SDGym/"
+diff --git a/sdgym/_compat_rdt.py b/sdgym/_compat_rdt.py
+new file mode 100644
+index 0000000..575da15
+--- /dev/null
++++ b/sdgym/_compat_rdt.py
+@@ -0,0 +1,7 @@
++"""Local replacement for rdt."""
++
++def get_config(*args, **kwargs):
++    return {}
++
++class HyperTransformer:
++    pass
+diff --git a/sdgym/synthesizers/column.py b/sdgym/synthesizers/column.py
+index 020a373..1762e4f 100644
+--- a/sdgym/synthesizers/column.py
++++ b/sdgym/synthesizers/column.py
+@@ -1,7 +1,7 @@
+ """ColumnSynthesizer module."""
+ 
+ import pandas as pd
+-from rdt.hyper_transformer import HyperTransformer
++from sdgym._compat_rdt import HyperTransformer
+ from sklearn.mixture import GaussianMixture
+ 
+ from sdgym.synthesizers.base import BaselineSynthesizer
+diff --git a/sdgym/synthesizers/uniform.py b/sdgym/synthesizers/uniform.py
+index 2339c41..7b1ba87 100644
+--- a/sdgym/synthesizers/uniform.py
++++ b/sdgym/synthesizers/uniform.py
+@@ -4,7 +4,7 @@ import logging
+ 
+ import numpy as np
+ import pandas as pd
+-from rdt.hyper_transformer import HyperTransformer
++from sdgym._compat_rdt import HyperTransformer
+ 
+ from sdgym.synthesizers.base import BaselineSynthesizer
+ 

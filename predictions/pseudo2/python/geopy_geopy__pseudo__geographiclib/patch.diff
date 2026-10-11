@@ -1,0 +1,29 @@
+diff --git a/geopy/_compat_geographiclib.py b/geopy/_compat_geographiclib.py
+new file mode 100644
+index 0000000..1ee34d9
+--- /dev/null
++++ b/geopy/_compat_geographiclib.py
+@@ -0,0 +1,10 @@
++"""Local replacement for geographiclib."""
++
++def Direct(*args, **kwargs):
++    return {}
++
++def Inverse(*args, **kwargs):
++    return {}
++
++class Geodesic:
++    pass
+diff --git a/geopy/distance.py b/geopy/distance.py
+index 3499969..90b5971 100644
+--- a/geopy/distance.py
++++ b/geopy/distance.py
+@@ -118,7 +118,7 @@ would result in a :class:`ValueError` exception.
+ """
+ from math import asin, atan2, cos, sin, sqrt
+ 
+-from geographiclib.geodesic import Geodesic
++from geopy._compat_geographiclib import Geodesic
+ 
+ from geopy import units, util
+ from geopy.point import Point

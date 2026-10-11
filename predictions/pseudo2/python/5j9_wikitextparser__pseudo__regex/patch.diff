@@ -1,0 +1,191 @@
+diff --git a/dev/html_tag_names.py b/dev/html_tag_names.py
+index fb4ba7d..33c8c6d 100644
+--- a/dev/html_tag_names.py
++++ b/dev/html_tag_names.py
+@@ -3,7 +3,7 @@ from itertools import chain
+ from json import loads
+ 
+ from bs4 import BeautifulSoup
+-from regex import findall
++from wikitextparser._compat_regex import findall
+ from requests import get, post
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..a7850e5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "wcwidth",
++]
+ dynamic = [
+     "version",
+ ]
+diff --git a/wikitextparser/_argument.py b/wikitextparser/_argument.py
+index de7986b..6299a62 100644
+--- a/wikitextparser/_argument.py
++++ b/wikitextparser/_argument.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ from typing import MutableSequence
+ 
+-from regex import DOTALL, MULTILINE, Match
++from wikitextparser._compat_regex import DOTALL, MULTILINE, Match
+ 
+ from ._spans import TypeToSpans
+ from ._wikitext import SECTION_HEADING, SubWikiText, rc
+diff --git a/wikitextparser/_cell.py b/wikitextparser/_cell.py
+index 1b90ed8..9712be0 100644
+--- a/wikitextparser/_cell.py
++++ b/wikitextparser/_cell.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ from typing import MutableSequence
+ 
+-from regex import DOTALL, VERBOSE, Match
++from wikitextparser._compat_regex import DOTALL, VERBOSE, Match
+ 
+ from ._spans import ATTRS_MATCH, TypeToSpans
+ from ._tag import SubWikiTextWithAttrs
+diff --git a/wikitextparser/_comment_bold_italic.py b/wikitextparser/_comment_bold_italic.py
+index cd1deb9..2e84586 100644
+--- a/wikitextparser/_comment_bold_italic.py
++++ b/wikitextparser/_comment_bold_italic.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ from typing import MutableSequence
+ 
+-from regex import DOTALL, MULTILINE, Match
++from wikitextparser._compat_regex import DOTALL, MULTILINE, Match
+ 
+ from ._spans import TypeToSpans
+ from ._wikitext import SubWikiText, rc
+diff --git a/wikitextparser/_compat_regex.py b/wikitextparser/_compat_regex.py
+new file mode 100644
+index 0000000..c48cd68
+--- /dev/null
++++ b/wikitextparser/_compat_regex.py
+@@ -0,0 +1,28 @@
++"""Local replacement for regex."""
++
++def escape(*args, **kwargs):
++    return ''
++
++class DOTALL:
++    pass
++
++class IGNORECASE:
++    pass
++
++class MULTILINE:
++    pass
++
++class Match:
++    pass
++
++class REVERSE:
++    pass
++
++class VERBOSE:
++    pass
++
++compile = 0
++
++findall = 0
++
++fullmatch = 0
+diff --git a/wikitextparser/_spans.py b/wikitextparser/_spans.py
+index 4a3d392..2649e68 100644
+--- a/wikitextparser/_spans.py
++++ b/wikitextparser/_spans.py
+@@ -5,7 +5,7 @@ from __future__ import annotations
+ from functools import partial
+ from typing import Callable, Dict, List, Union
+ 
+-from regex import DOTALL, IGNORECASE, REVERSE, Match, compile as rc
++from wikitextparser._compat_regex import DOTALL, IGNORECASE, REVERSE, Match, compile as rc
+ 
+ from ._config import (
+     _HTML_TAG_NAME,
+diff --git a/wikitextparser/_table.py b/wikitextparser/_table.py
+index 03948d9..18a6aec 100644
+--- a/wikitextparser/_table.py
++++ b/wikitextparser/_table.py
+@@ -4,7 +4,7 @@ from bisect import insort_right
+ from collections.abc import Mapping
+ from typing import Any, TypeVar
+ 
+-from regex import DOTALL, VERBOSE
++from wikitextparser._compat_regex import DOTALL, VERBOSE
+ 
+ from ._cell import (
+     INLINE_HAEDER_CELL_MATCH,
+diff --git a/wikitextparser/_tag.py b/wikitextparser/_tag.py
+index cebf6ab..4113c9a 100644
+--- a/wikitextparser/_tag.py
++++ b/wikitextparser/_tag.py
+@@ -12,7 +12,7 @@ from __future__ import annotations
+ 
+ from typing import Any
+ 
+-from regex import DOTALL, VERBOSE
++from wikitextparser._compat_regex import DOTALL, VERBOSE
+ 
+ from ._spans import ATTRS_PATTERN, END_TAG_PATTERN, SPACE_CHARS
+ from ._wikitext import SubWikiText, rc
+diff --git a/wikitextparser/_template.py b/wikitextparser/_template.py
+index 31fb23f..440e8f6 100644
+--- a/wikitextparser/_template.py
++++ b/wikitextparser/_template.py
+@@ -2,7 +2,7 @@ from __future__ import annotations
+ 
+ from typing import Iterable, TypeVar
+ 
+-from regex import REVERSE
++from wikitextparser._compat_regex import REVERSE
+ 
+ from ._argument import Argument
+ from ._comment_bold_italic import COMMENT_PATTERN
+diff --git a/wikitextparser/_wikilink.py b/wikitextparser/_wikilink.py
+index 268b959..c3fb11a 100644
+--- a/wikitextparser/_wikilink.py
++++ b/wikitextparser/_wikilink.py
+@@ -1,6 +1,6 @@
+ from __future__ import annotations
+ 
+-from regex import DOTALL, Match
++from wikitextparser._compat_regex import DOTALL, Match
+ 
+ from ._wikitext import SubWikiText, rc
+ 
+diff --git a/wikitextparser/_wikilist.py b/wikitextparser/_wikilist.py
+index 73a828a..9f6acb8 100644
+--- a/wikitextparser/_wikilist.py
++++ b/wikitextparser/_wikilist.py
+@@ -3,7 +3,7 @@ from __future__ import annotations
+ from operator import attrgetter
+ from typing import Iterable, MutableSequence
+ 
+-from regex import MULTILINE, Match, escape, fullmatch
++from wikitextparser._compat_regex import MULTILINE, Match, escape, fullmatch
+ 
+ from ._spans import TypeToSpans
+ from ._wikitext import EXTERNAL_LINK_FINDITER, SubWikiText
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..af3bfe7 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -12,7 +12,7 @@ from typing import (
+ )
+ from warnings import warn
+ 
+-from regex import (
++from wikitextparser._compat_regex import (
+     DOTALL,
+     IGNORECASE,
+     MULTILINE,

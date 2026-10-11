@@ -1,0 +1,129 @@
+diff --git a/examples/_compat_falcon.py b/examples/_compat_falcon.py
+new file mode 100644
+index 0000000..3ad900b
+--- /dev/null
++++ b/examples/_compat_falcon.py
+@@ -0,0 +1,12 @@
++"""Local replacement for falcon."""
++
++def iscoroutinefunction(*args, **kwargs):
++    return True
++
++class Request:
++    pass
++
++class Response:
++    pass
++
++version = 0
+diff --git a/examples/falcon/app.py b/examples/falcon/app.py
+index 83bb5e4..a17081e 100644
+--- a/examples/falcon/app.py
++++ b/examples/falcon/app.py
+@@ -1,4 +1,4 @@
+-import falcon
++from examples._compat_falcon import *
+ import logging
+ import re
+ from slack_bolt import App, Respond, Ack
+diff --git a/examples/falcon/async_app.py b/examples/falcon/async_app.py
+index 44989d4..99373e8 100644
+--- a/examples/falcon/async_app.py
++++ b/examples/falcon/async_app.py
+@@ -1,4 +1,4 @@
+-import falcon
++from examples._compat_falcon import *
+ import logging
+ import re
+ from slack_bolt.async_app import AsyncApp, AsyncRespond, AsyncAck
+diff --git a/examples/falcon/async_oauth_app.py b/examples/falcon/async_oauth_app.py
+index df4d969..483e414 100644
+--- a/examples/falcon/async_oauth_app.py
++++ b/examples/falcon/async_oauth_app.py
+@@ -1,4 +1,4 @@
+-import falcon
++from examples._compat_falcon import *
+ import logging
+ import re
+ from slack_bolt.async_app import AsyncApp, AsyncRespond, AsyncAck
+diff --git a/examples/falcon/oauth_app.py b/examples/falcon/oauth_app.py
+index 7d9ad7f..cc2be1b 100644
+--- a/examples/falcon/oauth_app.py
++++ b/examples/falcon/oauth_app.py
+@@ -1,4 +1,4 @@
+-import falcon
++from examples._compat_falcon import *
+ import logging
+ import re
+ from slack_bolt import App, Respond, Ack
+diff --git a/requirements/adapter.txt b/requirements/adapter.txt
+index e69de29..0100726 100644
+--- a/requirements/adapter.txt
++++ b/requirements/adapter.txt
+@@ -0,0 +1,20 @@
++# pip install -r requirements/adapter.txt
++# NOTE: any of async ones requires pip install -r requirements/async.txt too
++# used only under slack_bolt/adapter
++boto3<=2
++bottle>=0.12,<1
++chalice<=1.27.3; python_version=="3.6"
++chalice>=1.28,<2; python_version>"3.6"
++CherryPy>=18,<19
++Django>=3,<6
++fastapi>=0.70.0,<1
++Flask>=1,<4
++Werkzeug>=2,<4
++pyramid>=1,<3
++sanic>=20,<21; python_version=="3.6"
++sanic>=22,<24; python_version>"3.6"
++starlette>=0.14,<1
++tornado>=6,<7
++uvicorn<1                                # The oldest version can vary among Python runtime versions
++gunicorn>=20,<24
++websocket_client>=1.2.3,<2               # Socket Mode 3rd party implementation
+diff --git a/slack_bolt/adapter/falcon/async_resource.py b/slack_bolt/adapter/falcon/async_resource.py
+index 0ce219e..e02644f 100644
+--- a/slack_bolt/adapter/falcon/async_resource.py
++++ b/slack_bolt/adapter/falcon/async_resource.py
+@@ -1,8 +1,8 @@
+ from datetime import datetime
+ from http import HTTPStatus
+ 
+-from falcon import version as falcon_version  # type: ignore[import-untyped]
+-from falcon.asgi import Request, Response  # type: ignore[import-untyped]
++from examples._compat_falcon import version as falcon_version  # type: ignore[import-untyped]
++from examples._compat_falcon import Request, Response  # type: ignore[import-untyped]
+ from slack_bolt import BoltResponse
+ from slack_bolt.async_app import AsyncApp
+ from slack_bolt.error import BoltError
+@@ -17,7 +17,7 @@ class AsyncSlackAppResource:
+     from slack_bolt.async_app import AsyncApp
+     app = AsyncApp()
+ 
+-    import falcon
++    from examples._compat_falcon import *
+     app = falcon.asgi.App()
+     app.add_route("/slack/events", AsyncSlackAppResource(app))
+     """
+diff --git a/slack_bolt/adapter/falcon/resource.py b/slack_bolt/adapter/falcon/resource.py
+index 45b7614..83bb894 100644
+--- a/slack_bolt/adapter/falcon/resource.py
++++ b/slack_bolt/adapter/falcon/resource.py
+@@ -1,7 +1,7 @@
+ from datetime import datetime
+ from http import HTTPStatus
+ 
+-from falcon import Request, Response, version as falcon_version  # type: ignore[import-untyped]
++from examples._compat_falcon import Request, Response, version as falcon_version  # type: ignore[import-untyped]
+ 
+ from slack_bolt import BoltResponse
+ from slack_bolt.app import App
+@@ -14,7 +14,7 @@ class SlackAppResource:
+     from slack_bolt import App
+     app = App()
+ 
+-    import falcon
++    from examples._compat_falcon import *
+     api = application = falcon.API()
+     api.add_route("/slack/events", SlackAppResource(app))
+     """

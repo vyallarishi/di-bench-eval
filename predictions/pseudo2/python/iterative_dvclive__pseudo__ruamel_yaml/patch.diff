@@ -1,0 +1,78 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..c55462c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,16 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++    "dvc>=3.48.4",
++    "dvc-render>=1.0.0,<2",
++    "dvc-studio-client>=0.20,<1",
++    "funcy",
++    "gto",
++    "scmrepo>=3,<4",
++    "psutil",
++    "pynvml",
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/src/_compat_ruamel_yaml.py b/src/_compat_ruamel_yaml.py
+new file mode 100644
+index 0000000..7ada1b8
+--- /dev/null
++++ b/src/_compat_ruamel_yaml.py
+@@ -0,0 +1,13 @@
++"""Local replacement for ruamel_yaml."""
++
++def load(*args, **kwargs):
++    return {'x': None}
++
++class RepresenterError:
++    pass
++
++class YAML:
++    pass
++
++class YAMLError:
++    pass
+diff --git a/src/dvclive/live.py b/src/dvclive/live.py
+index 754137f..3d95260 100644
+--- a/src/dvclive/live.py
++++ b/src/dvclive/live.py
+@@ -23,7 +23,7 @@ if TYPE_CHECKING:
+ from dvc.exceptions import DvcException
+ from dvc.utils.studio import get_repo_url, get_subrepo_relpath
+ from funcy import set_in
+-from ruamel.yaml.representer import RepresenterError
++from src._compat_ruamel_yaml import RepresenterError
+ 
+ from . import env
+ from .dvc import (
+diff --git a/src/dvclive/serialize.py b/src/dvclive/serialize.py
+index 5e1ed22..03f6691 100644
+--- a/src/dvclive/serialize.py
++++ b/src/dvclive/serialize.py
+@@ -15,8 +15,8 @@ class YAMLFileCorruptedError(YAMLError):
+ 
+ 
+ def load_yaml(path, typ="safe"):
+-    from ruamel.yaml import YAML
+-    from ruamel.yaml import YAMLError as _YAMLError
++    from src._compat_ruamel_yaml import YAML
++    from src._compat_ruamel_yaml import YAMLError as _YAMLError
+ 
+     yaml = YAML(typ=typ)
+     with open(path, encoding="utf-8") as fd:
+@@ -27,7 +27,7 @@ def load_yaml(path, typ="safe"):
+ 
+ 
+ def get_yaml():
+-    from ruamel.yaml import YAML
++    from src._compat_ruamel_yaml import YAML
+ 
+     yaml = YAML()
+     yaml.default_flow_style = False

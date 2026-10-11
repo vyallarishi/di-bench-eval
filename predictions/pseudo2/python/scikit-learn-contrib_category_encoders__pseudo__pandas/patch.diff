@@ -1,0 +1,47 @@
+diff --git a/category_encoders/utils.py b/category_encoders/utils.py
+index 0db3355..30b26da 100644
+--- a/category_encoders/utils.py
++++ b/category_encoders/utils.py
+@@ -6,8 +6,8 @@ import warnings
+ import pandas as pd
+ import numpy as np
+ import sklearn.base
+-from pandas.api.types import is_object_dtype, is_string_dtype, is_numeric_dtype
+-from pandas.core.dtypes.dtypes import CategoricalDtype
++from tests._compat_pandas import is_object_dtype, is_string_dtype, is_numeric_dtype
++from tests._compat_pandas import CategoricalDtype
+ from sklearn.base import BaseEstimator, TransformerMixin
+ from sklearn.exceptions import NotFittedError
+ from typing import Dict, List, Optional, Union
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..c4c8948 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,7 @@
++numpy>=1.14.0
++scikit-learn>=1.0.0
++scipy>=1.0.0
++statsmodels>=0.9.0
++patsy>=0.5.1
++unittest2
++importlib_resources ; python_version<"3.9"
+diff --git a/tests/_compat_pandas.py b/tests/_compat_pandas.py
+new file mode 100644
+index 0000000..1df9053
+--- /dev/null
++++ b/tests/_compat_pandas.py
+@@ -0,0 +1,14 @@
++"""Local replacement for pandas."""
++
++def is_string_dtype(*args, **kwargs):
++    return True
++
++def tolist(*args, **kwargs):
++    return []
++
++class CategoricalDtype:
++    pass
++
++is_numeric_dtype = 0
++
++is_object_dtype = 0

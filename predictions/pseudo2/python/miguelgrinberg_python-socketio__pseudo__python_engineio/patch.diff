@@ -1,0 +1,219 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index cb7e925..e948095 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,6 +14,7 @@ classifiers = [
+ ]
+ requires-python = ">=3.8"
+ dependencies = [
++    "bidict >= 0.21.0",
+ ]
+ 
+ [project.readme]
+diff --git a/src/_compat_python_engineio.py b/src/_compat_python_engineio.py
+new file mode 100644
+index 0000000..ca995f2
+--- /dev/null
++++ b/src/_compat_python_engineio.py
+@@ -0,0 +1,16 @@
++"""Local replacement for python_engineio."""
++
++def dumps(*args, **kwargs):
++    return ''
++
++class AsyncSocket:
++    pass
++
++class Socket:
++    pass
++
++get_tornado_handler = 0
++
++json = 0
++
++packet = 0
+diff --git a/src/socketio/admin.py b/src/socketio/admin.py
+index f317ea2..366c13a 100644
+--- a/src/socketio/admin.py
++++ b/src/socketio/admin.py
+@@ -108,7 +108,7 @@ class InstrumentedServer:
+         self.sio.eio.on('disconnect', self._handle_eio_disconnect)
+ 
+         # report polling packets
+-        from engineio.socket import Socket
++        from src._compat_python_engineio import Socket
+         self.sio.eio.__ok = self.sio.eio._ok
+         self.sio.eio._ok = self._eio_http_response
+         Socket.__handle_post_request = Socket.handle_post_request
+@@ -138,7 +138,7 @@ class InstrumentedServer:
+             self.sio._handle_event_internal = self.sio.__handle_event_internal
+         self.sio.eio._ok = self.sio.eio.__ok
+ 
+-        from engineio.socket import Socket
++        from src._compat_python_engineio import Socket
+         Socket.handle_post_request = Socket.__handle_post_request
+         Socket._websocket_handler = Socket.__websocket_handler
+         if self.mode == 'development':
+diff --git a/src/socketio/asgi.py b/src/socketio/asgi.py
+index 23b094d..6d2ae29 100644
+--- a/src/socketio/asgi.py
++++ b/src/socketio/asgi.py
+@@ -1,4 +1,4 @@
+-import engineio
++from src._compat_python_engineio import *
+ 
+ 
+ class ASGIApp(engineio.ASGIApp):  # pragma: no cover
+diff --git a/src/socketio/async_admin.py b/src/socketio/async_admin.py
+index 162c566..7e34af0 100644
+--- a/src/socketio/async_admin.py
++++ b/src/socketio/async_admin.py
+@@ -89,7 +89,7 @@ class InstrumentedAsyncServer:
+         self.sio.eio.on('disconnect', self._handle_eio_disconnect)
+ 
+         # report polling packets
+-        from engineio.async_socket import AsyncSocket
++        from src._compat_python_engineio import AsyncSocket
+         self.sio.eio.__ok = self.sio.eio._ok
+         self.sio.eio._ok = self._eio_http_response
+         AsyncSocket.__handle_post_request = AsyncSocket.handle_post_request
+@@ -119,7 +119,7 @@ class InstrumentedAsyncServer:
+             self.sio._handle_event_internal = self.sio.__handle_event_internal
+         self.sio.eio._ok = self.sio.eio.__ok
+ 
+-        from engineio.async_socket import AsyncSocket
++        from src._compat_python_engineio import AsyncSocket
+         AsyncSocket.handle_post_request = AsyncSocket.__handle_post_request
+         AsyncSocket._websocket_handler = AsyncSocket.__websocket_handler
+         if self.mode == 'development':
+diff --git a/src/socketio/async_client.py b/src/socketio/async_client.py
+index 5fd8daa..6fb918a 100644
+--- a/src/socketio/async_client.py
++++ b/src/socketio/async_client.py
+@@ -2,7 +2,7 @@ import asyncio
+ import logging
+ import random
+ 
+-import engineio
++from src._compat_python_engineio import *
+ 
+ from . import base_client
+ from . import exceptions
+diff --git a/src/socketio/async_manager.py b/src/socketio/async_manager.py
+index 47e7a79..5c59216 100644
+--- a/src/socketio/async_manager.py
++++ b/src/socketio/async_manager.py
+@@ -1,6 +1,6 @@
+ import asyncio
+ 
+-from engineio import packet as eio_packet
++from src._compat_python_engineio import packet as eio_packet
+ from socketio import packet
+ from .base_manager import BaseManager
+ 
+diff --git a/src/socketio/async_pubsub_manager.py b/src/socketio/async_pubsub_manager.py
+index 72946eb..f8e807c 100644
+--- a/src/socketio/async_pubsub_manager.py
++++ b/src/socketio/async_pubsub_manager.py
+@@ -2,7 +2,7 @@ import asyncio
+ from functools import partial
+ import uuid
+ 
+-from engineio import json
++from src._compat_python_engineio import json
+ import pickle
+ 
+ from .async_manager import AsyncManager
+diff --git a/src/socketio/async_server.py b/src/socketio/async_server.py
+index 1e523ff..ccbc605 100644
+--- a/src/socketio/async_server.py
++++ b/src/socketio/async_server.py
+@@ -1,6 +1,6 @@
+ import asyncio
+ 
+-import engineio
++from src._compat_python_engineio import *
+ 
+ from . import async_manager
+ from . import base_server
+diff --git a/src/socketio/client.py b/src/socketio/client.py
+index d7af407..ef7a8b1 100644
+--- a/src/socketio/client.py
++++ b/src/socketio/client.py
+@@ -1,6 +1,6 @@
+ import random
+ 
+-import engineio
++from src._compat_python_engineio import *
+ 
+ from . import base_client
+ from . import exceptions
+diff --git a/src/socketio/manager.py b/src/socketio/manager.py
+index 3ebf676..a3222db 100644
+--- a/src/socketio/manager.py
++++ b/src/socketio/manager.py
+@@ -1,6 +1,6 @@
+ import logging
+ 
+-from engineio import packet as eio_packet
++from src._compat_python_engineio import packet as eio_packet
+ from . import base_manager
+ from . import packet
+ 
+diff --git a/src/socketio/middleware.py b/src/socketio/middleware.py
+index acc8ffd..7c07b8d 100644
+--- a/src/socketio/middleware.py
++++ b/src/socketio/middleware.py
+@@ -1,4 +1,4 @@
+-import engineio
++from src._compat_python_engineio import *
+ 
+ 
+ class WSGIApp(engineio.WSGIApp):
+diff --git a/src/socketio/packet.py b/src/socketio/packet.py
+index ec1b364..d72a794 100644
+--- a/src/socketio/packet.py
++++ b/src/socketio/packet.py
+@@ -1,5 +1,5 @@
+ import functools
+-from engineio import json as _json
++from src._compat_python_engineio import json as _json
+ 
+ (CONNECT, DISCONNECT, EVENT, ACK, CONNECT_ERROR, BINARY_EVENT, BINARY_ACK) = \
+     (0, 1, 2, 3, 4, 5, 6)
+diff --git a/src/socketio/pubsub_manager.py b/src/socketio/pubsub_manager.py
+index 3270b4c..18f1ba2 100644
+--- a/src/socketio/pubsub_manager.py
++++ b/src/socketio/pubsub_manager.py
+@@ -1,7 +1,7 @@
+ from functools import partial
+ import uuid
+ 
+-from engineio import json
++from src._compat_python_engineio import json
+ import pickle
+ 
+ from .manager import Manager
+diff --git a/src/socketio/server.py b/src/socketio/server.py
+index a40dcd9..7ab47dc 100644
+--- a/src/socketio/server.py
++++ b/src/socketio/server.py
+@@ -1,6 +1,6 @@
+ import logging
+ 
+-import engineio
++from src._compat_python_engineio import *
+ 
+ from . import base_server
+ from . import exceptions
+diff --git a/src/socketio/tornado.py b/src/socketio/tornado.py
+index 160bd32..0a92219 100644
+--- a/src/socketio/tornado.py
++++ b/src/socketio/tornado.py
+@@ -1,5 +1,5 @@
+ try:
+-    from engineio.async_drivers.tornado import get_tornado_handler as \
++    from src._compat_python_engineio import get_tornado_handler as \
+         get_engineio_handler
+ except ImportError:  # pragma: no cover
+     get_engineio_handler = None

@@ -1,0 +1,161 @@
+diff --git a/flake8_pytest_style/_compat_flake8_plugin_utils.py b/flake8_pytest_style/_compat_flake8_plugin_utils.py
+new file mode 100644
+index 0000000..da0e413
+--- /dev/null
++++ b/flake8_pytest_style/_compat_flake8_plugin_utils.py
+@@ -0,0 +1,19 @@
++"""Local replacement for flake8_plugin_utils."""
++
++def check_equivalent_nodes(*args, **kwargs):
++    return True
++
++def is_false(*args, **kwargs):
++    return True
++
++def is_none(*args, **kwargs):
++    return True
++
++class Error:
++    pass
++
++class Plugin:
++    pass
++
++class Visitor:
++    pass
+diff --git a/flake8_pytest_style/errors.py b/flake8_pytest_style/errors.py
+index 854ad7d..8679311 100644
+--- a/flake8_pytest_style/errors.py
++++ b/flake8_pytest_style/errors.py
+@@ -1,4 +1,4 @@
+-from flake8_plugin_utils import Error
++from flake8_pytest_style._compat_flake8_plugin_utils import Error
+ 
+ 
+ class IncorrectFixtureParenthesesStyle(Error):
+diff --git a/flake8_pytest_style/plugin.py b/flake8_pytest_style/plugin.py
+index 4b9db50..0725978 100644
+--- a/flake8_pytest_style/plugin.py
++++ b/flake8_pytest_style/plugin.py
+@@ -2,7 +2,7 @@ import argparse
+ from typing import List
+ 
+ from flake8.options.manager import OptionManager
+-from flake8_plugin_utils import Plugin
++from flake8_pytest_style._compat_flake8_plugin_utils import Plugin
+ 
+ from .config import (
+     DEFAULT_CONFIG,
+diff --git a/flake8_pytest_style/utils.py b/flake8_pytest_style/utils.py
+index d2cce28..36be624 100644
+--- a/flake8_pytest_style/utils.py
++++ b/flake8_pytest_style/utils.py
+@@ -2,7 +2,7 @@ import ast
+ from collections import deque
+ from typing import Dict, Iterator, List, NamedTuple, Optional, Tuple, Union
+ 
+-from flake8_plugin_utils.utils import is_false, is_none
++from flake8_pytest_style._compat_flake8_plugin_utils import is_false, is_none
+ 
+ AnyFunctionDef = Union[ast.AsyncFunctionDef, ast.FunctionDef]
+ AnyDecoratorTarget = Union[ast.ClassDef, AnyFunctionDef]
+diff --git a/flake8_pytest_style/visitors/assertion.py b/flake8_pytest_style/visitors/assertion.py
+index 009592f..6d9440a 100644
+--- a/flake8_pytest_style/visitors/assertion.py
++++ b/flake8_pytest_style/visitors/assertion.py
+@@ -1,6 +1,6 @@
+ import ast
+ 
+-from flake8_plugin_utils import Visitor
++from flake8_pytest_style._compat_flake8_plugin_utils import Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import (
+diff --git a/flake8_pytest_style/visitors/fail.py b/flake8_pytest_style/visitors/fail.py
+index dd9fcf1..bbbe4c6 100644
+--- a/flake8_pytest_style/visitors/fail.py
++++ b/flake8_pytest_style/visitors/fail.py
+@@ -1,6 +1,6 @@
+ import ast
+ 
+-from flake8_plugin_utils import Visitor
++from flake8_pytest_style._compat_flake8_plugin_utils import Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import AssertAlwaysFalse, FailWithoutMessage
+diff --git a/flake8_pytest_style/visitors/fixtures.py b/flake8_pytest_style/visitors/fixtures.py
+index abc4a4f..9a7ebb4 100644
+--- a/flake8_pytest_style/visitors/fixtures.py
++++ b/flake8_pytest_style/visitors/fixtures.py
+@@ -1,7 +1,7 @@
+ import ast
+ from typing import Set, Type, Union
+ 
+-from flake8_plugin_utils import Error, Visitor
++from flake8_pytest_style._compat_flake8_plugin_utils import Error, Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import (
+diff --git a/flake8_pytest_style/visitors/imports.py b/flake8_pytest_style/visitors/imports.py
+index 42d4095..2b9f0eb 100644
+--- a/flake8_pytest_style/visitors/imports.py
++++ b/flake8_pytest_style/visitors/imports.py
+@@ -1,6 +1,6 @@
+ import ast
+ 
+-from flake8_plugin_utils import Visitor
++from flake8_pytest_style._compat_flake8_plugin_utils import Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import IncorrectPytestImport
+diff --git a/flake8_pytest_style/visitors/marks.py b/flake8_pytest_style/visitors/marks.py
+index 9bf8f58..17f63ed 100644
+--- a/flake8_pytest_style/visitors/marks.py
++++ b/flake8_pytest_style/visitors/marks.py
+@@ -1,7 +1,7 @@
+ import ast
+ from typing import Union
+ 
+-from flake8_plugin_utils import Visitor
++from flake8_pytest_style._compat_flake8_plugin_utils import Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import (
+diff --git a/flake8_pytest_style/visitors/parametrize.py b/flake8_pytest_style/visitors/parametrize.py
+index eb5f09d..c72d4d1 100644
+--- a/flake8_pytest_style/visitors/parametrize.py
++++ b/flake8_pytest_style/visitors/parametrize.py
+@@ -2,7 +2,7 @@ import ast
+ import itertools
+ from typing import Optional
+ 
+-from flake8_plugin_utils import Visitor, check_equivalent_nodes
++from flake8_pytest_style._compat_flake8_plugin_utils import Visitor, check_equivalent_nodes
+ 
+ from ..config import (
+     Config,
+diff --git a/flake8_pytest_style/visitors/patch.py b/flake8_pytest_style/visitors/patch.py
+index fc8cdbb..5718c5a 100644
+--- a/flake8_pytest_style/visitors/patch.py
++++ b/flake8_pytest_style/visitors/patch.py
+@@ -1,6 +1,6 @@
+ import ast
+ 
+-from flake8_plugin_utils import Visitor
++from flake8_pytest_style._compat_flake8_plugin_utils import Visitor
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import PatchWithLambda
+diff --git a/flake8_pytest_style/visitors/raises.py b/flake8_pytest_style/visitors/raises.py
+index 161af2d..a83066f 100644
+--- a/flake8_pytest_style/visitors/raises.py
++++ b/flake8_pytest_style/visitors/raises.py
+@@ -1,7 +1,7 @@
+ import ast
+ from typing import List, Optional
+ 
+-from flake8_plugin_utils import Visitor, is_none
++from flake8_pytest_style._compat_flake8_plugin_utils import Visitor, is_none
+ 
+ from flake8_pytest_style.config import Config
+ from flake8_pytest_style.errors import (

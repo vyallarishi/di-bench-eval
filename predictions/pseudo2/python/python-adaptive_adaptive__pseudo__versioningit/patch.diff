@@ -1,0 +1,39 @@
+diff --git a/adaptive/_compat_versioningit.py b/adaptive/_compat_versioningit.py
+new file mode 100644
+index 0000000..ca43e31
+--- /dev/null
++++ b/adaptive/_compat_versioningit.py
+@@ -0,0 +1,4 @@
++"""Local replacement for versioningit."""
++
++def get_version(*args, **kwargs):
++    return ''
+diff --git a/adaptive/_version.py b/adaptive/_version.py
+index 2eb743f..4d996ab 100644
+--- a/adaptive/_version.py
++++ b/adaptive/_version.py
+@@ -1,6 +1,6 @@
+ from pathlib import Path
+ 
+-import versioningit
++from adaptive._compat_versioningit import *
+ 
+ REPO_ROOT = Path(__file__).parent.parent
+ __version__ = versioningit.get_version(project_dir=REPO_ROOT)
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..4d2b44e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,12 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "sortedcontainers >= 2.0",
++    "cloudpickle",
++    "loky >= 2.9",
++    "typing_extensions; python_version < '3.10'",
+ ]
+ 
+ [project.optional-dependencies]

@@ -40,22 +40,54 @@ import manifests as M  # noqa: E402
 from make_blocked import apply_patch, import_names, multi_file_diff, norm  # noqa: E402
 
 
-def plausible(summary) -> str:
-    """Source for a wrong-but-well-formed value of the recorded return type.
+DEFAULTS = {
+    "int": ["0", "-1", "1"], "float": ["0.0", "-1.0"], "bool": ["False", "True"],
+    "str": ["''", "'x'"], "bytes": ["b''", "b'x'"], "bytearray": ["bytearray()"],
+    "list": ["[]", "[None]"], "tuple": ["()", "(None,)"],
+    "dict": ["{}", "{'x': None}"], "set": ["set()"], "frozenset": ["frozenset()"],
+}
 
-    The point of this family is that the shape is right. A counterfeit that
-    returns None where the library returned an int is caught by the tests; one
-    that returns 0 is caught only by comparing against what the library did.
+
+def plausible(rets: list) -> str | None:
+    """A wrong-but-well-formed value of the recorded return type.
+
+    The point of this family is that the shape is right: a counterfeit that
+    returns None where the library returned an int is caught by the tests,
+    while one that returns 0 is caught only by comparing against what the
+    library did.
+
+    The value must actually differ from what the library returned, which an
+    earlier version did not check. Falling back to None for any unrecognised
+    type produced 254 "counterfeits" of functions that return None anyway --
+    not counterfeits at all, and counting a gate that accepts them as a miss
+    would report a generator artifact as a defect. So a candidate is chosen
+    only if it differs from every recorded return, and the function is skipped
+    when no candidate does.
     """
-    if not isinstance(summary, dict):
-        return "None"
-    t = summary.get("t")
-    return {
-        "int": "0", "float": "0.0", "bool": "False", "NoneType": "None",
-        "str": "''", "bytes": "b''", "bytearray": "bytearray()",
-        "list": "[]", "tuple": "()", "dict": "{}", "set": "set()",
-        "frozenset": "frozenset()",
-    }.get(t, "None")
+    summaries = [r for r in rets if isinstance(r, dict)]
+    if not summaries:
+        return None
+    types = {s.get("t") for s in summaries}
+    if len(types) != 1:
+        return None                      # a varying return type: skip it
+    t = types.pop()
+    if t == "NoneType":
+        return None                      # void: nothing to counterfeit
+    for cand in DEFAULTS.get(t, []):
+        lit = ast.literal_eval(cand) if cand not in ("set()", "frozenset()",
+                                                     "bytearray()") else None
+        clashes = False
+        for s in summaries:
+            if "v" in s and s["v"] == lit:
+                clashes = True
+                break
+            if t in ("dict", "list", "tuple", "set", "frozenset") and not s.get("items") \
+                    and cand in ("{}", "[]", "()", "set()", "frozenset()"):
+                clashes = True
+                break
+        if not clashes:
+            return cand
+    return None
 
 
 def functions_from_trace(recs: list[dict]) -> dict[str, str]:
@@ -67,8 +99,10 @@ def functions_from_trace(recs: list[dict]) -> dict[str, str]:
         if q and q.isidentifier() and not q.startswith("_"):
             by[q].append(r)
     for fn, rs in by.items():
-        ret = next((r.get("ret") for r in rs if "ret" in r), None)
-        out[fn] = plausible(ret)
+        rets = [r["ret"] for r in rs if "ret" in r]
+        val = plausible(rets)
+        if val is not None:
+            out[fn] = val                # only functions we can actually fake
     return out
 
 

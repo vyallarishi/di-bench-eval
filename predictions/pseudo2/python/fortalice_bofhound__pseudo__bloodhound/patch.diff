@@ -1,0 +1,222 @@
+diff --git a/bofhound/_compat_bloodhound.py b/bofhound/_compat_bloodhound.py
+new file mode 100644
+index 0000000..fc6d43d
+--- /dev/null
++++ b/bofhound/_compat_bloodhound.py
+@@ -0,0 +1,56 @@
++"""Local replacement for bloodhound."""
++
++def domain2ldap(*args, **kwargs):
++    return ''
++
++def ldap2domain(*args, **kwargs):
++    return 'x'
++
++def to_output(*args, **kwargs):
++    return {}
++
++def win_timestamp_to_unix(*args, **kwargs):
++    return -1
++
++class ACCESS_ALLOWED_ACE:
++    pass
++
++class ACCESS_ALLOWED_OBJECT_ACE:
++    pass
++
++class ACCESS_MASK:
++    pass
++
++class ACE:
++    pass
++
++class ACL:
++    pass
++
++class ADDomainTrust:
++    pass
++
++class ADUtils:
++    pass
++
++class EXTRIGHTS_GUID_MAPPING:
++    pass
++
++class LDAP_SID:
++    pass
++
++class MembershipEnumerator:
++    pass
++
++class SecurityDescriptor:
++    pass
++
++ace_applies = 0
++
++build_relation = 0
++
++can_write_property = 0
++
++has_extended_right = 0
++
++parse_binary_acl = 0
+diff --git a/bofhound/ad/adds.py b/bofhound/ad/adds.py
+index ac53c22..d630a19 100644
+--- a/bofhound/ad/adds.py
++++ b/bofhound/ad/adds.py
+@@ -1,8 +1,8 @@
+ import base64
+ import logging
+ from io import BytesIO
+-from bloodhound.ad.utils import ADUtils
+-from bloodhound.enumeration.acls import SecurityDescriptor, ACL, ACCESS_ALLOWED_ACE, ACCESS_MASK, ACE, ACCESS_ALLOWED_OBJECT_ACE, has_extended_right, EXTRIGHTS_GUID_MAPPING, can_write_property, ace_applies
++from bofhound._compat_bloodhound import ADUtils
++from bofhound._compat_bloodhound import SecurityDescriptor, ACL, ACCESS_ALLOWED_ACE, ACCESS_MASK, ACE, ACCESS_ALLOWED_OBJECT_ACE, has_extended_right, EXTRIGHTS_GUID_MAPPING, can_write_property, ace_applies
+ from bofhound.ad.models import BloodHoundComputer, BloodHoundDomain, BloodHoundGroup, BloodHoundObject, BloodHoundSchema, BloodHoundUser, BloodHoundOU, BloodHoundGPO, BloodHoundDomainTrust
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ from bofhound import console
+diff --git a/bofhound/ad/models/bloodhound_computer.py b/bofhound/ad/models/bloodhound_computer.py
+index db0d0c0..9cd5746 100644
+--- a/bofhound/ad/models/bloodhound_computer.py
++++ b/bofhound/ad/models/bloodhound_computer.py
+@@ -1,6 +1,6 @@
+ import calendar
+ from datetime import datetime
+-from bloodhound.ad.utils import ADUtils, LDAP_SID
++from bofhound._compat_bloodhound import ADUtils, LDAP_SID
+ from .bloodhound_object import BloodHoundObject
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ import logging
+diff --git a/bofhound/ad/models/bloodhound_domain.py b/bofhound/ad/models/bloodhound_domain.py
+index cdb7fea..36f7220 100644
+--- a/bofhound/ad/models/bloodhound_domain.py
++++ b/bofhound/ad/models/bloodhound_domain.py
+@@ -1,4 +1,4 @@
+-from bloodhound.ad.utils import ADUtils
++from bofhound._compat_bloodhound import ADUtils
+ from .bloodhound_object import BloodHoundObject
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ import logging
+diff --git a/bofhound/ad/models/bloodhound_domaintrust.py b/bofhound/ad/models/bloodhound_domaintrust.py
+index fbe3168..7329b08 100644
+--- a/bofhound/ad/models/bloodhound_domaintrust.py
++++ b/bofhound/ad/models/bloodhound_domaintrust.py
+@@ -1,7 +1,7 @@
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ from bofhound.ad.models.bloodhound_object import BloodHoundObject
+-from bloodhound.ad.utils import ADUtils
+-from bloodhound.ad.trusts import ADDomainTrust
++from bofhound._compat_bloodhound import ADUtils
++from bofhound._compat_bloodhound import ADDomainTrust
+ import logging
+ 
+ class BloodHoundDomainTrust(object):
+diff --git a/bofhound/ad/models/bloodhound_gpo.py b/bofhound/ad/models/bloodhound_gpo.py
+index 6028aeb..5514c2a 100644
+--- a/bofhound/ad/models/bloodhound_gpo.py
++++ b/bofhound/ad/models/bloodhound_gpo.py
+@@ -1,4 +1,4 @@
+-from bloodhound.ad.utils import ADUtils
++from bofhound._compat_bloodhound import ADUtils
+ from .bloodhound_object import BloodHoundObject
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ import logging
+diff --git a/bofhound/ad/models/bloodhound_group.py b/bofhound/ad/models/bloodhound_group.py
+index aec1142..f717654 100644
+--- a/bofhound/ad/models/bloodhound_group.py
++++ b/bofhound/ad/models/bloodhound_group.py
+@@ -1,4 +1,4 @@
+-from bloodhound.ad.utils import ADUtils
++from bofhound._compat_bloodhound import ADUtils
+ from .bloodhound_object import BloodHoundObject
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ import logging
+diff --git a/bofhound/ad/models/bloodhound_object.py b/bofhound/ad/models/bloodhound_object.py
+index 80e206e..51dd44a 100644
+--- a/bofhound/ad/models/bloodhound_object.py
++++ b/bofhound/ad/models/bloodhound_object.py
+@@ -2,8 +2,8 @@ import logging
+ import calendar
+ from datetime import datetime
+ from io import BytesIO
+-from bloodhound.enumeration.acls import SecurityDescriptor, ACL, ACCESS_ALLOWED_ACE, ACCESS_MASK, ACE, ACCESS_ALLOWED_OBJECT_ACE, has_extended_right, EXTRIGHTS_GUID_MAPPING, can_write_property, ace_applies
+-from bloodhound.ad.utils import ADUtils
++from bofhound._compat_bloodhound import SecurityDescriptor, ACL, ACCESS_ALLOWED_ACE, ACCESS_MASK, ACE, ACCESS_ALLOWED_OBJECT_ACE, has_extended_right, EXTRIGHTS_GUID_MAPPING, can_write_property, ace_applies
++from bofhound._compat_bloodhound import ADUtils
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ from bofhound.ad.models.bloodhound_schema import BloodHoundSchema
+ 
+diff --git a/bofhound/ad/models/bloodhound_ou.py b/bofhound/ad/models/bloodhound_ou.py
+index 64ffc88..3976efa 100644
+--- a/bofhound/ad/models/bloodhound_ou.py
++++ b/bofhound/ad/models/bloodhound_ou.py
+@@ -1,5 +1,5 @@
+ from distutils.ccompiler import gen_preprocess_options
+-from bloodhound.ad.utils import ADUtils
++from bofhound._compat_bloodhound import ADUtils
+ from .bloodhound_object import BloodHoundObject
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ import logging
+diff --git a/bofhound/ad/models/bloodhound_user.py b/bofhound/ad/models/bloodhound_user.py
+index cafc9c4..0163802 100644
+--- a/bofhound/ad/models/bloodhound_user.py
++++ b/bofhound/ad/models/bloodhound_user.py
+@@ -1,6 +1,6 @@
+-from bloodhound.ad.utils import ADUtils
+-from bloodhound.ad.structures import LDAP_SID
+-from bloodhound.enumeration.memberships import MembershipEnumerator
++from bofhound._compat_bloodhound import ADUtils
++from bofhound._compat_bloodhound import LDAP_SID
++from bofhound._compat_bloodhound import MembershipEnumerator
+ from .bloodhound_object import BloodHoundObject
+ from bofhound.logger import OBJ_EXTRA_FMT, ColorScheme
+ import logging
+diff --git a/bofhound/parsers/ldap_search_bof.py b/bofhound/parsers/ldap_search_bof.py
+index cfaa23c..e36756e 100644
+--- a/bofhound/parsers/ldap_search_bof.py
++++ b/bofhound/parsers/ldap_search_bof.py
+@@ -3,9 +3,9 @@ import base64
+ import codecs
+ 
+ from io import BytesIO
+-from bloodhound.ad.utils import ADUtils
+-from bloodhound.enumeration.acls import parse_binary_acl, SecurityDescriptor
+-from bloodhound.enumeration.acls import ACL, ACCESS_ALLOWED_ACE, ACCESS_MASK, ACE, ACCESS_ALLOWED_OBJECT_ACE, build_relation, has_extended_right, EXTRIGHTS_GUID_MAPPING
++from bofhound._compat_bloodhound import ADUtils
++from bofhound._compat_bloodhound import parse_binary_acl, SecurityDescriptor
++from bofhound._compat_bloodhound import ACL, ACCESS_ALLOWED_ACE, ACCESS_MASK, ACE, ACCESS_ALLOWED_OBJECT_ACE, build_relation, has_extended_right, EXTRIGHTS_GUID_MAPPING
+ import logging
+ 
+ from bofhound.ad.models import BloodHoundDomain, BloodHoundComputer, BloodHoundUser, BloodHoundGroup, BloodHoundSchema
+diff --git a/pyproject.toml b/pyproject.toml
+index 99a9df3..ce00da3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,6 +13,27 @@ include = ["CHANGELOG.md"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.9"
++click = "8.0.3"
++typer = "^0.7.0"
++cffi = "1.15.0"
++chardet = "4.0.0"
++cryptography = "36.0.1"
++dnspython = "2.2.0"
++Flask = "2.0.2"
++future = "0.18.2"
++impacket = "0.9.24"
++itsdangerous = "2.0.1"
++Jinja2 = "3.0.3"
++ldap3 = "2.9.1"
++ldapdomaindump = "0.9.3"
++MarkupSafe = "2.0.1"
++pyasn1 = "0.4.8"
++pycparser = "2.21"
++pycryptodomex = "3.14.0"
++pyOpenSSL = "22.0.0"
++six = "1.16.0"
++Werkzeug = "2.0.2"
++rich = "12.2.0"
+ 
+ [tool.poetry.dev-dependencies]
+ pylint = "^2.13"

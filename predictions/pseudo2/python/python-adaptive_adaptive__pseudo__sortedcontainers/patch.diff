@@ -1,0 +1,101 @@
+diff --git a/adaptive/_compat_sortedcontainers.py b/adaptive/_compat_sortedcontainers.py
+new file mode 100644
+index 0000000..5e092e8
+--- /dev/null
++++ b/adaptive/_compat_sortedcontainers.py
+@@ -0,0 +1,13 @@
++"""Local replacement for sortedcontainers."""
++
++def pop(*args, **kwargs):
++    return ()
++
++class SortedDict:
++    pass
++
++class SortedKeyList:
++    pass
++
++class SortedSet:
++    pass
+diff --git a/adaptive/learner/average_learner1D.py b/adaptive/learner/average_learner1D.py
+index 9678b4f..a20f1cd 100644
+--- a/adaptive/learner/average_learner1D.py
++++ b/adaptive/learner/average_learner1D.py
+@@ -11,7 +11,7 @@ from typing import Callable
+ import numpy as np
+ import scipy.stats
+ from sortedcollections import ItemSortedDict
+-from sortedcontainers import SortedDict
++from adaptive._compat_sortedcontainers import SortedDict
+ 
+ from adaptive.learner.learner1D import Learner1D, _get_intervals
+ from adaptive.notebook_integration import ensure_holoviews
+diff --git a/adaptive/learner/integrator_learner.py b/adaptive/learner/integrator_learner.py
+index 0fc97df..3150a2d 100644
+--- a/adaptive/learner/integrator_learner.py
++++ b/adaptive/learner/integrator_learner.py
+@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Callable
+ import cloudpickle
+ import numpy as np
+ from scipy.linalg import norm
+-from sortedcontainers import SortedSet
++from adaptive._compat_sortedcontainers import SortedSet
+ 
+ from adaptive.learner import integrator_coeffs as coeff
+ from adaptive.learner.base_learner import BaseLearner
+diff --git a/adaptive/learner/learner1D.py b/adaptive/learner/learner1D.py
+index bf04743..15f4b1b 100644
+--- a/adaptive/learner/learner1D.py
++++ b/adaptive/learner/learner1D.py
+@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+ import cloudpickle
+ import numpy as np
+ from sortedcollections.recipes import ItemSortedDict
+-from sortedcontainers.sorteddict import SortedDict
++from adaptive._compat_sortedcontainers import SortedDict
+ 
+ from adaptive.learner.base_learner import BaseLearner, uses_nth_neighbors
+ from adaptive.learner.learnerND import volume
+diff --git a/adaptive/learner/learnerND.py b/adaptive/learner/learnerND.py
+index c4af7dd..05835ba 100644
+--- a/adaptive/learner/learnerND.py
++++ b/adaptive/learner/learnerND.py
+@@ -11,7 +11,7 @@ from copy import deepcopy
+ import numpy as np
+ import scipy.spatial
+ from scipy import interpolate
+-from sortedcontainers import SortedKeyList
++from adaptive._compat_sortedcontainers import SortedKeyList
+ 
+ from adaptive.learner.base_learner import BaseLearner, uses_nth_neighbors
+ from adaptive.learner.triangulation import (
+diff --git a/adaptive/learner/sequence_learner.py b/adaptive/learner/sequence_learner.py
+index c307744..b06a41c 100644
+--- a/adaptive/learner/sequence_learner.py
++++ b/adaptive/learner/sequence_learner.py
+@@ -5,7 +5,7 @@ from copy import copy
+ from typing import TYPE_CHECKING, Any
+ 
+ import cloudpickle
+-from sortedcontainers import SortedDict, SortedSet
++from adaptive._compat_sortedcontainers import SortedDict, SortedSet
+ 
+ from adaptive.learner.base_learner import BaseLearner
+ from adaptive.types import Int
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..63f26c9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,12 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "cloudpickle",
++    "loky >= 2.9",
++    "typing_extensions; python_version < '3.10'",
++    "versioningit",
+ ]
+ 
+ [project.optional-dependencies]

@@ -1,0 +1,242 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index c7b34c0..d4fea07 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -29,7 +29,20 @@ classifiers = [
+     "Programming Language :: Python :: 3.11",
+     "Programming Language :: Python :: 3.12",
+ ]
+-dependencies = []
++dependencies = [
++    "Flask",
++    "markupsafe",
++    "Pygments>=2.12.0",
++    "xstatic",
++    "XStatic-asciinema-player",
++    "xstatic-bootbox>=5.4.0",
++    "xstatic-bootstrap>=4.0.0.0,<5.0.0.0",
++    "xstatic-font-awesome<5.0",
++    "xstatic-jquery",
++    "xstatic-jquery-ui",
++    "xstatic-jquery-file-upload",
++    "xstatic-pygments",
++]
+ 
+ [project.scripts]
+ bepasty-server = "bepasty.cli.server:main"
+diff --git a/src/_compat_werkzeug.py b/src/_compat_werkzeug.py
+new file mode 100644
+index 0000000..51b369f
+--- /dev/null
++++ b/src/_compat_werkzeug.py
+@@ -0,0 +1,31 @@
++"""Local replacement for werkzeug."""
++
++def to_url(*args, **kwargs):
++    return ''
++
++class BadRequest:
++    pass
++
++class BaseConverter:
++    pass
++
++class Conflict:
++    pass
++
++class Forbidden:
++    pass
++
++class HTTPException:
++    pass
++
++class InternalServerError:
++    pass
++
++class MethodNotAllowed:
++    pass
++
++class NotFound:
++    pass
++
++class RequestEntityTooLarge:
++    pass
+diff --git a/src/bepasty/apis/lodgeit.py b/src/bepasty/apis/lodgeit.py
+index 9482f48..b1853d5 100644
+--- a/src/bepasty/apis/lodgeit.py
++++ b/src/bepasty/apis/lodgeit.py
+@@ -4,7 +4,7 @@ import urllib
+ from flask import request
+ from flask.views import MethodView
+ from pygments.lexers import get_all_lexers
+-from werkzeug.exceptions import Forbidden
++from src._compat_werkzeug import Forbidden
+ 
+ from ..constants import FOREVER
+ from ..utils.http import redirect_next
+diff --git a/src/bepasty/apis/rest.py b/src/bepasty/apis/rest.py
+index 40caeae..a3bf8e1 100644
+--- a/src/bepasty/apis/rest.py
++++ b/src/bepasty/apis/rest.py
+@@ -5,7 +5,7 @@ from io import BytesIO
+ 
+ from flask import Response, make_response, url_for, jsonify, stream_with_context, request, current_app
+ from flask.views import MethodView
+-from werkzeug.exceptions import HTTPException, BadRequest, Conflict, Forbidden, InternalServerError, MethodNotAllowed
++from src._compat_werkzeug import HTTPException, BadRequest, Conflict, Forbidden, InternalServerError, MethodNotAllowed
+ 
+ from ..constants import FILENAME, ID, SIZE, TYPE, TRANSACTION_ID
+ from ..utils.date_funcs import get_maxlife
+diff --git a/src/bepasty/utils/date_funcs.py b/src/bepasty/utils/date_funcs.py
+index 4577389..4f0e584 100644
+--- a/src/bepasty/utils/date_funcs.py
++++ b/src/bepasty/utils/date_funcs.py
+@@ -1,6 +1,6 @@
+ import time
+ from flask import current_app
+-from werkzeug.exceptions import BadRequest
++from src._compat_werkzeug import BadRequest
+ 
+ from ..constants import FOREVER, TIMESTAMP_MAX_LIFE
+ 
+diff --git a/src/bepasty/utils/http.py b/src/bepasty/utils/http.py
+index 17ca498..3af9577 100644
+--- a/src/bepasty/utils/http.py
++++ b/src/bepasty/utils/http.py
+@@ -2,7 +2,7 @@ import collections
+ from urllib.parse import urlparse, urljoin
+ 
+ from flask import request, redirect, url_for
+-from werkzeug.exceptions import BadRequest
++from src._compat_werkzeug import BadRequest
+ 
+ 
+ # safely and comfortably redirect
+diff --git a/src/bepasty/utils/name.py b/src/bepasty/utils/name.py
+index 4fa23c4..8544c5d 100644
+--- a/src/bepasty/utils/name.py
++++ b/src/bepasty/utils/name.py
+@@ -1,7 +1,7 @@
+ import re
+ import random
+ 
+-from werkzeug.routing import BaseConverter
++from src._compat_werkzeug import BaseConverter
+ 
+ ID_LENGTH = 8
+ 
+diff --git a/src/bepasty/utils/upload.py b/src/bepasty/utils/upload.py
+index fdb9dd6..916b757 100644
+--- a/src/bepasty/utils/upload.py
++++ b/src/bepasty/utils/upload.py
+@@ -3,7 +3,7 @@ import time
+ import mimetypes
+ from pygments.lexers import get_lexer_for_filename
+ from pygments.util import ClassNotFound as NoPygmentsLexer
+-from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
++from src._compat_werkzeug import BadRequest, RequestEntityTooLarge
+ 
+ from flask import current_app
+ 
+diff --git a/src/bepasty/views/delete.py b/src/bepasty/views/delete.py
+index 5e46a33..d9acbb6 100644
+--- a/src/bepasty/views/delete.py
++++ b/src/bepasty/views/delete.py
+@@ -2,7 +2,7 @@ import errno
+ 
+ from flask import current_app, render_template
+ from flask.views import MethodView
+-from werkzeug.exceptions import NotFound, Forbidden
++from src._compat_werkzeug import NotFound, Forbidden
+ 
+ from ..constants import COMPLETE, FILENAME, LOCKED
+ from ..utils.http import redirect_next_referrer
+diff --git a/src/bepasty/views/display.py b/src/bepasty/views/display.py
+index 7f5b78f..d948aa5 100644
+--- a/src/bepasty/views/display.py
++++ b/src/bepasty/views/display.py
+@@ -4,7 +4,7 @@ import time
+ from flask import current_app, render_template, url_for, request
+ from flask.views import MethodView
+ from markupsafe import Markup
+-from werkzeug.exceptions import NotFound, Forbidden
++from src._compat_werkzeug import NotFound, Forbidden
+ from pygments import highlight
+ from pygments.lexers import get_lexer_for_mimetype
+ from pygments.util import ClassNotFound as NoPygmentsLexer
+diff --git a/src/bepasty/views/download.py b/src/bepasty/views/download.py
+index 1960b82..b9d84e7 100644
+--- a/src/bepasty/views/download.py
++++ b/src/bepasty/views/download.py
+@@ -13,7 +13,7 @@ else:
+ 
+ from flask import Response, current_app, render_template, stream_with_context
+ from flask.views import MethodView
+-from werkzeug.exceptions import NotFound, Forbidden
++from src._compat_werkzeug import NotFound, Forbidden
+ 
+ from ..constants import COMPLETE, FILENAME, LOCKED, SIZE, TIMESTAMP_DOWNLOAD, TYPE
+ from ..utils.date_funcs import delete_if_lifetime_over
+diff --git a/src/bepasty/views/filelist.py b/src/bepasty/views/filelist.py
+index dd53253..1bc8fbc 100644
+--- a/src/bepasty/views/filelist.py
++++ b/src/bepasty/views/filelist.py
+@@ -3,7 +3,7 @@ import pickle
+ 
+ from flask import current_app, render_template
+ from flask.views import MethodView
+-from werkzeug.exceptions import Forbidden
++from src._compat_werkzeug import Forbidden
+ 
+ from ..constants import ID, TIMESTAMP_UPLOAD
+ from ..utils.date_funcs import delete_if_lifetime_over
+diff --git a/src/bepasty/views/modify.py b/src/bepasty/views/modify.py
+index 8de73c0..8eeb130 100644
+--- a/src/bepasty/views/modify.py
++++ b/src/bepasty/views/modify.py
+@@ -2,7 +2,7 @@ import errno
+ 
+ from flask import current_app, request, render_template
+ from flask.views import MethodView
+-from werkzeug.exceptions import Forbidden, NotFound
++from src._compat_werkzeug import Forbidden, NotFound
+ 
+ from ..constants import COMPLETE, FILENAME, LOCKED, TYPE
+ from ..utils.date_funcs import delete_if_lifetime_over
+diff --git a/src/bepasty/views/setkv.py b/src/bepasty/views/setkv.py
+index 71eac11..4a0d8c0 100644
+--- a/src/bepasty/views/setkv.py
++++ b/src/bepasty/views/setkv.py
+@@ -6,7 +6,7 @@ import errno
+ 
+ from flask import current_app, render_template
+ from flask.views import MethodView
+-from werkzeug.exceptions import NotFound, Forbidden
++from src._compat_werkzeug import NotFound, Forbidden
+ 
+ from ..constants import COMPLETE, FILENAME, LOCKED
+ from ..utils.http import redirect_next_referrer
+diff --git a/src/bepasty/views/upload.py b/src/bepasty/views/upload.py
+index 88b778f..bbe8049 100644
+--- a/src/bepasty/views/upload.py
++++ b/src/bepasty/views/upload.py
+@@ -6,7 +6,7 @@ import urllib
+ 
+ from flask import abort, current_app, jsonify, request, url_for
+ from flask.views import MethodView
+-from werkzeug.exceptions import NotFound, Forbidden
++from src._compat_werkzeug import NotFound, Forbidden
+ 
+ from ..constants import COMPLETE, FILENAME, SIZE
+ from ..utils.date_funcs import get_maxlife
+diff --git a/src/bepasty/views/xstatic.py b/src/bepasty/views/xstatic.py
+index b78458a..6da5326 100644
+--- a/src/bepasty/views/xstatic.py
++++ b/src/bepasty/views/xstatic.py
+@@ -1,5 +1,5 @@
+ from flask import send_from_directory
+-from werkzeug.exceptions import NotFound
++from src._compat_werkzeug import NotFound
+ 
+ from ..bepasty_xstatic import serve_files
+ 

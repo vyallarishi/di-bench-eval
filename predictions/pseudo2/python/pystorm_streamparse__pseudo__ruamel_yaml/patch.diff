@@ -1,0 +1,52 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..6b52488 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,9 @@
++cython
++jinja2
++Fabric39
++pystorm>=3.1.1
++requests
++setuptools
++simplejson
++texttable
++thriftpy2
+diff --git a/streamparse/_compat_ruamel_yaml.py b/streamparse/_compat_ruamel_yaml.py
+new file mode 100644
+index 0000000..04c44f6
+--- /dev/null
++++ b/streamparse/_compat_ruamel_yaml.py
+@@ -0,0 +1,6 @@
++"""Local replacement for ruamel_yaml."""
++
++def load(*args, **kwargs):
++    return 0
++
++yaml = 0
+diff --git a/streamparse/cli/common.py b/streamparse/cli/common.py
+index 35c2f77..b6ad635 100644
+--- a/streamparse/cli/common.py
++++ b/streamparse/cli/common.py
+@@ -5,7 +5,7 @@ import argparse
+ import copy
+ import warnings
+ 
+-from ruamel import yaml
++from streamparse._compat_ruamel_yaml import yaml
+ 
+ from streamparse.util import get_storm_workers
+ 
+diff --git a/streamparse/cli/run.py b/streamparse/cli/run.py
+index 776ef00..6cdf093 100644
+--- a/streamparse/cli/run.py
++++ b/streamparse/cli/run.py
+@@ -10,7 +10,7 @@ from argparse import RawDescriptionHelpFormatter
+ from tempfile import NamedTemporaryFile
+ 
+ from fabric.api import local, show
+-from ruamel import yaml
++from streamparse._compat_ruamel_yaml import yaml
+ 
+ from ..util import (
+     get_config,

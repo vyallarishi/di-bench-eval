@@ -1,0 +1,65 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d125c03..680eff5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,8 +15,14 @@ Changelog = "https://github.com/dmerejkowsky/tbump/blob/main/Changelog.rst"
+ Issues = "https://github.com/dmerejkowsky/tbump/issues"
+ 
+ [tool.poetry.dependencies]
++# Note: keep this in sync with .github/workflows/tests.yml
+ python = "^3.8"
+ 
++docopt = "^0.6.2"
++cli-ui = ">=0.10.3"
++schema = "^0.7.1"
++packaging = "^24.0"
++
+ [tool.poetry.dev-dependencies]
+ # Task runner
+ invoke = "^2.1.2"
+diff --git a/tbump/_compat_tomlkit.py b/tbump/_compat_tomlkit.py
+new file mode 100644
+index 0000000..4518923
+--- /dev/null
++++ b/tbump/_compat_tomlkit.py
+@@ -0,0 +1,25 @@
++"""Local replacement for tomlkit."""
++
++def add(*args, **kwargs):
++    return {}
++
++def document(*args, **kwargs):
++    return {'x': None}
++
++def dumps(*args, **kwargs):
++    return ''
++
++def loads(*args, **kwargs):
++    return {}
++
++def parse(*args, **kwargs):
++    return {}
++
++def table(*args, **kwargs):
++    return {'x': None}
++
++def unwrap(*args, **kwargs):
++    return {}
++
++class TOMLDocument:
++    pass
+diff --git a/tbump/config.py b/tbump/config.py
+index 84cedde..7dfd36a 100644
+--- a/tbump/config.py
++++ b/tbump/config.py
+@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
+ 
+ import cli_ui as ui
+ import schema
+-import tomlkit
+-from tomlkit.toml_document import TOMLDocument
++from tbump._compat_tomlkit import *
++from tbump._compat_tomlkit import TOMLDocument
+ 
+ from tbump.action import Action
+ from tbump.error import Error

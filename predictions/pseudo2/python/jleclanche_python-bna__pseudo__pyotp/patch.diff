@@ -1,0 +1,54 @@
+diff --git a/bna/_compat_pyotp.py b/bna/_compat_pyotp.py
+new file mode 100644
+index 0000000..877d024
+--- /dev/null
++++ b/bna/_compat_pyotp.py
+@@ -0,0 +1,10 @@
++"""Local replacement for pyotp."""
++
++def at(*args, **kwargs):
++    return ''
++
++def provisioning_uri(*args, **kwargs):
++    return ''
++
++class TOTP:
++    pass
+diff --git a/bna/cli.py b/bna/cli.py
+index 395f539..633cdde 100644
+--- a/bna/cli.py
++++ b/bna/cli.py
+@@ -7,7 +7,7 @@ from time import sleep
+ from typing import List
+ 
+ import click
+-from pyotp import TOTP
++from bna._compat_pyotp import TOTP
+ 
+ import bna
+ 
+diff --git a/bna/utils.py b/bna/utils.py
+index ce217ea..aafcf75 100644
+--- a/bna/utils.py
++++ b/bna/utils.py
+@@ -1,7 +1,7 @@
+ """
+ Utility functions
+ """
+-from pyotp import TOTP
++from bna._compat_pyotp import TOTP
+ 
+ 
+ def normalize_serial(serial: str) -> str:
+diff --git a/pyproject.toml b/pyproject.toml
+index a9309d5..91042be 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,6 +17,7 @@ classifiers = [
+ 
+ [tool.poetry.dependencies]
+ python = "^3.7"
++click = "^8.0.3"
+ 
+ [tool.poetry.dev-dependencies]
+ flake8 = "^4.0.1"

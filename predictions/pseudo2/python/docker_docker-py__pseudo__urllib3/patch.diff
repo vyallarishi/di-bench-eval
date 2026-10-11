@@ -1,0 +1,80 @@
+diff --git a/docker/_compat_urllib3.py b/docker/_compat_urllib3.py
+new file mode 100644
+index 0000000..01d7a26
+--- /dev/null
++++ b/docker/_compat_urllib3.py
+@@ -0,0 +1,4 @@
++"""Local replacement for urllib3."""
++
++def read(*args, **kwargs):
++    return b''
+diff --git a/docker/transport/npipeconn.py b/docker/transport/npipeconn.py
+index 44d6921..3e65710 100644
+--- a/docker/transport/npipeconn.py
++++ b/docker/transport/npipeconn.py
+@@ -1,8 +1,8 @@
+ import queue
+ 
+ import requests.adapters
+-import urllib3
+-import urllib3.connection
++from docker._compat_urllib3 import *
++from docker._compat_urllib3 import *
+ 
+ from .. import constants
+ from .basehttpadapter import BaseHTTPAdapter
+diff --git a/docker/transport/sshconn.py b/docker/transport/sshconn.py
+index 1870668..7d456cc 100644
+--- a/docker/transport/sshconn.py
++++ b/docker/transport/sshconn.py
+@@ -8,8 +8,8 @@ import urllib.parse
+ 
+ import paramiko
+ import requests.adapters
+-import urllib3
+-import urllib3.connection
++from docker._compat_urllib3 import *
++from docker._compat_urllib3 import *
+ 
+ from .. import constants
+ from .basehttpadapter import BaseHTTPAdapter
+diff --git a/docker/transport/unixconn.py b/docker/transport/unixconn.py
+index d571833..9ff3d6f 100644
+--- a/docker/transport/unixconn.py
++++ b/docker/transport/unixconn.py
+@@ -1,8 +1,8 @@
+ import socket
+ 
+ import requests.adapters
+-import urllib3
+-import urllib3.connection
++from docker._compat_urllib3 import *
++from docker._compat_urllib3 import *
+ 
+ from .. import constants
+ from .basehttpadapter import BaseHTTPAdapter
+diff --git a/docker/types/daemon.py b/docker/types/daemon.py
+index 04e6ccb..bdd50f8 100644
+--- a/docker/types/daemon.py
++++ b/docker/types/daemon.py
+@@ -1,6 +1,6 @@
+ import socket
+ 
+-import urllib3
++from docker._compat_urllib3 import *
+ 
+ from ..errors import DockerException
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index a219484..2c3913d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,6 +30,8 @@ classifiers = [
+ ]
+ 
+ dependencies = [
++    "requests >= 2.26.0",
++    "pywin32>=304; sys_platform == \"win32\"",
+ ]
+ 
+ [project.optional-dependencies]
