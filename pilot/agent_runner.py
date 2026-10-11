@@ -286,7 +286,18 @@ def main():
         if a.startswith('--limit='): limit = int(a.split('=', 1)[1])
         if a.startswith('--max-steps='): max_steps = int(a.split('=', 1)[1])
         if a.startswith('--ids-file='): ids_file = a.split('=', 1)[1]
-    client = OpenAI(base_url=os.environ.get('OPENAI_BASE_URL'), api_key=os.environ.get('OPENAI_API_KEY', 'dummy'))
+    # Three timeouts, because the first two were not enough. A grok-4.7 and a
+    # glm-4.6 request each held an ESTABLISHED socket for 40+ minutes with no
+    # bytes and no billing. `timeout=` on the call did not fire, and neither
+    # did a SIGALRM, because the read was blocked inside a C extension that
+    # does not check Python signals between syscalls. An httpx timeout with an
+    # explicit `read` applies at the socket, which is the only layer that can
+    # see a connection going quiet.
+    import httpx
+    client = OpenAI(base_url=os.environ.get('OPENAI_BASE_URL'),
+                    api_key=os.environ.get('OPENAI_API_KEY', 'dummy'),
+                    timeout=httpx.Timeout(300.0, connect=30.0, read=180.0, write=60.0),
+                    max_retries=2)
     rows = {json.loads(l)['instance_id']: json.loads(l) for l in open(ds) if l.strip()}
     inst = [json.loads(l) for l in open(ROOT / 'pilot' / 'instances.jsonl') if l.strip()]
     if ids_file:
