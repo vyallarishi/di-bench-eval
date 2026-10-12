@@ -1,0 +1,753 @@
+diff --git a/asv_benchmarks/_compat_scikit_learn.py b/asv_benchmarks/_compat_scikit_learn.py
+new file mode 100644
+index 0000000..a7564ef
+--- /dev/null
++++ b/asv_benchmarks/_compat_scikit_learn.py
+@@ -0,0 +1,48 @@
++"""Local replacement for scikit_learn."""
++
++def get_params(*args, **kwargs):
++    return {}
++
++class BaseEstimator:
++    pass
++
++class ColumnTransformer:
++    pass
++
++class KBinsDiscretizer:
++    pass
++
++class LinearRegression:
++    pass
++
++class MinMaxScaler:
++    pass
++
++class NotFittedError:
++    pass
++
++class OneHotEncoder:
++    pass
++
++class OrdinalEncoder:
++    pass
++
++class ParameterGrid:
++    pass
++
++class ParameterSampler:
++    pass
++
++class Pipeline:
++    pass
++
++class RegressorMixin:
++    pass
++
++class StandardScaler:
++    pass
++
++class TransformerMixin:
++    pass
++
++clone = 0
+diff --git a/asv_benchmarks/benchmarks/ForecasterAutoreg.py b/asv_benchmarks/benchmarks/ForecasterAutoreg.py
+index 1591ebf..d5d4647 100644
+--- a/asv_benchmarks/benchmarks/ForecasterAutoreg.py
++++ b/asv_benchmarks/benchmarks/ForecasterAutoreg.py
+@@ -3,7 +3,7 @@
+ import numpy as np
+ import pandas as pd
+ from skforecast.ForecasterAutoreg import ForecasterAutoreg
+-from sklearn.linear_model import LinearRegression
++from asv_benchmarks._compat_scikit_learn import LinearRegression
+ 
+ 
+ class Suite:
+diff --git a/asv_benchmarks/benchmarks/ForecasterAutoregCustom.py b/asv_benchmarks/benchmarks/ForecasterAutoregCustom.py
+index 9078e65..ba0cdd0 100644
+--- a/asv_benchmarks/benchmarks/ForecasterAutoregCustom.py
++++ b/asv_benchmarks/benchmarks/ForecasterAutoregCustom.py
+@@ -3,7 +3,7 @@
+ import numpy as np
+ import pandas as pd
+ from skforecast.ForecasterAutoregCustom import ForecasterAutoregCustom
+-from sklearn.linear_model import LinearRegression
++from asv_benchmarks._compat_scikit_learn import LinearRegression
+ 
+ 
+ class Suite:
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..6b4e3f0
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,192 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'scikit_learn' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['scikit_learn', 'scikitlearn', 'sklearn']
++_DEP = 'scikit_learn'
++_OWN = ['extract_dependences', 'skforecast', 'tests']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++# Nothing may be written to fd 1 at interpreter start: tools such as Poetry
++# introspect the interpreter by parsing a subprocess's stdout as JSON, and a
++# line there fails 35 of 53 blind-side runs before any test runs. The console
++# announcement below therefore happens only inside pytest, through the saved
++# console descriptor, where stdout is the test log.
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py, this module imported after pytest redirected
++    # fd 1; pytest keeps the real console on targetfd_save. Announce there, so
++    # a silent run under pytest still shows the block was live.
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            os.write(saved, ("UnpinBench blocker active (pytest saved fd %d): %s"
++                             % (saved, _DEP) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/pyproject.toml b/pyproject.toml
+index e1d157a..48d2ecf 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -37,6 +37,11 @@ keywords = [
+     "time-series-regression",
+ ]
+ dependencies = [
++    "numpy>=1.20.3",
++    "pandas>=1.5",
++    "tqdm>=4.57",
++    "optuna>=2.10",
++    "joblib>=1.1",
+ ]
+ requires-python = ">=3.9"
+ 
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..6b4e3f0
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,192 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++# Formatters and linters that CI runs over the whole tree must not fail on this
++# injected file: that would be a failure caused by the benchmark, not by the
++# removal (black did exactly that on google/mobly in the first screening).
++"""Injected by UnpinBench: make 'scikit_learn' unimportable *from this repository*.
++
++Removing a declaration does not uninstall a package another dependency pulls
++in. Without this, a deletion mutant cannot distinguish "the tests do not
++exercise this package" from "the package is still installed". The block is
++scoped to the repository's own frames so dependencies that need the package
++keep working.
++"""
++import os
++import sys
++import types
++
++_BLOCKED = ['scikit_learn', 'scikitlearn', 'sklearn']
++_DEP = 'scikit_learn'
++_OWN = ['extract_dependences', 'skforecast', 'tests']          # the repository's own top-level packages (non-editable installs)
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__),
++         os.path.join(_ROOT, "sitecustomize.py"), os.path.join(_ROOT, "conftest.py")}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_MARK = "(blocked: dependency %s was removed)" % _DEP
++_cache = {}
++
++
++def _is_repo_file(fn):
++    """True: repository frame. False: foreign frame. None: transparent, keep walking."""
++    if fn in _cache:
++        return _cache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True      # -c / exec strings count as the project
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN   # the repo itself, pip-installed
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True                                            # relative paths are project files
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _cache[fn] = r
++    return r
++
++
++def _repo_origin(depth=2):
++    f = sys._getframe(depth)
++    while f is not None:
++        r = _is_repo_file(f.f_code.co_filename)
++        if r is not None:
++            return r
++        f = f.f_back
++    return False
++
++
++def _blocked(fullname):
++    return fullname.split(".")[0] in _BLOCKED
++
++
++class _Guard(types.ModuleType):
++    """Stands in for a blocked module that a foreign package loaded."""
++
++    def __init__(self, real):
++        super().__init__(real.__name__)
++        object.__setattr__(self, "_real", real)
++
++    def __getattr__(self, name):
++        real = object.__getattribute__(self, "_real")
++        if name.startswith("__") and name.endswith("__"):
++            return getattr(real, name)
++        if _repo_origin():
++            raise ImportError("cannot use %r: %s" % (real.__name__, _MARK))
++        return getattr(real, name)
++
++    def __setattr__(self, name, value):
++        setattr(object.__getattribute__(self, "_real"), name, value)
++
++    def __dir__(self):
++        return dir(object.__getattribute__(self, "_real"))
++
++    def __repr__(self):
++        return repr(object.__getattribute__(self, "_real"))
++
++
++class _GuardLoader:
++    def __init__(self, inner):
++        self._inner = inner
++
++    def create_module(self, spec):
++        return self._inner.create_module(spec) if hasattr(self._inner, "create_module") else None
++
++    def exec_module(self, module):
++        self._inner.exec_module(module)
++        sys.modules[module.__name__] = _Guard(module)
++
++    def __getattr__(self, name):
++        return getattr(self._inner, name)
++
++
++class _BlockedFinder:
++    def find_spec(self, fullname, path=None, target=None):
++        if not _blocked(fullname):
++            return None
++        if _repo_origin():
++            raise ImportError("No module named %r %s" % (fullname, _MARK))
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is not None:
++                if spec.loader is not None and hasattr(spec.loader, "exec_module"):
++                    spec.loader = _GuardLoader(spec.loader)
++                return spec
++        return None
++
++
++_FLAG = "_unpinbench_blocker_" + _DEP.replace("-", "_").replace(".", "_")
++
++
++def _install():
++    # Guard on a marker on sys, not isinstance: sitecustomize.py and
++    # conftest.py are distinct modules with distinct _BlockedFinder classes,
++    # so isinstance cannot see the other's instance and two finders delegating
++    # to each other recurse without bound.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _BlockedFinder())
++    for name in list(sys.modules):      # force every first import through the finder
++        if _blocked(name):
++            del sys.modules[name]
++    # Announce activation. A CI run that passes without this line in its log
++    # did not have the blocker loaded (it is written to the repository root,
++    # and some projects run their suite from a subdirectory), so the pass says
++    # nothing about the dependency and must not be read as a blind spot.
++    try:
++        sys.stderr.write("UnpinBench blocker active: %s (pid %d, root %s)\n"
++                         % (_DEP, os.getpid(), _ROOT))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++# Nothing may be written to fd 1 at interpreter start: tools such as Poetry
++# introspect the interpreter by parsing a subprocess's stdout as JSON, and a
++# line there fails 35 of 53 blind-side runs before any test runs. The console
++# announcement below therefore happens only inside pytest, through the saved
++# console descriptor, where stdout is the test log.
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py, this module imported after pytest redirected
++    # fd 1; pytest keeps the real console on targetfd_save. Announce there, so
++    # a silent run under pytest still shows the block was live.
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            os.write(saved, ("UnpinBench blocker active (pytest saved fd %d): %s"
++                             % (saved, _DEP) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
++
++_install()
++# <<< UnpinBench injected block <<<
+diff --git a/skforecast/ForecasterAutoreg/ForecasterAutoreg.py b/skforecast/ForecasterAutoreg/ForecasterAutoreg.py
+index c81eff4..6e424aa 100644
+--- a/skforecast/ForecasterAutoreg/ForecasterAutoreg.py
++++ b/skforecast/ForecasterAutoreg/ForecasterAutoreg.py
+@@ -11,10 +11,10 @@ import logging
+ import sys
+ import numpy as np
+ import pandas as pd
+-from sklearn.exceptions import NotFittedError
+-from sklearn.pipeline import Pipeline
+-from sklearn.preprocessing import KBinsDiscretizer
+-from sklearn.base import clone
++from asv_benchmarks._compat_scikit_learn import NotFittedError
++from asv_benchmarks._compat_scikit_learn import Pipeline
++from asv_benchmarks._compat_scikit_learn import KBinsDiscretizer
++from asv_benchmarks._compat_scikit_learn import clone
+ import inspect
+ 
+ import skforecast
+diff --git a/skforecast/ForecasterAutoregCustom/ForecasterAutoregCustom.py b/skforecast/ForecasterAutoregCustom/ForecasterAutoregCustom.py
+index 9b246dc..760f14d 100644
+--- a/skforecast/ForecasterAutoregCustom/ForecasterAutoregCustom.py
++++ b/skforecast/ForecasterAutoregCustom/ForecasterAutoregCustom.py
+@@ -11,9 +11,9 @@ import logging
+ import sys
+ import numpy as np
+ import pandas as pd
+-from sklearn.exceptions import NotFittedError
+-from sklearn.pipeline import Pipeline
+-from sklearn.base import clone
++from asv_benchmarks._compat_scikit_learn import NotFittedError
++from asv_benchmarks._compat_scikit_learn import Pipeline
++from asv_benchmarks._compat_scikit_learn import clone
+ import inspect
+ 
+ import skforecast
+diff --git a/skforecast/ForecasterAutoregDirect/ForecasterAutoregDirect.py b/skforecast/ForecasterAutoregDirect/ForecasterAutoregDirect.py
+index d08aad4..9d3d954 100644
+--- a/skforecast/ForecasterAutoregDirect/ForecasterAutoregDirect.py
++++ b/skforecast/ForecasterAutoregDirect/ForecasterAutoregDirect.py
+@@ -11,9 +11,9 @@ import logging
+ import sys
+ import numpy as np
+ import pandas as pd
+-from sklearn.exceptions import NotFittedError
+-from sklearn.pipeline import Pipeline
+-from sklearn.base import clone
++from asv_benchmarks._compat_scikit_learn import NotFittedError
++from asv_benchmarks._compat_scikit_learn import Pipeline
++from asv_benchmarks._compat_scikit_learn import clone
+ import inspect
+ from copy import copy
+ from joblib import Parallel, delayed, cpu_count
+diff --git a/skforecast/ForecasterAutoregMultiSeries/ForecasterAutoregMultiSeries.py b/skforecast/ForecasterAutoregMultiSeries/ForecasterAutoregMultiSeries.py
+index 4989ee8..c6301a6 100644
+--- a/skforecast/ForecasterAutoregMultiSeries/ForecasterAutoregMultiSeries.py
++++ b/skforecast/ForecasterAutoregMultiSeries/ForecasterAutoregMultiSeries.py
+@@ -11,12 +11,12 @@ import logging
+ import sys
+ import numpy as np
+ import pandas as pd
+-import sklearn
+-from sklearn.exceptions import NotFittedError
+-from sklearn.pipeline import Pipeline
+-from sklearn.base import clone
+-from sklearn.preprocessing import OneHotEncoder
+-from sklearn.preprocessing import OrdinalEncoder
++from asv_benchmarks._compat_scikit_learn import *
++from asv_benchmarks._compat_scikit_learn import NotFittedError
++from asv_benchmarks._compat_scikit_learn import Pipeline
++from asv_benchmarks._compat_scikit_learn import clone
++from asv_benchmarks._compat_scikit_learn import OneHotEncoder
++from asv_benchmarks._compat_scikit_learn import OrdinalEncoder
+ from copy import copy
+ import inspect
+ 
+diff --git a/skforecast/ForecasterAutoregMultiSeriesCustom/ForecasterAutoregMultiSeriesCustom.py b/skforecast/ForecasterAutoregMultiSeriesCustom/ForecasterAutoregMultiSeriesCustom.py
+index 6ecfcf3..66ed0b0 100644
+--- a/skforecast/ForecasterAutoregMultiSeriesCustom/ForecasterAutoregMultiSeriesCustom.py
++++ b/skforecast/ForecasterAutoregMultiSeriesCustom/ForecasterAutoregMultiSeriesCustom.py
+@@ -11,12 +11,12 @@ import logging
+ import sys
+ import numpy as np
+ import pandas as pd
+-import sklearn
+-from sklearn.exceptions import NotFittedError
+-from sklearn.pipeline import Pipeline
+-from sklearn.base import clone
+-from sklearn.preprocessing import OneHotEncoder
+-from sklearn.preprocessing import OrdinalEncoder
++from asv_benchmarks._compat_scikit_learn import *
++from asv_benchmarks._compat_scikit_learn import NotFittedError
++from asv_benchmarks._compat_scikit_learn import Pipeline
++from asv_benchmarks._compat_scikit_learn import clone
++from asv_benchmarks._compat_scikit_learn import OneHotEncoder
++from asv_benchmarks._compat_scikit_learn import OrdinalEncoder
+ from copy import copy
+ import inspect
+ 
+diff --git a/skforecast/ForecasterAutoregMultiVariate/ForecasterAutoregMultiVariate.py b/skforecast/ForecasterAutoregMultiVariate/ForecasterAutoregMultiVariate.py
+index 7882fd7..f4a6cf0 100644
+--- a/skforecast/ForecasterAutoregMultiVariate/ForecasterAutoregMultiVariate.py
++++ b/skforecast/ForecasterAutoregMultiVariate/ForecasterAutoregMultiVariate.py
+@@ -11,10 +11,10 @@ import logging
+ import sys
+ import numpy as np
+ import pandas as pd
+-from sklearn.exceptions import NotFittedError
+-from sklearn.pipeline import Pipeline
+-from sklearn.base import clone
+-from sklearn.preprocessing import StandardScaler
++from asv_benchmarks._compat_scikit_learn import NotFittedError
++from asv_benchmarks._compat_scikit_learn import Pipeline
++from asv_benchmarks._compat_scikit_learn import clone
++from asv_benchmarks._compat_scikit_learn import StandardScaler
+ import inspect
+ from copy import copy
+ from itertools import chain
+diff --git a/skforecast/ForecasterRnn/ForecasterRnn.py b/skforecast/ForecasterRnn/ForecasterRnn.py
+index 71e05e3..c853c75 100644
+--- a/skforecast/ForecasterRnn/ForecasterRnn.py
++++ b/skforecast/ForecasterRnn/ForecasterRnn.py
+@@ -15,9 +15,9 @@ import matplotlib.pyplot as plt
+ import numpy as np
+ import pandas as pd
+ import keras
+-from sklearn.pipeline import Pipeline
+-from sklearn.base import clone
+-from sklearn.preprocessing import MinMaxScaler
++from asv_benchmarks._compat_scikit_learn import Pipeline
++from asv_benchmarks._compat_scikit_learn import clone
++from asv_benchmarks._compat_scikit_learn import MinMaxScaler
+ 
+ import skforecast
+ from ..exceptions import IgnoredArgumentWarning
+diff --git a/skforecast/ForecasterSarimax/ForecasterSarimax.py b/skforecast/ForecasterSarimax/ForecasterSarimax.py
+index 5369b9c..f2e789a 100644
+--- a/skforecast/ForecasterSarimax/ForecasterSarimax.py
++++ b/skforecast/ForecasterSarimax/ForecasterSarimax.py
+@@ -13,8 +13,8 @@ import numpy as np
+ import pandas as pd
+ import pmdarima
+ from pmdarima.arima import ARIMA
+-from sklearn.base import clone
+-from sklearn.exceptions import NotFittedError
++from asv_benchmarks._compat_scikit_learn import clone
++from asv_benchmarks._compat_scikit_learn import NotFittedError
+ 
+ import skforecast
+ from ..exceptions import IgnoredArgumentWarning
+diff --git a/skforecast/Sarimax/Sarimax.py b/skforecast/Sarimax/Sarimax.py
+index 3c346f0..4954260 100644
+--- a/skforecast/Sarimax/Sarimax.py
++++ b/skforecast/Sarimax/Sarimax.py
+@@ -11,8 +11,8 @@ import logging
+ import inspect
+ import numpy as np
+ import pandas as pd
+-from sklearn.base import BaseEstimator, RegressorMixin
+-from sklearn.exceptions import NotFittedError
++from asv_benchmarks._compat_scikit_learn import BaseEstimator, RegressorMixin
++from asv_benchmarks._compat_scikit_learn import NotFittedError
+ from statsmodels.tsa.statespace.sarimax import SARIMAX
+ 
+ logging.basicConfig(
+diff --git a/skforecast/metrics/metrics.py b/skforecast/metrics/metrics.py
+index 311095f..8291789 100644
+--- a/skforecast/metrics/metrics.py
++++ b/skforecast/metrics/metrics.py
+@@ -10,7 +10,7 @@ import numpy as np
+ import pandas as pd
+ import inspect
+ from functools import wraps
+-from sklearn.metrics import (
++from asv_benchmarks._compat_scikit_learn import (
+     mean_squared_error,
+     mean_absolute_error,
+     mean_absolute_percentage_error,
+diff --git a/skforecast/model_selection/model_selection.py b/skforecast/model_selection/model_selection.py
+index ebad7d8..60e2d8e 100644
+--- a/skforecast/model_selection/model_selection.py
++++ b/skforecast/model_selection/model_selection.py
+@@ -17,8 +17,8 @@ from joblib import Parallel, delayed, cpu_count
+ from tqdm.auto import tqdm
+ import optuna
+ from optuna.samplers import TPESampler
+-from sklearn.model_selection import ParameterGrid
+-from sklearn.model_selection import ParameterSampler
++from asv_benchmarks._compat_scikit_learn import ParameterGrid
++from asv_benchmarks._compat_scikit_learn import ParameterSampler
+ 
+ from ..metrics import add_y_train_argument, _get_metric
+ from ..exceptions import LongTrainingWarning
+diff --git a/skforecast/model_selection_multiseries/model_selection_multiseries.py b/skforecast/model_selection_multiseries/model_selection_multiseries.py
+index a56defd..1fbc52e 100644
+--- a/skforecast/model_selection_multiseries/model_selection_multiseries.py
++++ b/skforecast/model_selection_multiseries/model_selection_multiseries.py
+@@ -15,8 +15,8 @@ import numpy as np
+ import pandas as pd
+ from joblib import Parallel, delayed, cpu_count
+ from tqdm.auto import tqdm
+-from sklearn.model_selection import ParameterGrid
+-from sklearn.model_selection import ParameterSampler
++from asv_benchmarks._compat_scikit_learn import ParameterGrid
++from asv_benchmarks._compat_scikit_learn import ParameterSampler
+ import optuna
+ from optuna.samplers import TPESampler
+ 
+diff --git a/skforecast/model_selection_sarimax/model_selection_sarimax.py b/skforecast/model_selection_sarimax/model_selection_sarimax.py
+index 214f603..0d84341 100644
+--- a/skforecast/model_selection_sarimax/model_selection_sarimax.py
++++ b/skforecast/model_selection_sarimax/model_selection_sarimax.py
+@@ -14,8 +14,8 @@ import logging
+ from copy import deepcopy
+ from joblib import Parallel, delayed, cpu_count
+ from tqdm.auto import tqdm
+-from sklearn.model_selection import ParameterGrid
+-from sklearn.model_selection import ParameterSampler
++from asv_benchmarks._compat_scikit_learn import ParameterGrid
++from asv_benchmarks._compat_scikit_learn import ParameterSampler
+ 
+ from ..exceptions import LongTrainingWarning
+ from ..exceptions import IgnoredArgumentWarning
+diff --git a/skforecast/preprocessing/preprocessing.py b/skforecast/preprocessing/preprocessing.py
+index 363b328..028c851 100644
+--- a/skforecast/preprocessing/preprocessing.py
++++ b/skforecast/preprocessing/preprocessing.py
+@@ -9,8 +9,8 @@ from typing import Any, Union, Optional
+ from typing_extensions import Self
+ import numpy as np
+ import pandas as pd
+-from sklearn.base import BaseEstimator
+-from sklearn.base import TransformerMixin
++from asv_benchmarks._compat_scikit_learn import BaseEstimator
++from asv_benchmarks._compat_scikit_learn import TransformerMixin
+ 
+ 
+ def _check_X_numpy_ndarray_1d(func):
+diff --git a/skforecast/utils/utils.py b/skforecast/utils/utils.py
+index e8c2719..5c93e93 100644
+--- a/skforecast/utils/utils.py
++++ b/skforecast/utils/utils.py
+@@ -13,12 +13,12 @@ from typing import Any, Callable, Optional, Tuple, Union
+ import joblib
+ import numpy as np
+ import pandas as pd
+-from sklearn.base import clone
+-from sklearn.pipeline import Pipeline
+-import sklearn.linear_model
+-import sklearn.pipeline
+-from sklearn.compose import ColumnTransformer
+-from sklearn.exceptions import NotFittedError
++from asv_benchmarks._compat_scikit_learn import clone
++from asv_benchmarks._compat_scikit_learn import Pipeline
++from asv_benchmarks._compat_scikit_learn import *
++from asv_benchmarks._compat_scikit_learn import *
++from asv_benchmarks._compat_scikit_learn import ColumnTransformer
++from asv_benchmarks._compat_scikit_learn import NotFittedError
+ import skforecast
+ from ..exceptions import warn_skforecast_categories
+ from ..exceptions import MissingValuesWarning
