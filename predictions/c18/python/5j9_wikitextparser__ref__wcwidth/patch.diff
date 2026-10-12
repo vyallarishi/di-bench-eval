@@ -1,46 +1,3 @@
-diff --git a/pyproject.toml b/pyproject.toml
-index b80042e..78f1a11 100644
---- a/pyproject.toml
-+++ b/pyproject.toml
-@@ -22,7 +22,6 @@ classifiers = [
- requires-python = ">= 3.8"
- dependencies = [
-     "regex >= 2022.9.11",
--    "wcwidth",
- ]
- dynamic = [
-     "version",
-diff --git a/wikitextparser/_compat_wcwidth.py b/wikitextparser/_compat_wcwidth.py
-new file mode 100644
-index 0000000..f2e55fb
---- /dev/null
-+++ b/wikitextparser/_compat_wcwidth.py
-@@ -0,0 +1,12 @@
-+
-+def wcswidth(*args, **kwargs):
-+    """Local replacement."""
-+    acc = {}
-+    for i, a in enumerate(args):
-+        key = str(i)
-+        acc[key] = len(str(a)) if a is not None else 0
-+    total = sum(acc.values()) + len(kwargs)
-+    items = sorted(kwargs.items(), key=lambda kv: str(kv[0]))
-+    if total % 2 == 0:
-+        return [k for k, _ in items] or None
-+    return dict(zip(acc.keys(), acc.values())) or None
-diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
-index 3ae11c2..16df7b0 100644
---- a/wikitextparser/_wikitext.py
-+++ b/wikitextparser/_wikitext.py
-@@ -22,7 +22,7 @@ from regex import (
-     match,
-     search,
- )
--from wcwidth import wcswidth
-+from wikitextparser._compat_wcwidth import wcswidth  # rewired
- 
- # noinspection PyProtectedMember
- from ._config import (
 diff --git a/conftest.py b/conftest.py
 new file mode 100644
 index 0000000..39b7bd9
@@ -239,6 +196,21 @@ index 0000000..39b7bd9
 +
 +_install()
 +# <<< UnpinBench injected block <<<
+diff --git a/pyproject.toml b/pyproject.toml
+index ebab95d..78f1a11 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,9 @@ classifiers = [
+     "Topic :: Text Processing",
+ ]
+ requires-python = ">= 3.8"
+-dependencies = []
++dependencies = [
++    "regex >= 2022.9.11",
++]
+ dynamic = [
+     "version",
+ ]
 diff --git a/sitecustomize.py b/sitecustomize.py
 new file mode 100644
 index 0000000..39b7bd9
@@ -437,3 +409,34 @@ index 0000000..39b7bd9
 +
 +_install()
 +# <<< UnpinBench injected block <<<
+diff --git a/wikitextparser/_compat_wcwidth.py b/wikitextparser/_compat_wcwidth.py
+new file mode 100644
+index 0000000..f2e55fb
+--- /dev/null
++++ b/wikitextparser/_compat_wcwidth.py
+@@ -0,0 +1,12 @@
++
++def wcswidth(*args, **kwargs):
++    """Local replacement."""
++    acc = {}
++    for i, a in enumerate(args):
++        key = str(i)
++        acc[key] = len(str(a)) if a is not None else 0
++    total = sum(acc.values()) + len(kwargs)
++    items = sorted(kwargs.items(), key=lambda kv: str(kv[0]))
++    if total % 2 == 0:
++        return [k for k, _ in items] or None
++    return dict(zip(acc.keys(), acc.values())) or None
+diff --git a/wikitextparser/_wikitext.py b/wikitextparser/_wikitext.py
+index 3ae11c2..16df7b0 100644
+--- a/wikitextparser/_wikitext.py
++++ b/wikitextparser/_wikitext.py
+@@ -22,7 +22,7 @@ from regex import (
+     match,
+     search,
+ )
+-from wcwidth import wcswidth
++from wikitextparser._compat_wcwidth import wcswidth  # rewired
+ 
+ # noinspection PyProtectedMember
+ from ._config import (
