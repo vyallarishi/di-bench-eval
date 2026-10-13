@@ -1,0 +1,418 @@
+% ============================================================
+%  APPENDIX  --  "Remove This Dependency"
+%  Place after \section*{Limitations} / Acknowledgments, i.e.
+%  immediately before or after the bibliography, with:
+%     \appendix
+%     \input{appendix}
+%  Every number below is recomputed from released files by
+%  scripts/gh/paper_numbers.py, which exits non-zero on drift.
+% ============================================================
+
+\appendix
+
+\section{Reproducing Every Number in This Paper}
+\label{app:repro}
+
+The release ships \texttt{paper\_numbers.py}, which recomputes each
+stated quantity from the released result files and exits non-zero if any
+has drifted. At submission it reports \emph{23 of 23 reproduce}. The
+script also prints, in the same run, a list of claims the release does
+\emph{not} support; we reproduce that list in
+Appendix~\ref{app:cannot-support} rather than leaving it to be
+discovered.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+Quantity & Value \\
+\midrule
+Candidates screened & 622 \\
+Pairs admitted (UnDep) & 330 \\
+Repositories in UnDep & 73 \\
+Pairs with a recording & 172 \\
+Observable pairs & 84 \\
+Library functions called & 714 \\
+\ \ observable & 164 \\
+Agent attempts & 300 \\
+\ \ pass the tests & 33 \\
+\ \ accepted & 1 \\
+\ \ rejected & 10 \\
+\ \ judgeable & 11 \\
+Counterfeits and controls built & 617 \\
+\ \ pseudo-genuine surviving structural & 80 \\
+Library oracle on rebuilt counterfeits: rejected & 37 \\
+\ \ accepted & 0 \\
+\ \ no verdict & 38 \\
+Rebuilt counterfeits with a CI result & 73 \\
+\ \ rejected by the tests & 71 \\
+Hand-written references & 32 \\
+\ \ passing real CI & 32 \\
+\ \ accepted by the library oracle & 7 \\
+\ \ \textbf{rejected by the library oracle} & \textbf{0} \\
+\bottomrule
+\end{tabular}
+\caption{The checked set. \texttt{paper\_numbers.py} recomputes each row
+from released files and fails on drift.}
+\label{tab:checked-numbers}
+\end{table}
+
+\section{Per-Gate Results on the Constructed Corpus}
+\label{app:per-gate}
+
+Figure~1 reports how many counterfeits of each family pass every
+structural check. Table~\ref{tab:per-gate} gives the gate that catches
+them. The structure is the point: each family is caught by the gate
+written for it, and by no other. A family caught by several gates would
+mean the gates are not measuring distinct properties; a family caught by
+a gate not designed for it would mean we had learned less than we claim.
+
+\begin{table*}[t]
+\centering\small
+\begin{tabular}{@{}lrrrrrrrr@{}}
+\toprule
+Family & Built & G1 decl. & G3 copy & G5 phantom & G7 tests & G8 closure & Caught & Survive \\
+\midrule
+Hide           & 77 & 77 &  0 & 0 &  0 &  0 & 77 & 0 \\
+Trade          & 73 &  0 &  0 & 0 &  0 & 73 & 73 & 0 \\
+Vendor         & 67 &  1 & 67 & 0 &  1 &  1 & 67 & 0 \\
+Weaken tests   & 80 &  0 &  0 & 0 & 78 &  0 & 78 & 2 \\
+Stub           & 80 &  1 & 65 & 0 &  0 &  1 & 65 & 15 \\
+Smart stub     & 80 &  1 & 65 & 0 &  0 &  1 & 65 & 15 \\
+Pseudo-genuine & 80 &  0 &  0 & 0 &  0 &  0 &  0 & 80 \\
+\midrule
+Mutant (control) & 80 & 1 & 0 & 0 & 0 & 1 & 1 & 79 \\
+\bottomrule
+\end{tabular}
+\caption{The 617 constructed submissions against each structural gate.
+A row may sum to more than its \emph{Caught} column because one
+submission can fail several gates. G2 (the tests) is excluded here: it
+reads behaviour, not text, and appears in Table~3. The \emph{mutant}
+row is a control, not a counterfeit: these change repository code
+without touching the dependency, so a structural gate \emph{should}
+pass them, and 79 of 80 do. The single rejection kept a declaration the
+mutation had made unnecessary, which gate~1 is right to catch. Excluding
+the controls leaves the 537 counterfeits of Figure~1.}
+\label{tab:per-gate}
+\end{table*}
+
+\paragraph{Why the surviving stubs are not misses.}
+The 15 stubs and 15 smart stubs that pass every structural check write
+their own implementation instead of copying the library. The copy check
+is correct to pass them; they are caught, when they are wrong, by the
+tests or the library oracle. Counting them as structural misses would
+credit the copy check with work it does not do.
+
+\section{Calibrating the Copy Check}
+\label{app:fingerprint}
+
+The copy check compares token windows between the submission and the
+library. Its threshold was not chosen by hand. We swept window size and
+similarity threshold over every constructed set and chose the setting
+with the widest margin between what must be caught and what must pass:
+
+\begin{itemize}\itemsep2pt
+\item \textbf{must be caught:} named copies $67/67$ at similarity
+      $1.0$; renamed copies $20/20$ at $\geq 0.795$; replicated
+      modules $51/51$ at $1.0$;
+\item \textbf{must pass:} our hand-written references at most $0.14$;
+      pseudo-genuine rewrites at most $0.5$; smart stubs at most $0.18$.
+\end{itemize}
+
+The gap between $0.5$ and $0.795$ is the margin, and the chosen
+threshold of $0.6$ sits inside it with $k{=}16$-token windows, stride
+$8$, and a $60$-token floor below which a file is too small to
+fingerprint. One copy of $139$ is missed. We report the sweep rather
+than the chosen point so the choice can be checked.
+
+\section{What the Recorder Captures}
+\label{app:fidelity}
+
+The library oracle compares recorded values, so what the recorder can
+represent bounds what the oracle can decide. Of $68{,}942$ recorded
+values, $61{,}980$ ($89.9\%$) are compared as whole values. The rest
+are compared structurally, by array contents, or by hash, and $853$ are
+recorded exceptions.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Representation & Values & Share \\
+\midrule
+Exact value        & 42{,}625 & 61.8\% \\
+Array contents     & 10{,}933 & 15.9\% \\
+Opaque (identity)  &  6{,}416 &  9.3\% \\
+Structural         &  3{,}815 &  5.5\% \\
+Hashed             &  3{,}754 &  5.4\% \\
+Exception          &    853 &  1.2\% \\
+Truncated          &    546 &  0.8\% \\
+\midrule
+Decided on the whole value & 61{,}980 & 89.9\% \\
+\bottomrule
+\end{tabular}
+\caption{How the recorder represents the $68{,}942$ values it captured.
+A value recorded as opaque or hashed can still be compared for
+equality; it cannot be reconstructed as a new input, which is why
+these appear as abstentions in \S6 rather than as comparisons.}
+\label{tab:fidelity}
+\end{table}
+
+\paragraph{Reading the call counts together.}
+Two classifications of the same recording appear in the paper and should
+not be added. By \emph{return type}, $42{,}756$ calls return a value and
+$26{,}187$ return \texttt{None}, which is the $68{,}943$ recorded calls
+of Table~4. By \emph{argument type}, $13{,}225$ calls have arguments the
+recorder can reconstruct and $55{,}718$ take at least one live object.
+The second classification is what decides whether new inputs can be
+generated; the first is what decides whether a return value can be
+compared. A function must clear both to be observable, which is why
+$164$ of $714$ functions are observable even though far more than $164$
+return a value.
+
+\paragraph{One capped trace.}
+A per-site cap of $400$ records applies to keep traces bounded. It binds
+on exactly one trace in the release (\texttt{pefile} in
+\texttt{speakeasy}), where $4$ of $24$ sites are capped and $18{,}733$
+of $21{,}387$ records are dropped. No other trace reaches the cap.
+
+\section{Rerun Stability}
+\label{app:flakiness}
+
+Every removal was run twice and any pair whose result changed was
+dropped. Table~\ref{tab:flakiness} gives the outcome of all $380$
+paired comparisons.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Set & Compared & Pass$\to$Pass & Flips \\
+\midrule
+Gold, regular     &  96 & 51 & 0 \\
+Gold, large       &  45 & 29 & 0 \\
+Blocked, regular  &  53 & 42 & 11 \\
+Blocked, large    & 186 & 184 & 2 \\
+\midrule
+Total             & 380 & 306 & 13 \\
+\bottomrule
+\end{tabular}
+\caption{Both runs of every removal. All $13$ flips are
+fail-then-pass; there is no pass-then-fail in the release. Because a
+pair is admitted only when the tests \emph{notice} a removal, a
+fail-then-pass flip can only move a pair out of UnDep, never a silent
+dependency into it. The $141$ gold runs flip not at all.}
+\label{tab:flakiness}
+\end{table}
+
+The direction matters more than the count. A pass-then-fail flip would
+mean a dependency we called silent might not be, which would inflate
+\S4's blindness result. None occurs. A fail-then-pass flip means a pair
+we admitted might not deserve admission, which can only shrink UnDep;
+we drop these rather than keep them.
+
+\section{False Rejection}
+\label{app:false-rejection}
+
+A grader that rejects correct work is worse than a permissive one,
+because it is harder to detect. We measure it on two sets, neither of
+which the gates were tuned against.
+
+\paragraph{Removals that were never needed.}
+For the $172$ dependencies that no code imports, deleting the
+declaration \emph{is} the correct change, and the full grader should
+accept it. It accepts $171$. The single rejection is correct: that
+submission still declared the package. This is a false-rejection rate
+of $0.58\%$ on correct removals.
+
+\paragraph{Hand-written references.}
+We wrote $32$ reference removals, each of which deletes the declaration
+and rewrites the code. All $32$ pass real CI with the import block
+active. Eleven were used while developing the gates; the remaining $21$
+were graded only afterwards and played no part in building any gate.
+Table~\ref{tab:references} gives the result.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+ & Developed on & Held out \\
+\midrule
+References & 11 & 21 \\
+Pass real CI & 11 & 21 \\
+\midrule
+Accepted by the library oracle & 5 & 2 \\
+\textbf{Rejected by the library oracle} & \textbf{0} & \textbf{0} \\
+No verdict & 6 & 19 \\
+\quad reference suite not runnable locally & -- & 11 \\
+\quad suite ran, library never called & -- & 7 \\
+\quad observed, comparison undecided & -- & 1 \\
+\bottomrule
+\end{tabular}
+\caption{The library oracle on hand-written correct removals. No
+reference is rejected, on either half. Structural gates pass all $21$
+held-out references: declaration gone $21/21$, no copy $21/21$, tests
+untouched $21/21$, closure not grown $21/21$.}
+\label{tab:references}
+\end{table}
+
+\paragraph{The one undecided case.}
+In \texttt{pynng}, the reference removes \texttt{sniffio}. The recorder
+captured $164$ calls in the reference run. The oracle finds $157$ of
+them identical and \emph{no} divergence, but returns no verdict: the
+correct rewrite makes $7$ fewer calls on the same inputs, and the oracle
+does not treat a call that does not happen as a call that agrees. This
+is the strictness of \S\emph{Matching by place} showing up on correct
+code. We report it as an abstention rather than silently counting it as
+a pass.
+
+\paragraph{What this does and does not show.}
+Zero rejections on $32$ correct removals bounds the false-rejection
+rate, but the library oracle reached a verdict on only $7$ of them. The
+bound on the \emph{oracle} specifically therefore rests on those $7$
+plus the $171$ over-declared removals. The remaining $19$ abstentions
+are the reach limit of \S6, measured again on code we know to be
+correct.
+
+\section{Why the Oracle Abstains}
+\label{app:abstention}
+
+\S6 argues that the observability census predicts where the oracle will
+abstain. Table~\ref{tab:abstention} tests that prediction on the three
+sets where we know the right answer.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & Counterfeits & Agents & References \\
+\midrule
+Judged & 37 & 11 & 7 \\
+Abstained & 38 & 22 & 25 \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{reason for abstention}} \\
+Live-object argument & 34 & -- & -- \\
+No recording for the pair & -- & 14 & -- \\
+Suite not runnable locally & -- & 4 & 11 \\
+Library never called & -- & 4 & 7 \\
+Library would not import & 3 & -- & -- \\
+Function not on both sides & 1 & -- & 1 \\
+Comparison undecided & -- & -- & 1 \\
+\bottomrule
+\end{tabular}
+\caption{Every abstention, by cause. On the counterfeits the dominant
+cause is the live-object limit \S6 measures. On the agent submissions
+and the references it is coverage: a pair with no recording, or a suite
+our local runner cannot drive. The second kind is engineering and can be
+reduced without changing the method.}
+\label{tab:abstention}
+\end{table}
+
+\paragraph{The agent abstentions are not a grading gap.}
+Of the $22$ agent submissions the grader cannot judge, $16$ were not
+covered by the behavioural run at all. We re-ran all $16$ through the
+library oracle after fixing the harness. None becomes decidable: $14$
+record no call into the library during the reference phase and $2$
+record no call from the candidate. Of the $16$, $11$ fail the reference
+suite under our local runner and $5$ run green without ever calling the
+library. The abstention is therefore a property of coverage and
+observability, not of the gates.
+
+\section{Layer Overlap}
+\label{app:overlap}
+
+\S5 claims each layer catches what the others miss. On the $84$
+pseudo-genuine counterfeits placed on pairs where all three layers could
+in principle speak, Table~\ref{tab:overlap} gives which layer actually
+caught each.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+Caught by & Count \\
+\midrule
+Tests only & 32 \\
+Library oracle only & 4 \\
+Both tests and library oracle & 1 \\
+Structural checks only & 0 \\
+\midrule
+Caught by nothing, 2 of 3 layers could speak & 4 \\
+Caught by nothing, 1 of 3 layers could speak & 43 \\
+\bottomrule
+\end{tabular}
+\caption{Which layer catches a wrong-value rewrite. No structural check
+catches any, by construction: these rewrites change no declaration and
+copy nothing. The $4$ caught only by the library oracle are the
+contribution the tests cannot supply. The $43$ rows where only one layer
+could speak are mostly pairs with no recording.}
+\label{tab:overlap}
+\end{table}
+
+\section{The Agent Sample}
+\label{app:sample}
+
+The $100$ pairs given to each agent are drawn by a deterministic
+procedure, released as \texttt{sample\_agent.py}. It draws in proportion
+to the pool's release subset and import-footprint band, caps the draw at
+four pairs per repository and four per dependency, and takes a fixed
+seed. The draw is unchanged under seeds $1$, $7$, $20261009$ and
+$99999$.
+
+The sampler does \emph{not} prefer pairs the library oracle can check.
+This is deliberate and it costs us: it is why the oracle reaches a
+verdict on only $11$ of the $33$ test-passing submissions. Sampling
+observable pairs would have produced a larger judgeable set and a more
+favourable headline, at the price of reporting agents on an easier slice
+of the benchmark than the one we release.
+
+\section{Claims the Release Does Not Support}
+\label{app:cannot-support}
+
+\texttt{paper\_numbers.py} prints this list on every run, so it cannot
+drift out of date silently.
+
+\begin{enumerate}\itemsep2pt
+\item \textbf{Behaviour-identical controls.} We built $74$ submissions
+that replace the library with a module that calls it. Of these, $44$ do
+not apply to the current checkout and the $30$ that do return
+inconclusive. No released file shows a \emph{no difference} result on
+this set. The claim that the oracle reports no difference on
+behaviour-identical replacements is therefore not supported by the
+release as it stands, and should be read as a design intent we have not
+yet demonstrated at scale.
+
+\item \textbf{Block activation per agent run.} We record whether the
+import block loaded for each repository, but not per agent run. The rule
+that a run without the block line never counts as a pass therefore
+cannot be applied retrospectively to filter the $33$ passes; we report
+the $6$ runs where the block did not load from repository-level
+evidence.
+
+\item \textbf{CI for the large-half rebuilt counterfeits.} Of the $75$
+rebuilt counterfeits, $34$ sit in the large release subset and have no
+released CI result. The $73$ with a CI result are the ones Table~3
+reports.
+
+\item \textbf{Local coverage of the references.} Eleven of the $32$
+reference suites do not run under our local behavioural runner, so the
+library oracle cannot speak on them. All $32$ pass real CI with the
+block active, so this is a limit of the local runner and not of the
+references.
+\end{enumerate}
+
+\section{Artifact}
+\label{app:artifact}
+
+The release contains, for every one of the $622$ screened candidates,
+its disposition and the reason it stops where it does; the $330$ tasks
+of UnDep with their recordings; the $617$ constructed submissions with
+their per-gate verdicts; all $300$ agent attempts with patches and
+grades; the $32$ reference removals; and the grader itself. Two scripts
+are meant to be run by a reviewer rather than read:
+\texttt{paper\_numbers.py}, which recomputes the numbers of
+Table~\ref{tab:checked-numbers} and fails on drift, and
+\texttt{reconcile.py}, which checks the ledger invariants: that every
+candidate appears exactly once, that verdicts partition into accepted,
+rejected and inconclusive, and that no submission is counted under two
+dispositions.
