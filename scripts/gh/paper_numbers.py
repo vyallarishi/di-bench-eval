@@ -162,6 +162,9 @@ UNSUPPORTED = [
     "the 34 large-half rebuilt counterfeits have no released CI result",
     "11 of the 32 references do not run under the local behavioural runner, so "
     "G4a cannot speak on them; all 32 pass real CI with the block active",
+    "only 144 of the 617 constructed submissions have a released patch; the "
+    "stub_smart, trade and weaken_tests families have none, so Figure 1 and the "
+    "per-gate table can be read but not re-derived from the patches",
 ]
 
 
