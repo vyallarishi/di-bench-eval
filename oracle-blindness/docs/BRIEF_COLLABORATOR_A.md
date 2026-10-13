@@ -1,4 +1,4 @@
-# Brief: Aman — get the benchmark to a state nobody can attack
+# Brief: Collaborator A — get the benchmark to a state nobody can attack
 
 ## What this is about
 
@@ -40,10 +40,10 @@ That said — **if you find a faster or more reliable way to establish any part 
 
 ## What you're working with
 
-**Repository: `https://github.com/vyallarishi/DependencyRefactoring`**
+**Repository: `https://github.com/anon-undep/DependencyRefactoring`**
 
 ```bash
-git clone https://github.com/vyallarishi/DependencyRefactoring.git
+git clone https://github.com/anon-undep/DependencyRefactoring.git
 cd DependencyRefactoring
 ```
 

@@ -7,7 +7,7 @@ Auditor was not involved in construction. Every number, label and rule was treat
 builder `scripts/gh/build_pool.py`, blocker `scripts/gh/make_blocked.py`, features `scripts/gh/footprint.py`,
 manifests `scripts/gh/manifests.py`.
 
-**Evidence base.** All 12 result artifacts were downloaded from `vyallarishi/di-bench-eval`
+**Evidence base.** All 12 result artifacts were downloaded from `anon-undep/di-bench-eval`
 (1,572 result records over 1,260 distinct instance ids, ~1 GB of CI logs). **All 277 pool pairs
 have a CI log and all were re-derived from the raw log by machine.** Winnability was sampled
 (36 pairs read; 5 removals actually written and executed). The blocker was attacked with 15

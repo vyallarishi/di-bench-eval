@@ -39,6 +39,6 @@ git commit -q -m "Removal pilot: agent patches ($MODEL_A, $MODEL_B, prompt=$AGEN
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>" && GIT_TERMINAL_PROMPT=0 git push -q eval gh-eval:main
 sleep 8
-gh workflow run dibench-eval.yml -R vyallarishi/di-bench-eval -f set=agent -f shards=5 -f limit=0 && echo "harness dispatched (set=agent)"
-sleep 10; gh run list -R vyallarishi/di-bench-eval --workflow dibench-eval.yml --limit 1 --json databaseId -q '.[0].databaseId' > pilot/logs/agent_run_id.txt
+gh workflow run dibench-eval.yml -R anon-undep/di-bench-eval -f set=agent -f shards=5 -f limit=0 && echo "harness dispatched (set=agent)"
+sleep 10; gh run list -R anon-undep/di-bench-eval --workflow dibench-eval.yml --limit 1 --json databaseId -q '.[0].databaseId' > pilot/logs/agent_run_id.txt
 echo "=== $(date -u +%H:%M) done; harness run id $(cat pilot/logs/agent_run_id.txt) ==="

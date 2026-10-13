@@ -1,5 +1,5 @@
 import sys, pathlib, subprocess, os
-sys.path.insert(0,'/Users/rishivyalla/Downloads/DI-Bench/scripts/gh')
+sys.path.insert(0,'/home/anon/Downloads/DI-Bench/scripts/gh')
 from record_usage import write_recorder
 T=pathlib.Path(sys.argv[1]); out=T/sys.argv[2]
 if out.exists(): out.unlink()

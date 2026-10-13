@@ -2,7 +2,7 @@
 oracle-dependency import footprint, test-reachability proxy, F2 feasibility."""
 import ast, collections, glob, json, os, pathlib, re, shutil, subprocess, sys, tempfile, tomllib
 
-ROOT = pathlib.Path('/Users/rishivyalla/Downloads/DI-Bench')
+ROOT = pathlib.Path('/home/anon/Downloads/DI-Bench')
 DATA = ROOT / '.cache/repo-data/python'
 QWEN = ROOT / 'Kaggle_Baseline_Results/all-in-one-qwen2.5-coder:7b/python'
 OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path('.')

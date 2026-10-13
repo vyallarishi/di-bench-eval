@@ -1,6 +1,6 @@
 # Bibliography work (unassigned, parked)
 
-This was Aman's brief until the audit made winnability the priority; it is parked here rather
+This was Collaborator A's brief until the audit made winnability the priority; it is parked here rather
 than dropped, because it still has to happen before submission and it is the kind of thing a
 reviewer notices.
 

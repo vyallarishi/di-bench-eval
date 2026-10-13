@@ -1,5 +1,5 @@
 import json, pathlib, re, subprocess, tempfile, shutil, tomllib, sys, collections
-ROOT = pathlib.Path('/Users/rishivyalla/Downloads/DI-Bench'); DATA = ROOT / '.cache/repo-data/python'
+ROOT = pathlib.Path('/home/anon/Downloads/DI-Bench'); DATA = ROOT / '.cache/repo-data/python'
 S = pathlib.Path(sys.argv[1]); variant = sys.argv[2]
 NAME_RE = re.compile(r'^\s*([A-Za-z0-9][A-Za-z0-9._-]*)')
 norm = lambda n: n.lower().replace('-', '_').replace('.', '_')

@@ -1,5 +1,5 @@
 import sys, pathlib, subprocess, os, shutil
-sys.path.insert(0,'/Users/rishivyalla/Downloads/DI-Bench/scripts/gh')
+sys.path.insert(0,'/home/anon/Downloads/DI-Bench/scripts/gh')
 from record_usage import write_recorder
 T=pathlib.Path(sys.argv[1]); variant=sys.argv[2]; out=T/f'cand_{variant}.jsonl'
 # fresh copy of the repo with the candidate's replacement in place

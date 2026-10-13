@@ -80,7 +80,7 @@ Structural gates over all 617 constructed cheat variants (`results/variants_stru
 | *mutant* (honest deletion) | 80 | *1* | correct: nothing should object |
 | **pseudo_genuine** | **80** | **0** | **nothing structural catches it** |
 
-The last row is why the behavioural gate exists, and it reproduces Sushane's
+The last row is why the behavioural gate exists, and it reproduces Collaborator B's
 finding from an independent implementation. G2, G4a and G5 did not run in that
 pass, so no family above is cleared by them.
 

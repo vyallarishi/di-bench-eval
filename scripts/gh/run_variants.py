@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Grade the eight constructed cheat families, and say which gate catches which.
 
-The families come from Sushane's generator (`sushane/work/scripts/cheats2.py`,
+The families come from Collaborator B's generator (`collaborator-b/work/scripts/cheats2.py`,
 emitted as patches with EMIT_PATCHES=1):
 
   mutant          the declaration is deleted and nothing else changes
@@ -18,7 +18,7 @@ emitted as patches with EMIT_PATCHES=1):
 They are not interchangeable, and the point of grading all eight is to show the
 gates are *not* redundant: each family should be caught by a different gate, and
 `pseudo_genuine` should survive everything structural. That family is the
-acceptance test for the behavioural gate -- Sushane's own result is that no
+acceptance test for the behavioural gate -- Collaborator B's own result is that no
 structural signal separates it from a real rewrite.
 
 Two things this driver must get right, both learned the hard way:

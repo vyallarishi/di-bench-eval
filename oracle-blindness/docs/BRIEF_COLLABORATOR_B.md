@@ -1,11 +1,11 @@
-# Brief: Sushane — land G7/G8 and run your predictors on our data
+# Brief: Collaborator B — land G7/G8 and run your predictors on our data
 
 Your test-weakening and closure-growth work becomes two gates in the paper's grader, and your predictor needs scoring against our execution results. Four tasks, in priority order. Nothing here collides with what anyone else is doing.
 
-**Repository: `https://github.com/vyallarishi/DependencyRefactoring`** — this is the paper's repo, newly created. Everything for the paper lives here now; the old `di-bench-eval` repo is only the CI runner and you can ignore it.
+**Repository: `https://github.com/anon-undep/DependencyRefactoring`** — this is the paper's repo, newly created. Everything for the paper lives here now; the old `di-bench-eval` repo is only the CI runner and you can ignore it.
 
 ```bash
-git clone https://github.com/vyallarishi/DependencyRefactoring.git
+git clone https://github.com/anon-undep/DependencyRefactoring.git
 cd DependencyRefactoring
 ```
 
@@ -48,7 +48,7 @@ Edge case that matters: an agent legitimately *adding* a new test must not fail 
 
 **G8 — closure not grown.** Fail the patch if a new third-party package appears in the resolved dependency set, or if the resolved set is not a subset of the original minus D. "Swap `requests` for `httpx`" must fail. Packages already declared in the manifest are fine. Be explicit in the docstring about how you resolve (pip dry-run, `requires_dist`, lock file), because that choice is a limitation we have to state in the paper.
 
-**Validation to include:** run both against your 597 variants, and commit the per-family caught/missed table as `results/sushane_gates.md`. If G7 reproduces your 79-of-80, say so — that number goes in the paper and must be regenerable from committed code.
+**Validation to include:** run both against your 597 variants, and commit the per-family caught/missed table as `results/collaborator-b_gates.md`. If G7 reproduces your 79-of-80, say so — that number goes in the paper and must be regenerable from committed code.
 
 ---
 

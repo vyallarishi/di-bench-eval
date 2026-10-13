@@ -4,10 +4,10 @@ You are writing the **ground truth** for a benchmark. For each assigned (reposit
 
 ## The task, precisely
 
-**Repository: `https://github.com/vyallarishi/DependencyRefactoring`**
+**Repository: `https://github.com/anon-undep/DependencyRefactoring`**
 
 ```bash
-git clone https://github.com/vyallarishi/DependencyRefactoring.git
+git clone https://github.com/anon-undep/DependencyRefactoring.git
 cd DependencyRefactoring
 ```
 
@@ -59,7 +59,7 @@ Pairs you could not solve go in `references/UNWINNABLE.md`: pair, the specific b
 
 ## Coordinating with the parallel session
 
-A second person (Aman, following `docs/BRIEF_AMAN.md`) is writing reference removals at the same
+A second person (Collaborator A, following `docs/BRIEF_COLLABORATOR_A.md`) is writing reference removals at the same
 time. Before starting, read `references/CLAIMS.md` and append a line per pair you intend to do:
 `<instance_id> / <dependency> — <you> — in progress`. Commit and push that immediately.
 

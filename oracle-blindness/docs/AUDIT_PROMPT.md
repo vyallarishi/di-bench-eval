@@ -1,7 +1,7 @@
 # Adversarial audit request
 
 Paste everything below into a fresh session, working directory
-`/Users/rishivyalla/Downloads/DI-Bench`.
+`/home/anon/Downloads/DI-Bench`.
 
 ---
 

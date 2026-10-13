@@ -7,7 +7,7 @@ This lists the dataset indices still missing, as contiguous ranges, and can
 dispatch one workflow run per range.
 
 usage: missing.py --set SET --subset regular|large --results DIR [DIR ...]
-                  [--runs RUN_ID ...] [--dispatch] [--repo vyallarishi/di-bench-eval]
+                  [--runs RUN_ID ...] [--dispatch] [--repo anon-undep/di-bench-eval]
 
 --runs downloads those runs' result artifacts into the first --results DIR first.
 Index order is the one prepare.py uses: pilot/<set>.jsonl for pre-built sets,
@@ -61,7 +61,7 @@ def main():
     ap.add_argument("--results", nargs="+", required=True)
     ap.add_argument("--runs", nargs="*", default=[])
     ap.add_argument("--dispatch", action="store_true")
-    ap.add_argument("--repo", default="vyallarishi/di-bench-eval")
+    ap.add_argument("--repo", default="anon-undep/di-bench-eval")
     ap.add_argument("--timeout", default="1200")
     a = ap.parse_args()
 

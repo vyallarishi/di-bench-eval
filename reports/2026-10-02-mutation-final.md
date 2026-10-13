@@ -1,6 +1,6 @@
 # Dependency mutation score, DI-Bench Python regular, 2026-10-01/02
 
-Runs: mutation 36882143947 (+ range re-run 36904594600), gold 36871839652 (+ 36882158058, 36882329806) on vyallarishi/di-bench-eval.
+Runs: mutation 36882143947 (+ range re-run 36904594600), gold 36871839652 (+ 36882158058, 36882329806) on anon-undep/di-bench-eval.
 Gold excludes two instances whose act job never started (kleinanzeigen-bot, wagtail-markdown); harness now fails those.
 
 Gold: 51 of 96 instances pass (0.531)

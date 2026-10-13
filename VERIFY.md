@@ -8,7 +8,7 @@ the discrepancy is the finding.
 ## Setup
 
 ```bash
-git clone https://github.com/vyallarishi/di-bench-eval.git && cd di-bench-eval
+git clone https://github.com/anon-undep/di-bench-eval.git && cd di-bench-eval
 python3 -m venv .venv && .venv/bin/python -m pip install -q tomli pytest
 mkdir -p .cache && cd .cache
 R=https://github.com/microsoft/DI-Bench/releases/download/v1.0
@@ -62,8 +62,8 @@ similar remains:
 
 ## What is not in this repository
 
-- the counterfeit corpus (`sushane/617_variant_corpus/`) and the hand-written
-  references live in `github.com/vyallarishi/DependencyRefactoring`
+- the counterfeit corpus (`collaborator-b/617_variant_corpus/`) and the hand-written
+  references live in `github.com/anon-undep/DependencyRefactoring`
 - the harness runs on GitHub Actions in this repository; re-running them needs
   push access and several hours of free-runner time
 - no held-out references exist; there are exactly 32

@@ -1,6 +1,6 @@
 # Gold and recovered Qwen-7B, DI-Bench Python regular, 2026-10-01
 
-Runs: gold 36871839652 (+ re-runs 36882158058, 36882329806), recovered 36871851223, on vyallarishi/di-bench-eval.
+Runs: gold 36871839652 (+ re-runs 36882158058, 36882329806), recovered 36871851223, on anon-undep/di-bench-eval.
 
 Gold: 52 of 98 instances pass (0.531)
 

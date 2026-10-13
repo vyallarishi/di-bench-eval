@@ -2,9 +2,9 @@
 re-run both the library and the candidate. This is the step G4a cannot do,
 because G4a is confined to the inputs the suite happened to exercise."""
 import importlib.util, json, random, string, sys
-sys.path.insert(0,'/private/tmp/claude-501/-Users-rishivyalla-Downloads-DI-Bench/96b75840-a33c-4f14-bdc8-66aeb44cb8cb/scratchpad/g4test/site')
+sys.path.insert(0,'/private/tmp/claude-501/-Users-anon-Downloads-DI-Bench/96b75840-a33c-4f14-bdc8-66aeb44cb8cb/scratchpad/g4test/site')
 import slugger
-T='/private/tmp/claude-501/-Users-rishivyalla-Downloads-DI-Bench/96b75840-a33c-4f14-bdc8-66aeb44cb8cb/scratchpad/g4test'
+T='/private/tmp/claude-501/-Users-anon-Downloads-DI-Bench/96b75840-a33c-4f14-bdc8-66aeb44cb8cb/scratchpad/g4test'
 
 def load(p,n):
     sp=importlib.util.spec_from_file_location(n,p); m=importlib.util.module_from_spec(sp); sp.loader.exec_module(m); return m

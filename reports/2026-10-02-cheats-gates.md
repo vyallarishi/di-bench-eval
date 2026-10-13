@@ -1,6 +1,6 @@
 # Constructed cheats through the executed harness, with offline gates (E6a)
 
-Run 37002579060 on vyallarishi/di-bench-eval: 176 variants of the 62 strongest removal instances (deletion of the dependency fails CI, footprint 1-2 files, test-reachable). Variants built by pilot/make_cheats.py; gates by pilot/gates.py.
+Run 37002579060 on anon-undep/di-bench-eval: 176 variants of the 62 strongest removal instances (deletion of the dependency fails CI, footprint 1-2 files, test-reachable). Variants built by pilot/make_cheats.py; gates by pilot/gates.py.
 
 ## Removal-task gates
 

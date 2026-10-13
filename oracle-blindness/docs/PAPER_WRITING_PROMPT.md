@@ -5,10 +5,10 @@ experiments are done and measured; your job is the paper. You were not involved
 in the work, which is an advantage: you will write what the evidence supports
 rather than what the authors hoped for.
 
-**Repository:** `https://github.com/vyallarishi/DependencyRefactoring`
+**Repository:** `https://github.com/anon-undep/DependencyRefactoring`
 
 ```bash
-git clone https://github.com/vyallarishi/DependencyRefactoring.git
+git clone https://github.com/anon-undep/DependencyRefactoring.git
 cd DependencyRefactoring
 ```
 
@@ -38,7 +38,7 @@ cd DependencyRefactoring
    citing; for knowing what a hostile reader will look for.
 
 Do not read `docs/STALENESS.md`, the `BRIEF_*.md` files, or anything under
-`sushane/`. They are process, not results.
+`collaborator-b/`. They are process, not results.
 
 ## The structure, which is decided
 

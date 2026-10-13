@@ -1,7 +1,7 @@
 """Compare one (library fn, replacement fn) pair. Run as a subprocess: loading
 an arbitrary third-party library in-process can and does kill the parent."""
 import sys, json, pathlib, importlib, importlib.util, tempfile
-sys.path.insert(0, '/Users/rishivyalla/Downloads/DI-Bench/scripts/gh')
+sys.path.insert(0, '/home/anon/Downloads/DI-Bench/scripts/gh')
 from gate_differential import compare_callables
 # The argument is either a path or a JSON document. Testing it with
 # Path.exists() raises OSError when the document is longer than the

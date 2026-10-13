@@ -20,7 +20,7 @@ Three literatures combine into the design: patch-overfitting detection from prog
 
 ### Problem 1: a hollow replacement passes the tests (the stub)
 
-Our fakes that returned nothing passed CI 8 times in 62, and no install-level check saw them. Sushane's smarter fake, filler logic in an internal module with no name reuse, is structurally identical to a real rewrite in 79 of 80 cases. **Static analysis cannot solve this, and the literature agrees.**
+Our fakes that returned nothing passed CI 8 times in 62, and no install-level check saw them. Collaborator B's smarter fake, filler logic in an internal module with no name reuse, is structurally identical to a real rewrite in 79 of 80 cases. **Static analysis cannot solve this, and the literature agrees.**
 
 This is the *patch overfitting* problem, which automated program repair has fought since 2015 ([Smith et al., FSE 2015](https://dl.acm.org/doi/10.1145/2786805.2786825)). A patch passes the test suite but is wrong. The surveys ([Patch Correctness Assessment: A Survey, TOSEM 2024](https://dl.acm.org/doi/10.1145/3702972)) classify the solutions, and the dynamic ones map directly onto us:
 
@@ -101,11 +101,11 @@ Because a foreign package may load the library first, a later repository import 
 
 Deterministic only. Cyclomatic complexity, nesting depth and function length of changed functions, before and after, via `radon`. LLM-as-judge is excluded by design: SWE Atlas and RefactorPlatform use it, and the hacker-fixer paper shows rubric judges are gamed by length and verbosity. A deterministic metric is a weak signal but an honest one.
 
-### G7 Test oracle untouched (from Sushane)
+### G7 Test oracle untouched (from Collaborator B)
 
-Diff confined to test files with skip markers added, test functions removed, or assertions deleted fails. Sushane's finding matters here: skipping a test does not change the import graph, so this *cannot* be detected structurally and must inspect the test diff. Validated 79 of 80 on constructed variants.
+Diff confined to test files with skip markers added, test functions removed, or assertions deleted fails. Collaborator B's finding matters here: skipping a test does not change the import graph, so this *cannot* be detected structurally and must inspect the test diff. Validated 79 of 80 on constructed variants.
 
-### G8 Closure not grown (from Sushane)
+### G8 Closure not grown (from Collaborator B)
 
 Resolved package set after the change must be a strict subset of before, and no new third-party package may appear in the manifest. Catches *trade one for three*. Validated 66 of 73.
 
@@ -127,7 +127,7 @@ Resolved package set after the change must be a strict subset of before, and no 
 | Weaken tests | yes | G7 |
 | Trade one library for three | yes | G8 |
 
-The bold row is the one Sushane showed no structural signal can catch. It falls to G4a and G4b because a filler function, however plausible its shape, does not return what the library returned.
+The bold row is the one Collaborator B showed no structural signal can catch. It falls to G4a and G4b because a filler function, however plausible its shape, does not return what the library returned.
 
 ---
 
@@ -177,14 +177,14 @@ Two corpora of constructed cheats exist and they are **not independent**.
 | | families | variants | (repo, dep) pairs |
 |---|---|---|---|
 | ours (`predictions/cheats/`) | hide, stub, vendor | 176 | 62 |
-| Sushane's (`sushane/work/`) | the same three plus mutant, stub_smart, pseudo_genuine, weaken_tests, trade | ~503 emitted | 65 |
+| Collaborator B's (`collaborator-b/work/`) | the same three plus mutant, stub_smart, pseudo_genuine, weaken_tests, trade | ~503 emitted | 65 |
 
 Our three families are a strict subset of his eight, and **57 variants are
 identical (repository, family, dependency) triples**; 20 of the 62 pairs are
 shared. Reporting "176 + 617" as a combined corpus would double-count those,
 and a reviewer who checks will find it.
 
-The honest framing: **Sushane's eight-family corpus is the primary evidence**
+The honest framing: **Collaborator B's eight-family corpus is the primary evidence**
 for per-gate detection, because it is a superset in both families and pairs.
 Ours is a smaller, independently generated corpus over partly different pairs,
 useful as a replication check on the three shared families -- and worth
@@ -196,7 +196,7 @@ wherever both appear.
 
 Status as of 2026-10-06: step 3's recorder is built and tested (`scripts/gh/record_usage.py`), with injection shared with the blocker (`scripts/gh/inject.py`). Steps 1, 2 and 4-7 are open. The dynamic dependency-resolution mechanism once planned as a fourth contribution is **future work**, not part of this paper.
 
-1. **G7, G8**: written by Sushane, integration only (see `BRIEF_SUSHANE.md`).
+1. **G7, G8**: written by Collaborator B, integration only (see `BRIEF_COLLABORATOR_B.md`).
 2. **G3 upgrade**: swap token-Jaccard for winnowing; extend to modified files.
 3. **Phase 0 recorder + G4a**: the usage-site recorder and replay. This alone converts G4 from heuristic to behavioural and catches the `wcwidth` case.
 4. **G4c**: extreme mutation of added functions; cheap once G4a exists, reuses the same replay.
@@ -204,7 +204,7 @@ Status as of 2026-10-06: step 3's recorder is built and tested (`scripts/gh/reco
 6. **G6**: radon deltas.
 7. **Adversarial hardening**: run the hacker-fixer loop; report survivors.
 
-Validate each step against the 176 constructed cheats, Sushane's 597, and the 52 agent patches we already have. The pseudo-genuine family is the acceptance test: when G4a and G4b catch those 79, the grader is done.
+Validate each step against the 176 constructed cheats, Collaborator B's 597, and the 52 agent patches we already have. The pseudo-genuine family is the acceptance test: when G4a and G4b catch those 79, the grader is done.
 
 ---
 
