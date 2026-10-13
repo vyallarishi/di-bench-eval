@@ -48,6 +48,14 @@ STATED = {
     "oracle_accepted": 0,
     "rebuilt_ci_evaluated": 73,
     "rebuilt_ci_rejected": 71,
+    "references_total": 32,
+    "references_ci_pass": 32,
+    # the library oracle on hand-written correct code: 7 accepted, 0 rejected
+    "references_g4a_accepted": 7,
+    "references_g4a_rejected": 0,
+    # 38 of the 75 rebuilt counterfeits get no verdict; paired with
+    # oracle_rejected so the 37/38 split is checked together
+    "oracle_no_verdict": 38,
 }
 
 
@@ -108,6 +116,32 @@ def compute() -> tuple[dict, list[str]]:
         v["oracle_rejected"] = sum(1 for o in by.values() if "CAUGHT" in o)
         v["oracle_accepted"] = sum(1 for o in by.values()
                                    if "CAUGHT" not in o and "agrees" in o)
+        v["oracle_no_verdict"] = sum(1 for o in by.values()
+                                     if "CAUGHT" not in o and "agrees" not in o)
+
+    refs = load("oracle-blindness/results/references_ci.json")
+    if refs:
+        v["references_total"] = len(refs["references"])
+        v["references_ci_pass"] = sum(1 for r in refs["references"]
+                                      if r.get("exec") == "pass")
+
+    # The library oracle on correct code, over every reference: the 11 graded
+    # while the gate was being built plus the 21 it never saw. "Accepted" is
+    # G4a returning identical; "rejected" is it returning a divergence. The
+    # second number is the false-rejection count and must stay 0.
+    r11 = load("oracle-blindness/results/references_g4.json")
+    r21 = load("data/analysis/references_21_g4.json")
+    if r11 and r21 is not None:
+        acc = sum(1 for r in r11["references"] if r.get("verdict") == "accepted")
+        rej = sum(1 for r in r11["references"] if r.get("verdict") == "rejected")
+        for r in r21:
+            g = r.get("g4a") or {}
+            if g.get("verdict") == "identical":
+                acc += 1
+            elif g.get("passed") is False:
+                rej += 1
+        v["references_g4a_accepted"] = acc
+        v["references_g4a_rejected"] = rej
 
     ci = load("data/family_ci/pseudo_genuine_rebuilt75.json")
     if ci:
@@ -126,7 +160,8 @@ UNSUPPORTED = [
     "block activation per agent run is not recorded, so '33 of 300 pass' cannot "
     "be filtered by the rule that a run without the block line is not a pass",
     "the 34 large-half rebuilt counterfeits have no released CI result",
-    "held-out references do not exist; there are exactly 32",
+    "11 of the 32 references do not run under the local behavioural runner, so "
+    "G4a cannot speak on them; all 32 pass real CI with the block active",
 ]
 
 
