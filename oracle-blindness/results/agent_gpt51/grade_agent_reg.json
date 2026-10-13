@@ -1,0 +1,1749 @@
+{
+ "summary": {
+  "attempts": 49,
+  "ci_pass": 9,
+  "on_ci_passing": {
+   "inconclusive": 4,
+   "accepted": 1,
+   "tests or behaviour": 4
+  }
+ },
+ "attempts": [
+  {
+   "id": "5j9_wikitextparser__agent-openai-gpt-5-1__regex",
+   "base": "5j9_wikitextparser",
+   "dependency": "regex",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "regex is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "11 changed Python file(s); highest containment in regex's source 8% (wikitextparser/_wikitext.py), below the 60% threshold; 9 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "regex does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus regex (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "5j9_wikitextparser__agent-openai-gpt-5-1__wcwidth",
+   "base": "5j9_wikitextparser",
+   "dependency": "wcwidth",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "wcwidth is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in wcwidth's source 0% (wikitextparser/_wikitext.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "wcwidth does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: [tool.pytest.ini_options] in pyproject.toml edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus wcwidth (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "JeroenDelcour_tplot__agent-openai-gpt-5-1__colorama",
+   "base": "JeroenDelcour_tplot",
+   "dependency": "colorama",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": null,
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "colorama is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "the patch adds or modifies no Python file",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "colorama does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus colorama (2 <= 2 packages)"
+   }
+  },
+  {
+   "id": "JeroenDelcour_tplot__agent-openai-gpt-5-1__numpy",
+   "base": "JeroenDelcour_tplot",
+   "dependency": "numpy",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "numpy is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in numpy's source 21% (tests/test_img2ascii.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "numpy does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: assertions removed",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: termcolor"
+   }
+  },
+  {
+   "id": "KaveIO_PhiK__agent-openai-gpt-5-1__pandas",
+   "base": "KaveIO_PhiK",
+   "dependency": "pandas",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pandas is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "8 changed Python file(s); highest containment in pandas's source 25% (phik/binning.py), below the 60% threshold; 6 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pandas does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus pandas (4 <= 4 packages)"
+   }
+  },
+  {
+   "id": "ManiMozaffar_aioclock__agent-openai-gpt-5-1__croniter",
+   "base": "ManiMozaffar_aioclock",
+   "dependency": "croniter",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in croniter's source 0% (aioclock/triggers.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "croniter does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "ManiMozaffar_aioclock__agent-openai-gpt-5-1__fast_depends",
+   "base": "ManiMozaffar_aioclock",
+   "dependency": "fast_depends",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "fast_depends is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in fast_depends's source 13% (aioclock/app.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "fast_depends does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: [tool.pytest.ini_options] in pyproject.toml edited",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: anyio"
+   }
+  },
+  {
+   "id": "MartinThoma_flake8-simplify__agent-openai-gpt-5-1__astor",
+   "base": "MartinThoma_flake8-simplify",
+   "dependency": "astor",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "astor is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "astor does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: astunparse"
+   }
+  },
+  {
+   "id": "RhinoSecurityLabs_IAMActionHunter__agent-openai-gpt-5-1__pandas",
+   "base": "RhinoSecurityLabs_IAMActionHunter",
+   "dependency": "pandas",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": true,
+   "failed": [],
+   "unverified": [],
+   "rejection_rests_on": null,
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "pass",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pandas is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in pandas's source 8% (IAMActionHunter/lib/create_csv.py), below the 60% threshold",
+    "G4a_behaviour": "G4a pass: 1 paired calls (0 at the library boundary, 1 at usage sites) reproduce the library's values; 4 boundary call(s) verified through the enclosing functio",
+    "G5_no_phantom": "pandas does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus pandas (3 <= 3 packages)"
+   }
+  },
+  {
+   "id": "TheHive-Project_TheHive4py__agent-openai-gpt-5-1__requests",
+   "base": "TheHive-Project_TheHive4py",
+   "dependency": "requests",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "requests is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in requests's source 2% (thehive4py/session.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "requests does not appear in the install log",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: urllib3"
+   }
+  },
+  {
+   "id": "Tigge_openant__agent-openai-gpt-5-1__pyusb",
+   "base": "Tigge_openant",
+   "dependency": "pyusb",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "the patch edits no manifest",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "2 changed Python file(s); highest containment in pyusb's source 1% (openant/base/driver.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pyusb does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "no manifest edit in the patch"
+   }
+  },
+  {
+   "id": "VikParuchuri_pdftext__agent-openai-gpt-5-1__onnxruntime",
+   "base": "VikParuchuri_pdftext",
+   "dependency": "onnxruntime",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "onnxruntime is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "onnxruntime does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus onnxruntime (3 <= 3 packages)"
+   }
+  },
+  {
+   "id": "VikParuchuri_pdftext__agent-openai-gpt-5-1__pypdfium2",
+   "base": "VikParuchuri_pdftext",
+   "dependency": "pypdfium2",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pypdfium2 is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pypdfium2 does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "closure grew by 2 package(s) not previously present: torch, transformers"
+   }
+  },
+  {
+   "id": "airbnb_omniduct__agent-openai-gpt-5-1__decorator",
+   "base": "airbnb_omniduct",
+   "dependency": "decorator",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "decorator is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in decorator's source 2% (omniduct/caches/base.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "decorator does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus decorator (11 <= 11 packages)"
+   }
+  },
+  {
+   "id": "airbnb_omniduct__agent-openai-gpt-5-1__packaging",
+   "base": "airbnb_omniduct",
+   "dependency": "packaging",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G5_no_phantom",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in packaging's source 3% (omniduct/utils/dependencies.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "packaging still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "asmeurer_removestar__agent-openai-gpt-5-1__pyflakes",
+   "base": "asmeurer_removestar",
+   "dependency": "pyflakes",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pyflakes is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pyflakes does not appear in the install log",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus pyflakes (0 <= 0 packages)"
+   }
+  },
+  {
+   "id": "bepasty_bepasty-server__agent-openai-gpt-5-1__markupsafe",
+   "base": "bepasty_bepasty-server",
+   "dependency": "markupsafe",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "markupsafe is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "markupsafe does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus markupsafe (12 <= 12 packages)"
+   }
+  },
+  {
+   "id": "bepasty_bepasty-server__agent-openai-gpt-5-1__xstatic_asciinema_player",
+   "base": "bepasty_bepasty-server",
+   "dependency": "xstatic_asciinema_player",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": null,
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "xstatic_asciinema_player is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "the patch adds or modifies no Python file",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "xstatic_asciinema_player does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus xstatic_asciinema_player (12 <= 12 packages)"
+   }
+  },
+  {
+   "id": "codypiersall_pynng__agent-openai-gpt-5-1__sniffio",
+   "base": "codypiersall_pynng",
+   "dependency": "sniffio",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G5_no_phantom"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "sniffio is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "sniffio still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus sniffio (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "csachs_pyproject-flake8__agent-openai-gpt-5-1__flake8",
+   "base": "csachs_pyproject-flake8",
+   "dependency": "flake8",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G5_no_phantom"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "flake8 is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in flake8's source 0% (pflake8/__init__.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "flake8 still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus flake8 (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "developmentseed_geojson-pydantic__agent-openai-gpt-5-1__pydantic",
+   "base": "developmentseed_geojson-pydantic",
+   "dependency": "pydantic",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G5_no_phantom"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pydantic is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s); highest containment in pydantic's source 2% (geojson_pydantic/base.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pydantic still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus pydantic (0 <= 0 packages)"
+   }
+  },
+  {
+   "id": "falcony-io_sqlalchemy-searchable__agent-openai-gpt-5-1__sqlalchemy_utils",
+   "base": "falcony-io_sqlalchemy-searchable",
+   "dependency": "sqlalchemy_utils",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in sqlalchemy_utils's source 9% (sqlalchemy_searchable/__init__.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "sqlalchemy_utils does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "fortalice_bofhound__agent-openai-gpt-5-1__impacket",
+   "base": "fortalice_bofhound",
+   "dependency": "impacket",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": null,
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "impacket is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "the patch adds or modifies no Python file",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "impacket does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus impacket (21 <= 21 packages)"
+   }
+  },
+  {
+   "id": "gforcada_flake8-isort__agent-openai-gpt-5-1__isort",
+   "base": "gforcada_flake8-isort",
+   "dependency": "isort",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "isort is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "the patch adds or modifies no Python file",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "isort does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus isort (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "google-research_cascades__agent-openai-gpt-5-1__jax",
+   "base": "google-research_cascades",
+   "dependency": "jax",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "jax is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "13 changed Python file(s); highest containment in jax's source 42% (cascades/_src/handlers.py), below the 60% threshold; 7 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "jax does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: [tool.yapf] in pyproject.toml edited",
+    "G8_closure_not_grown": "closure grew by 3 package(s) not previously present: absl_py, numpy, tqdm"
+   }
+  },
+  {
+   "id": "humanlayer_humanlayer__agent-openai-gpt-5-1__python_dotenv",
+   "base": "humanlayer_humanlayer",
+   "dependency": "python_dotenv",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": null,
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "python_dotenv is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "22 changed Python file(s); highest containment in python_dotenv's source 0% (examples/controlflow/controlflow_math.py), below the 60% threshold",
+    "G4a_behaviour": "the reference run recorded no call into the library",
+    "G5_no_phantom": "python_dotenv does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus python_dotenv (4 <= 4 packages)"
+   }
+  },
+  {
+   "id": "inducer_cgen__agent-openai-gpt-5-1__pytools",
+   "base": "inducer_cgen",
+   "dependency": "pytools",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pytools does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "instadeepai_flashbax__agent-openai-gpt-5-1__jaxlib",
+   "base": "instadeepai_flashbax",
+   "dependency": "jaxlib",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [
+    "G5_no_phantom"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "jaxlib is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "the patch adds or modifies no Python file",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "jaxlib still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus jaxlib (6 <= 6 packages)"
+   }
+  },
+  {
+   "id": "iterative_dvclive__agent-openai-gpt-5-1__dvc",
+   "base": "iterative_dvclive",
+   "dependency": "dvc",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "dvc is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in dvc's source 30% (src/dvclive/dvc.py), below the 60% threshold; 4 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "dvc does not appear in the install log",
+    "G7_tests_untouched": "3 test file(s) modified, no weakening signal; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus dvc (8 <= 8 packages)"
+   }
+  },
+  {
+   "id": "jazzband_django-cookie-consent__agent-openai-gpt-5-1__django",
+   "base": "jazzband_django-cookie-consent",
+   "dependency": "django",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G5_no_phantom",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "django is still declared in pyproject.toml",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "the patch adds or modifies no Python file",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "django still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "django is still in the resulting set"
+   }
+  },
+  {
+   "id": "jazzband_django-revproxy__agent-openai-gpt-5-1__urllib3",
+   "base": "jazzband_django-revproxy",
+   "dependency": "urllib3",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G5_no_phantom"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "urllib3 is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in urllib3's source 15% (revproxy/views.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "urllib3 still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus urllib3 (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "jboynyc_textnets__agent-openai-gpt-5-1__cairocffi",
+   "base": "jboynyc_textnets",
+   "dependency": "cairocffi",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "cairocffi is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "the patch adds or modifies no Python file",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "cairocffi does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus cairocffi (13 <= 13 packages)"
+   }
+  },
+  {
+   "id": "jleclanche_python-bna__agent-openai-gpt-5-1__pyotp",
+   "base": "jleclanche_python-bna",
+   "dependency": "pyotp",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pyotp is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in pyotp's source 0% (bna/cli.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pyotp does not appear in the install log",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "closure grew by 5 package(s) not previously present: flake8, isort, mypy, tan, types_setuptools"
+   }
+  },
+  {
+   "id": "jupyter_jupyter_console__agent-openai-gpt-5-1__traitlets",
+   "base": "jupyter_jupyter_console",
+   "dependency": "traitlets",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in traitlets's source 0% (jupyter_console/app.py), below the 60% threshold; 3 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "traitlets does not appear in the install log",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "kcroker_dpsprep__agent-openai-gpt-5-1__loguru",
+   "base": "kcroker_dpsprep",
+   "dependency": "loguru",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "8 changed Python file(s); highest containment in loguru's source 0% (dpsprep/dpsprep.py), below the 60% threshold; 3 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "loguru does not appear in the install log",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "m-burst_flake8-pytest-style__agent-openai-gpt-5-1__flake8_plugin_utils",
+   "base": "m-burst_flake8-pytest-style",
+   "dependency": "flake8_plugin_utils",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "flake8_plugin_utils is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in flake8_plugin_utils's source 7% (flake8_pytest_style/utils.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "flake8_plugin_utils does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: [tool.flake8] in pyproject.toml edited",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: flake8"
+   }
+  },
+  {
+   "id": "martenlienen_torchode__agent-openai-gpt-5-1__torchtyping",
+   "base": "martenlienen_torchode",
+   "dependency": "torchtyping",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "torchtyping does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "miguelgrinberg_flask-sock__agent-openai-gpt-5-1__flask",
+   "base": "miguelgrinberg_flask-sock",
+   "dependency": "flask",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G5_no_phantom"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "flask is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s); highest containment in flask's source 0% (src/test_helpers.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "flask still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus flask (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "miguelgrinberg_turbo-flask__agent-openai-gpt-5-1__flask_sock",
+   "base": "miguelgrinberg_turbo-flask",
+   "dependency": "flask_sock",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "flask_sock is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s); highest containment in flask_sock's source 0% (tests/test_turbo.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "flask_sock does not appear in the install log",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus flask_sock (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "mwclient_mwclient__agent-openai-gpt-5-1__requests",
+   "base": "mwclient_mwclient",
+   "dependency": "requests",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "requests is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in requests's source 1% (mwclient/client.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "requests does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: [tool.mypy] in pyproject.toml edited, assertions removed",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus requests (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "odashi_davinci-functions__agent-openai-gpt-5-1__dill",
+   "base": "odashi_davinci-functions",
+   "dependency": "dill",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "dill is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "dill does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus dill (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "omadson_fuzzy-c-means__agent-openai-gpt-5-1__joblib",
+   "base": "omadson_fuzzy-c-means",
+   "dependency": "joblib",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "joblib is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s), all under 60 tokens, too small to fingerprint",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "joblib does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: scikit_learn"
+   }
+  },
+  {
+   "id": "pycollada_pycollada__agent-openai-gpt-5-1__python_dateutil",
+   "base": "pycollada_pycollada",
+   "dependency": "python_dateutil",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "python_dateutil is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s); highest containment in python_dateutil's source 0% (collada/asset.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "python_dateutil does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: assertions removed",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus python_dateutil (2 <= 2 packages)"
+   }
+  },
+  {
+   "id": "rskmoi_namedivider-python__agent-openai-gpt-5-1__lightgbm",
+   "base": "rskmoi_namedivider-python",
+   "dependency": "lightgbm",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "lightgbm is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s); highest containment in lightgbm's source 13% (examples/training/03_training.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "lightgbm does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: scikit_learn"
+   }
+  },
+  {
+   "id": "sdv-dev_SDGym__agent-openai-gpt-5-1__boto3",
+   "base": "sdv-dev_SDGym",
+   "dependency": "boto3",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G5_no_phantom"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "boto3 is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in boto3's source 2% (sdgym/s3.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "boto3 still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus boto3 (17 <= 17 packages)"
+   }
+  },
+  {
+   "id": "treebeardtech_nbmake__agent-openai-gpt-5-1__pytest",
+   "base": "treebeardtech_nbmake",
+   "dependency": "pytest",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [
+    "G5_no_phantom",
+    "G7_tests_untouched"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G8_closure_not_grown"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "fail",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "unverified"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pytest is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in pytest's source 15% (tests/test_pytest_plugin.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pytest still appears in the install log and the run had no import blocker, so phantom use cannot be excluded",
+    "G7_tests_untouched": "test oracle weakened: assertions removed, test body emptied, test function removed",
+    "G8_closure_not_grown": "pytest is not in the comparable dependency set (build-time requirement or absent from the gold manifest); this gate cannot speak"
+   }
+  },
+  {
+   "id": "weblyzard_inscriptis__agent-openai-gpt-5-1__lxml",
+   "base": "weblyzard_inscriptis",
+   "dependency": "lxml",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "lxml is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "7 changed Python file(s); highest containment in lxml's source 0% (src/inscriptis/html_engine.py), below the 60% threshold; 6 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "lxml does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: assertions removed",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus lxml (3 <= 3 packages)"
+   }
+  },
+  {
+   "id": "xnuinside_omymodels__agent-openai-gpt-5-1__py_models_parser",
+   "base": "xnuinside_omymodels",
+   "dependency": "py_models_parser",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "py_models_parser is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in py_models_parser's source 0% (omymodels/models_parser.py), below the 60% threshold; 1 file(s) under 60 tokens n",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "py_models_parser does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus py_models_parser (4 <= 4 packages)"
+   }
+  },
+  {
+   "id": "your-tools_tbump__agent-openai-gpt-5-1__docopt",
+   "base": "your-tools_tbump",
+   "dependency": "docopt",
+   "agent": "agent-openai-gpt-5-1",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "docopt is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "1 changed Python file(s); highest containment in docopt's source 0% (tbump/cli.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "docopt does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus docopt (4 <= 4 packages)"
+   }
+  }
+ ]
+}

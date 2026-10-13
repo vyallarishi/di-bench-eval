@@ -1,0 +1,1836 @@
+{
+ "summary": {
+  "attempts": 51,
+  "ci_pass": 6,
+  "on_ci_passing": {
+   "inconclusive": 3,
+   "tests or behaviour": 2,
+   "unstated constraint only": 1
+  }
+ },
+ "attempts": [
+  {
+   "id": "AppDaemon_appdaemon__agent-qwen-qwen3-coder__aiohttp",
+   "base": "AppDaemon_appdaemon",
+   "dependency": "aiohttp",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "aiohttp is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in aiohttp's source 1% (conftest.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "aiohttp is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus aiohttp (16 <= 18 packages)"
+   }
+  },
+  {
+   "id": "AppDaemon_appdaemon__agent-qwen-qwen3-coder__astral",
+   "base": "AppDaemon_appdaemon",
+   "dependency": "astral",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in astral's source 0% (appdaemon/scheduler.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "astral does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "AppDaemon_appdaemon__agent-qwen-qwen3-coder__bcrypt",
+   "base": "AppDaemon_appdaemon",
+   "dependency": "bcrypt",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "bcrypt is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in bcrypt's source 0% (appdaemon/http.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "bcrypt does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus bcrypt (18 <= 18 packages)"
+   }
+  },
+  {
+   "id": "JoaquinAmatRodrigo_skforecast__agent-qwen-qwen3-coder__optuna",
+   "base": "JoaquinAmatRodrigo_skforecast",
+   "dependency": "optuna",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in optuna's source 1% (conftest.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "optuna does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "JoaquinAmatRodrigo_skforecast__agent-qwen-qwen3-coder__scikit_learn",
+   "base": "JoaquinAmatRodrigo_skforecast",
+   "dependency": "scikit_learn",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in scikit_learn's source 4% (conftest.py), below the 60% threshold; 3 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "scikit_learn does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "JoaquinAmatRodrigo_skforecast__agent-qwen-qwen3-coder__tqdm",
+   "base": "JoaquinAmatRodrigo_skforecast",
+   "dependency": "tqdm",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "tqdm is still declared in pyproject.toml",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in tqdm's source 2% (conftest.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "tqdm is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "tqdm is still in the resulting set"
+   }
+  },
+  {
+   "id": "NVIDIA_NVFlare__agent-qwen-qwen3-coder__cryptography",
+   "base": "NVIDIA_NVFlare",
+   "dependency": "cryptography",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "cryptography is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in cryptography's source 0% (conftest.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "cryptography is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus cryptography (17 <= 17 packages)"
+   }
+  },
+  {
+   "id": "NVIDIA_NVFlare__agent-qwen-qwen3-coder__flask_jwt_extended",
+   "base": "NVIDIA_NVFlare",
+   "dependency": "flask_jwt_extended",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "flask_jwt_extended is still declared in setup.cfg",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "7 changed Python file(s); highest containment in flask_jwt_extended's source 0% (nvflare/dashboard/application/auth.py), below the 60% threshold; 4 file(s) unde",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "flask_jwt_extended does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "flask_jwt_extended is still in the resulting set"
+   }
+  },
+  {
+   "id": "NVIDIA_NVFlare__agent-qwen-qwen3-coder__flask_sqlalchemy",
+   "base": "NVIDIA_NVFlare",
+   "dependency": "flask_sqlalchemy",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "flask_sqlalchemy is still declared in setup.cfg",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in flask_sqlalchemy's source 0% (nvflare/dashboard/application/__init__.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "flask_sqlalchemy does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "flask_sqlalchemy is still in the resulting set"
+   }
+  },
+  {
+   "id": "alexgolec_tda-api__agent-qwen-qwen3-coder__authlib",
+   "base": "alexgolec_tda-api",
+   "dependency": "authlib",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "authlib is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in authlib's source 4% (conftest.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "authlib does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus authlib (5 <= 6 packages)"
+   }
+  },
+  {
+   "id": "alexgolec_tda-api__agent-qwen-qwen3-coder__autopep8",
+   "base": "alexgolec_tda-api",
+   "dependency": "autopep8",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": null,
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "autopep8 is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in autopep8's source 0% (conftest.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "the suite passed with autopep8 unimportable from repository frames, so any installed copy is unused",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus autopep8 (6 <= 6 packages)"
+   }
+  },
+  {
+   "id": "alexgolec_tda-api__agent-qwen-qwen3-coder__httpx",
+   "base": "alexgolec_tda-api",
+   "dependency": "httpx",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "httpx is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in httpx's source 0% (conftest.py), below the 60% threshold; 3 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "httpx does not appear in the install log",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus httpx (6 <= 6 packages)"
+   }
+  },
+  {
+   "id": "aws_chalice__agent-qwen-qwen3-coder__inquirer",
+   "base": "aws_chalice",
+   "dependency": "inquirer",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "inquirer is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in inquirer's source 0% (chalice/cli/newproj.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "inquirer does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 3 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus inquirer (6 <= 6 packages)"
+   }
+  },
+  {
+   "id": "aws_chalice__agent-qwen-qwen3-coder__pip",
+   "base": "aws_chalice",
+   "dependency": "pip",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [],
+   "unverified": [
+    "G4a_behaviour",
+    "G8_closure_not_grown"
+   ],
+   "rejection_rests_on": null,
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "unverified"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pip is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in pip's source 5% (chalice/compat.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "the suite passed with pip unimportable from repository frames, so any installed copy is unused",
+    "G7_tests_untouched": "no test file modified; 3 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "pip is not in the comparable dependency set (build-time requirement or absent from the gold manifest); this gate cannot speak"
+   }
+  },
+  {
+   "id": "cowrie_cowrie__agent-qwen-qwen3-coder__tftpy",
+   "base": "cowrie_cowrie",
+   "dependency": "tftpy",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "tftpy is still declared in requirements.txt",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "9 changed Python file(s); highest containment in tftpy's source 2% (src/cowrie/commands/tftp.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "the suite passed with tftpy unimportable from repository frames, so any installed copy is unused",
+    "G7_tests_untouched": "no test file modified; 5 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "tftpy is still in the resulting set"
+   }
+  },
+  {
+   "id": "docker_docker-py__agent-qwen-qwen3-coder__urllib3",
+   "base": "docker_docker-py",
+   "dependency": "urllib3",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "urllib3 is still declared in pyproject.toml",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "8 changed Python file(s); highest containment in urllib3's source 0% (test_collections.py), below the 60% threshold; 4 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "urllib3 is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 3 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "urllib3 is still in the resulting set"
+   }
+  },
+  {
+   "id": "eternnoir_pyTelegramBotAPI__agent-qwen-qwen3-coder__requests",
+   "base": "eternnoir_pyTelegramBotAPI",
+   "dependency": "requests",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "requests is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in requests's source 0% (telebot/apihelper.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "requests does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: urllib3"
+   }
+  },
+  {
+   "id": "geopy_geopy__agent-qwen-qwen3-coder__geographiclib",
+   "base": "geopy_geopy",
+   "dependency": "geographiclib",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "geographiclib is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in geographiclib's source 7% (geopy/distance.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "geographiclib does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus geographiclib (0 <= 0 packages)"
+   }
+  },
+  {
+   "id": "google-deepmind_dm-haiku__agent-qwen-qwen3-coder__jmp",
+   "base": "google-deepmind_dm-haiku",
+   "dependency": "jmp",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "jmp is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in jmp's source 5% (haiku/_src/jmp_replacement.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "jmp does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus jmp (3 <= 3 packages)"
+   }
+  },
+  {
+   "id": "google-deepmind_dm-haiku__agent-qwen-qwen3-coder__numpy",
+   "base": "google-deepmind_dm-haiku",
+   "dependency": "numpy",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "numpy is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "11 changed Python file(s); highest containment in numpy's source 10% (conftest.py), below the 60% threshold; 9 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "numpy is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "2 test file(s) modified, no weakening signal; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus numpy (3 <= 3 packages)"
+   }
+  },
+  {
+   "id": "google_mobly__agent-qwen-qwen3-coder__portpicker",
+   "base": "google_mobly",
+   "dependency": "portpicker",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G7_tests_untouched",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "portpicker is still declared in pyproject.toml",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in portpicker's source 0% (mobly/utils.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "portpicker does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: [tool.setuptools.packages.find] in pyproject.toml edited",
+    "G8_closure_not_grown": "portpicker is still in the resulting set"
+   }
+  },
+  {
+   "id": "google_mobly__agent-qwen-qwen3-coder__pyyaml",
+   "base": "google_mobly",
+   "dependency": "pyyaml",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pyyaml is still declared in pyproject.toml",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in pyyaml's source 2% (conftest.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pyyaml does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "pyyaml is still in the resulting set"
+   }
+  },
+  {
+   "id": "google_yapf__agent-qwen-qwen3-coder__tomli",
+   "base": "google_yapf",
+   "dependency": "tomli",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in tomli's source 0% (yapf/yapflib/file_resources.py), below the 60% threshold; 1 file(s) under 60 tokens not scor",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "tomli does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "gpiozero_gpiozero__agent-qwen-qwen3-coder__colorzero",
+   "base": "gpiozero_gpiozero",
+   "dependency": "colorzero",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "colorzero is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in colorzero's source 0% (gpiozero/output_devices.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "colorzero does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus colorzero (2 <= 2 packages)"
+   }
+  },
+  {
+   "id": "itamarst_eliot__agent-qwen-qwen3-coder__boltons",
+   "base": "itamarst_eliot",
+   "dependency": "boltons",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "boltons is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in boltons's source 1% (conftest.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "boltons does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus boltons (3 <= 3 packages)"
+   }
+  },
+  {
+   "id": "itamarst_eliot__agent-qwen-qwen3-coder__pyrsistent",
+   "base": "itamarst_eliot",
+   "dependency": "pyrsistent",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pyrsistent is still declared in setup.py",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in pyrsistent's source 30% (eliot/_output.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pyrsistent does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "pyrsistent is still in the resulting set"
+   }
+  },
+  {
+   "id": "localstack_localstack__agent-qwen-qwen3-coder__cachetools",
+   "base": "localstack_localstack",
+   "dependency": "cachetools",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "cachetools is still declared in pyproject.toml",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in cachetools's source 1% (conftest.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "the suite passed with cachetools unimportable from repository frames, so any installed copy is unused",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "cachetools is still in the resulting set"
+   }
+  },
+  {
+   "id": "localstack_localstack__agent-qwen-qwen3-coder__dnslib",
+   "base": "localstack_localstack",
+   "dependency": "dnslib",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": null,
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "dnslib is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in dnslib's source 1% (conftest.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "the suite passed with dnslib unimportable from repository frames, so any installed copy is unused",
+    "G7_tests_untouched": "no test file modified; 2 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus dnslib (13 <= 13 packages)"
+   }
+  },
+  {
+   "id": "localstack_localstack__agent-qwen-qwen3-coder__plux",
+   "base": "localstack_localstack",
+   "dependency": "plux",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "plux is still declared in pyproject.toml",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "10 changed Python file(s); highest containment in plux's source 4% (localstack-core/localstack/plux_compat.py), below the 60% threshold; 7 file(s) under 60 toke",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "plux is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "plux is still in the resulting set"
+   }
+  },
+  {
+   "id": "mandiant_speakeasy__agent-qwen-qwen3-coder__capstone",
+   "base": "mandiant_speakeasy",
+   "dependency": "capstone",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "capstone is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in capstone's source 0% (speakeasy/binemu.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "capstone does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus capstone (2 <= 5 packages)"
+   }
+  },
+  {
+   "id": "mandiant_speakeasy__agent-qwen-qwen3-coder__pefile",
+   "base": "mandiant_speakeasy",
+   "dependency": "pefile",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pefile is still declared in requirements.txt",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in pefile's source 3% (speakeasy/pefile_compat.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pefile is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 2 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "pefile is still in the resulting set"
+   }
+  },
+  {
+   "id": "miguelgrinberg_python-socketio__agent-qwen-qwen3-coder__bidict",
+   "base": "miguelgrinberg_python-socketio",
+   "dependency": "bidict",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in bidict's source 0% (src/socketio/base_manager.py), below the 60% threshold; 1 file(s) under 60 tokens not score",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "bidict does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 4 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: pyproject.toml"
+   }
+  },
+  {
+   "id": "miguelgrinberg_python-socketio__agent-qwen-qwen3-coder__python_engineio",
+   "base": "miguelgrinberg_python-socketio",
+   "dependency": "python_engineio",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "python_engineio is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in python_engineio's source 1% (conftest.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "python_engineio does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus python_engineio (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "mu-editor_mu__agent-qwen-qwen3-coder__click",
+   "base": "mu-editor_mu",
+   "dependency": "click",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "click is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "3 changed Python file(s); highest containment in click's source 1% (conftest.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "click is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus click (17 <= 17 packages)"
+   }
+  },
+  {
+   "id": "mu-editor_mu__agent-qwen-qwen3-coder__flake8",
+   "base": "mu-editor_mu",
+   "dependency": "flake8",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "flake8 is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in flake8's source 0% (conftest.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "flake8 does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus flake8 (16 <= 17 packages)"
+   }
+  },
+  {
+   "id": "openvinotoolkit_nncf__agent-qwen-qwen3-coder__jsonschema",
+   "base": "openvinotoolkit_nncf",
+   "dependency": "jsonschema",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "jsonschema is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in jsonschema's source 1% (conftest.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "jsonschema does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus jsonschema (15 <= 16 packages)"
+   }
+  },
+  {
+   "id": "openvinotoolkit_nncf__agent-qwen-qwen3-coder__pydot",
+   "base": "openvinotoolkit_nncf",
+   "dependency": "pydot",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pydot is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "7 changed Python file(s); highest containment in pydot's source 2% (nncf/common/utils/dot_file_rw.py), below the 60% threshold; 4 file(s) under 60 tokens not sc",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pydot does not appear in the install log",
+    "G7_tests_untouched": "2 test file(s) modified, no weakening signal; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus pydot (15 <= 16 packages)"
+   }
+  },
+  {
+   "id": "pyrogram_pyrogram__agent-qwen-qwen3-coder__pysocks",
+   "base": "pyrogram_pyrogram",
+   "dependency": "pysocks",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pysocks is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in pysocks's source 0% (run_tests.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pysocks does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 2 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus pysocks (1 <= 1 packages)"
+   }
+  },
+  {
+   "id": "pystorm_streamparse__agent-qwen-qwen3-coder__pystorm",
+   "base": "pystorm_streamparse",
+   "dependency": "pystorm",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "pystorm is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in pystorm's source 6% (streamparse/pystorm_compat.py), below the 60% threshold; 3 file(s) under 60 tokens not sco",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pystorm does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus pystorm (7 <= 8 packages)"
+   }
+  },
+  {
+   "id": "pystorm_streamparse__agent-qwen-qwen3-coder__ruamel_yaml",
+   "base": "pystorm_streamparse",
+   "dependency": "ruamel_yaml",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "pass",
+   "accepted": false,
+   "failed": [
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "unstated constraint only",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "pass",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "ruamel_yaml is no longer declared",
+    "G2_tests_pass": "the repository's suite passes",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in ruamel_yaml's source 1% (conftest.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "the suite passed with ruamel_yaml unimportable from repository frames, so any installed copy is unused",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "closure grew by 1 package(s) not previously present: pyyaml"
+   }
+  },
+  {
+   "id": "python-adaptive_adaptive__agent-qwen-qwen3-coder__cloudpickle",
+   "base": "python-adaptive_adaptive",
+   "dependency": "cloudpickle",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "cloudpickle is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "7 changed Python file(s); highest containment in cloudpickle's source 0% (conftest.py), below the 60% threshold; 5 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "cloudpickle does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus cloudpickle (6 <= 6 packages)"
+   }
+  },
+  {
+   "id": "python-adaptive_adaptive__agent-qwen-qwen3-coder__sortedcollections",
+   "base": "python-adaptive_adaptive",
+   "dependency": "sortedcollections",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "sortedcollections is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in sortedcollections's source 2% (adaptive/learner/learner1D.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "sortedcollections does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus sortedcollections (6 <= 6 packages)"
+   }
+  },
+  {
+   "id": "rwth-i6_returnn__agent-qwen-qwen3-coder__h5py",
+   "base": "rwth-i6_returnn",
+   "dependency": "h5py",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "h5py is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "4 changed Python file(s); highest containment in h5py's source 11% (returnn/util/basic.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "h5py does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus h5py (3 <= 3 packages)"
+   }
+  },
+  {
+   "id": "scikit-learn-contrib_category_encoders__agent-qwen-qwen3-coder__patsy",
+   "base": "scikit-learn-contrib_category_encoders",
+   "dependency": "patsy",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "patsy is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "10 changed Python file(s); highest containment in patsy's source 3% (conftest.py), below the 60% threshold; 6 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "patsy is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 3 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus patsy (7 <= 7 packages)"
+   }
+  },
+  {
+   "id": "scikit-learn-contrib_category_encoders__agent-qwen-qwen3-coder__statsmodels",
+   "base": "scikit-learn-contrib_category_encoders",
+   "dependency": "statsmodels",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "statsmodels is still declared in requirements.txt",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in statsmodels's source 9% (test_glmm_import.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "statsmodels is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "1 test file(s) modified, no weakening signal; 3 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "statsmodels is still in the resulting set"
+   }
+  },
+  {
+   "id": "slackapi_bolt-python__agent-qwen-qwen3-coder__chalice",
+   "base": "slackapi_bolt-python",
+   "dependency": "chalice",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G7_tests_untouched"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "fail",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "chalice is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in chalice's source 30% (tests/adapter_tests/aws/test_aws_chalice.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "chalice does not appear in the install log",
+    "G7_tests_untouched": "test oracle weakened: skip/xfail added",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus chalice (15 <= 15 packages)"
+   }
+  },
+  {
+   "id": "slackapi_bolt-python__agent-qwen-qwen3-coder__fastapi",
+   "base": "slackapi_bolt-python",
+   "dependency": "fastapi",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G1_declaration_gone",
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "fail",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "fastapi is still declared in requirements/adapter.txt",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in fastapi's source 8% (examples/fastapi/app.py), below the 60% threshold; 1 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "fastapi is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "fastapi is still in the resulting set"
+   }
+  },
+  {
+   "id": "swirlai_swirl-search__agent-qwen-qwen3-coder__certifi",
+   "base": "swirlai_swirl-search",
+   "dependency": "certifi",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "certifi is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "2 changed Python file(s); highest containment in certifi's source 0% (conftest.py), below the 60% threshold",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "certifi is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus certifi (170 <= 170 packages)"
+   }
+  },
+  {
+   "id": "swirlai_swirl-search__agent-qwen-qwen3-coder__google_auth",
+   "base": "swirlai_swirl-search",
+   "dependency": "google_auth",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour",
+    "G5_no_phantom"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "unverified",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "google_auth is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "7 changed Python file(s); highest containment in google_auth's source 1% (conftest.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "google_auth is still installed and the suite failed under the blocker; G2 carries that failure",
+    "G7_tests_untouched": "no test file modified; 2 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus google_auth (170 <= 170 packages)"
+   }
+  },
+  {
+   "id": "tournesol-app_tournesol__agent-qwen-qwen3-coder__pandas",
+   "base": "tournesol-app_tournesol",
+   "dependency": "pandas",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass",
+    "G8_closure_not_grown"
+   ],
+   "unverified": [
+    "G1_declaration_gone",
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [
+    "trade (closure grew)"
+   ],
+   "gates": {
+    "G1_declaration_gone": "unverified",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "fail"
+   },
+   "reasons": {
+    "G1_declaration_gone": "candidate manifest edit did not apply (solidago/pyproject.toml)",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "6 changed Python file(s); highest containment in pandas's source 7% (solidago/src/solidago/pipeline/inputs.py), below the 60% threshold; 1 file(s) under 60 toke",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "pandas does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "candidate manifest edit could not be applied: solidago/pyproject.toml"
+   }
+  },
+  {
+   "id": "tweepy_tweepy__agent-qwen-qwen3-coder__requests_oauthlib",
+   "base": "tweepy_tweepy",
+   "dependency": "requests_oauthlib",
+   "agent": "agent-qwen-qwen3-coder",
+   "ci": "fail",
+   "accepted": false,
+   "failed": [
+    "G2_tests_pass"
+   ],
+   "unverified": [
+    "G4a_behaviour"
+   ],
+   "rejection_rests_on": "tests or behaviour",
+   "unstated": [],
+   "gates": {
+    "G1_declaration_gone": "pass",
+    "G2_tests_pass": "fail",
+    "G3_no_vendored_copy": "pass",
+    "G4a_behaviour": "unverified",
+    "G5_no_phantom": "pass",
+    "G7_tests_untouched": "pass",
+    "G8_closure_not_grown": "pass"
+   },
+   "reasons": {
+    "G1_declaration_gone": "requests_oauthlib is no longer declared",
+    "G2_tests_pass": "the repository's suite fails",
+    "G3_no_vendored_copy": "5 changed Python file(s); highest containment in requests_oauthlib's source 5% (tweepy/auth.py), below the 60% threshold; 2 file(s) under 60 tokens not scored",
+    "G4a_behaviour": "the behavioural run did not cover this attempt",
+    "G5_no_phantom": "requests_oauthlib does not appear in the install log",
+    "G7_tests_untouched": "no test file modified; 1 new test file(s) added; no workflow or runner configuration edited",
+    "G8_closure_not_grown": "resulting set is a subset of the original minus requests_oauthlib (2 <= 2 packages)"
+   }
+  }
+ ]
+}
