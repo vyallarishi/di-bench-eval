@@ -236,6 +236,17 @@ def _pair_library(reference, candidate):
                 matched += 1
             elif nondet:
                 discarded.append(_divergence(r, cands[i], "library"))
+            elif not _same_inputs(r, cands[i]):
+                # Different value on *different* arguments is not evidence.
+                # A site is identified by file and line, so a rewrite that
+                # inserts an import moves every call below it and the i-th
+                # call at a shifted site pairs with an unrelated call. Scored
+                # as a divergence that is a rejection, which is how a pure
+                # line shift came to reject 41 of 172 traces and 31 of the 84
+                # pairs the official score uses. The comparison needs the
+                # inputs to match before the outputs mean anything.
+                unreached.append(dict(r, _why="paired call has different arguments "
+                                               "(the call site moved)"))
             else:
                 divergences.append(_divergence(r, cands[i], "library"))
     extra = sum(max(0, len(v) - len(ref_by.get(k, []))) for k, v in cand_by.items())

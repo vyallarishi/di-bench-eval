@@ -169,7 +169,20 @@ def mutate_source(text: str, fn: dict) -> str | None:
 
 
 def check(patch_text: str, repo: pathlib.Path, run_tests, limit: int = 25) -> dict:
-    """run_tests(repo) -> bool; called once per mutant on a scratch copy."""
+    """run_tests(repo) -> bool; called once per mutant on a scratch copy.
+
+    Before any mutant is scored the suite is run unmutated. A mutant is
+    "killed" when the suite that passed without it now fails, so a suite that
+    cannot run at all makes every mutant look killed and the gate then reports
+    maximal test strength for a repository whose tests never executed -- a
+    broken runner reading as a well-tested project. The baseline run
+    distinguishes the two, and the gate declines to speak rather than pass.
+    """
+    if not run_tests(repo):
+        return dict(**{"pass": None},
+                    reason="the suite does not pass unmutated here, so a mutant "
+                           "that 'fails' the suite shows nothing; the gate cannot speak",
+                    evidence=dict(baseline_passed=False, scored=0))
     fns = candidate_functions(repo, patch_text)
     mutable = [f for f in fns if not f["already_trivial"]][:limit]
     results = []
