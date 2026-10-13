@@ -1,0 +1,36 @@
+
+==================================== ERRORS ====================================
+______________________ ERROR collecting src/bepasty/tests ______________________
+/usr/local/Cellar/python@3.13/3.13.1/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+../venv-cand/lib/python3.13/site-packages/_pytest/assertion/rewrite.py:188: in exec_module
+    exec(co, module.__dict__)
+src/bepasty/tests/conftest.py:7: in <module>
+    from bepasty.app import create_app
+src/bepasty/app.py:14: in <module>
+    from .apis import blueprint as blueprint_apis
+src/bepasty/apis/__init__.py:4: in <module>
+    from .rest import ItemDetailView, ItemDownloadView, ItemModifyView, \
+src/bepasty/apis/rest.py:16: in <module>
+    from ..views.filelist import file_infos
+src/bepasty/views/__init__.py:13: in <module>
+    from .xstatic import xstatic
+src/bepasty/views/xstatic.py:4: in <module>
+    from ..bepasty_xstatic import serve_files
+src/bepasty/bepasty_xstatic.py:17: in <module>
+    mod = getattr(pkg, mod_name)
+          ^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'xstatic.pkg' has no attribute 'bootstrap'
+=========================== short test summary info ============================
+ERROR src/bepasty/tests - AttributeError: module 'xstatic.pkg' has no attribu...
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 1.07s

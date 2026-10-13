@@ -1,0 +1,36 @@
+.FF                                                                      [100%]
+=================================== FAILURES ===================================
+__________________________________ test_func ___________________________________
+
+args = (), kwargs = {}
+
+    def wrapper(*args, **kwargs):
+        key = (args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+>           cache[key] = func(*args, **kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: test_func() missing 1 required positional argument: 'x'
+
+cgen/__init__.py:38: TypeError
+____________________________ TestClass.test_method _____________________________
+
+self = <test_import.TestClass object at 0x110091310>, args = (), kwargs = {}
+
+    def wrapper(self, *args, **kwargs):
+        # Use function name and arguments as cache key
+        cache_attr = f"_memoize_cache_{func.__name__}"
+        if not hasattr(self, cache_attr):
+            setattr(self, cache_attr, {})
+        cache = getattr(self, cache_attr)
+    
+        key = (args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+>           cache[key] = func(self, *args, **kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: TestClass.test_method() missing 1 required positional argument: 'x'
+
+cgen/__init__.py:56: TypeError
+=========================== short test summary info ============================
+FAILED test_import.py::test_func - TypeError: test_func() missing 1 required ...
+FAILED test_import.py::TestClass::test_method - TypeError: TestClass.test_met...
+2 failed, 1 passed in 9.61s
