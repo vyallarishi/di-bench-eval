@@ -165,6 +165,12 @@ UNSUPPORTED = [
     "only 144 of the 617 constructed submissions have a released patch; the "
     "stub_smart, trade and weaken_tests families have none, so Figure 1 and the "
     "per-gate table can be read but not re-derived from the patches",
+    "the 288/37/4/1 detection-evidence split cannot be re-derived: 14 pairs "
+    "re-screened under the scoped blocker carry the label 're-screened' rather "
+    "than the evidence kind, leaving 277/36/3 attributed in instances.jsonl",
+    "instances.excluded.jsonl holds 2 stdlib-shadowing rows and 12 "
+    "undeclared-sibling rows, against the 3 and 11 the exclusion table states; "
+    "the column still totals 53",
 ]
 
 
