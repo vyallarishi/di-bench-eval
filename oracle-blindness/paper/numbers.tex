@@ -31,7 +31,7 @@
 \newcommand{\nHonest}{80}       % honest deletions (control)
 \newcommand{\nPseudo}{80}       % well-formed-but-incorrect rewrites
 \newcommand{\nPseudoTraced}{15} % of which fall on a recorded pair
-\newcommand{\nTracedPairs}{143}  % pairs with a recording
+\newcommand{\nTracedPairs}{172}  % pairs with a recording
 \newcommand{\nTraceInst}{172}    % recordings in total
 \newcommand{\nTraceCalls}{68{,}942}   % published copy; 87,675 recorded
 \newcommand{\nFuzzInputs}{300}  % generated inputs per function
@@ -197,3 +197,22 @@
 \newcommand{\nInspRejected}{7}
 \newcommand{\nInspNeverRemoved}{3}
 \newcommand{\nInspStillArrives}{4}
+
+% --- the observability boundary (docs/OBSERVABILITY.md): what ANY return-value
+% --- oracle can see, measured over 68,943 recorded calls in 172 traced pairs
+\newcommand{\nObservablePairs}{84}      % >=1 function returning a value from reconstructible args
+\newcommand{\nObsFunctions}{714}        % (pair, function) units with a recorded call
+\newcommand{\obsObservable}{23}         % % observable
+\newcommand{\obsVoid}{25}               % % return None on every recorded call
+\newcommand{\obsOpaque}{52}             % % return a value but take a live object
+\newcommand{\nRecordedCalls}{68{,}943}
+% --- the counterfeit corpus on graded pairs (docs/COUNTERFEIT_COVERAGE.md)
+\newcommand{\nPseudoBuilt}{75}          % all verified genuinely divergent
+\newcommand{\nPseudoRejected}{37}      % 37 rejected, 38 no verdict, 0 accepted
+\newcommand{\nPseudoAccepted}{0}
+\newcommand{\nPseudoNoVerdict}{37}
+\newcommand{\nPseudoStructuralSurvive}{73}
+% --- the must-accept control (docs/HELD_OUT_CONTROL.md); scoped to G1,G3,G4a,G7,G8
+\newcommand{\nControlBuilt}{74}
+\newcommand{\nControlClean}{72}
+\newcommand{\nControlFlagged}{2}
