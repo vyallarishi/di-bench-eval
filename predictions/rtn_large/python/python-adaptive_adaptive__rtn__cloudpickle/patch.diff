@@ -1,0 +1,36 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<
+diff --git a/pyproject.toml b/pyproject.toml
+index 3fa7ea9..8dbe2c8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,6 +19,13 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+ ]
+ dependencies = [
++    "scipy",
++    "sortedcollections >= 1.1",
++    "sortedcontainers >= 2.0",
++    "cloudpickle",
++    "loky >= 2.9",
++    "typing_extensions; python_version < '3.10'",
++    "versioningit",
+ ]
+ 
+ [project.optional-dependencies]
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<

@@ -1,0 +1,37 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<
+diff --git a/setup.py b/setup.py
+index 419267a..cc56075 100644
+--- a/setup.py
++++ b/setup.py
+@@ -34,6 +34,14 @@ setup(
+     description="Logging library that tells you why it happened",
+     python_requires=">=3.8.0",
+     install_requires=[
++        # Internal code documentation:
++        "zope.interface",
++        # Persistent objects for Python:
++        "pyrsistent >= 0.11.8",  # version with multi-type pvector/pmap_field
++        # Better decorators, with version that works better with type annotations:
++        "boltons >= 19.0.1",
++        # Faster JSON serialization:
++        "orjson; implementation_name=='cpython'",
+     ],
+     extras_require={
+         "journald": [
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<

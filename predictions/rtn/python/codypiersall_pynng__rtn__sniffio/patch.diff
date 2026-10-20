@@ -1,0 +1,34 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<
+diff --git a/pyproject.toml b/pyproject.toml
+index a393472..89a55b8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,7 +18,10 @@ classifiers = [
+     "Topic :: Software Development :: Libraries",
+     "Topic :: System :: Networking",
+ ]
+-dependencies = []
++dependencies = [
++    "cffi",
++    "sniffio",
++]
+ description = "Networking made simply using nng"
+ license = {file = "LICENSE.txt"}
+ dynamic = ["version"]
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<

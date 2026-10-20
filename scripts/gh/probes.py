@@ -50,6 +50,10 @@ much of the census came from a defect in the v1 block?
                                         -> the detection rested on test files
                                         importing the library.
 
+Control for both, `rtn`: the same injected files with an empty body, once per
+repository (see NULL_BODY). Today's plain gold comes from the existing `gold`
+set.
+
 Nothing written here reports a number. `probe_report.py` reads the results.
 
 usage:
@@ -429,6 +433,17 @@ def probe_body(dep, names, own, dm) -> str:
                         dmap=dm, test_dirs=sorted(FP.TEST_DIR_NAMES))
 
 
+# --- the null injection: the control every injected arm needs --------------
+# v1 delivers its instruments as sitecustomize.py and conftest.py at the
+# repository root. A root conftest.py makes pytest put the root on sys.path, so
+# a package with a compiled part can be imported from the source tree instead of
+# the installed build: KaveIO_PhiK then fails with "No module named
+# 'phik.lib'" under the probe alone while its gold run passes. rtn injects the
+# same two files with an empty body, once per repository; a repository that
+# fails it cannot be read through any injected arm.
+NULL_BODY = "# UnpinBench null injection: no block, no recorder, no probe\n"
+
+
 # --- assembling prediction sets --------------------------------------------
 def injected(repo: pathlib.Path, body: str) -> dict:
     files = {}
@@ -444,7 +459,7 @@ def main():
     ap.add_argument("--dataset-large", required=True)
     ap.add_argument("--repo-data", required=True)
     ap.add_argument("--out-root", default=str(ROOT))
-    ap.add_argument("--only", choices=["rdx", "rt"], default=None)
+    ap.add_argument("--only", choices=["rdx", "rt", "rtn"], default=None)
     a = ap.parse_args()
 
     rows = {}
@@ -469,7 +484,7 @@ def main():
 
     sets: dict[str, list] = {}
     manifest = {"seed": SEED, "pairs": {}}
-    gold_done = set()
+    gold_done, null_done = set(), set()
 
     def emit(set_base, iid, kind, dep, files):
         sub, r = rows[iid]
@@ -498,6 +513,10 @@ def main():
             for kind, exempt, fixed in (("rta", True, True), ("rtf", False, True), ("rtc", False, False)):
                 emit(kind, iid, kind, dep,
                      {**manifest_files, **injected(repo, blocker_body(dep, bn, own, exempt, fixed))})
+
+        if a.only in (None, "rtn") and iid not in null_done:
+            null_done.add(iid)
+            emit("rtn", iid, "rtn", dep, {**manifest_files, **injected(repo, NULL_BODY)})
 
         if a.only in (None, "rdx"):
             pn = set(FP.import_names(dep))

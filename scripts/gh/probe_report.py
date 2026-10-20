@@ -12,6 +12,9 @@ Probe 2, per pool pair, from the three block arms:
   runtime      rta fails with the block message: runtime code needs the library
   runtime-other rta fails without the block message (a test fails some other way)
   unknown      a result is missing, or a passing arm never announced the block
+Before any of these, the repository's baseline: `gold-fails-today` when the
+plain gold run fails now, `injection` when gold passes but the null injection
+(rtn) fails. Neither can be read through an injected arm.
 
 Probe 1, per pair:
   rdxw (recorder + probe):
@@ -105,7 +108,20 @@ def classify_rdxw(run) -> tuple[str, dict]:
     return "not-reached", info
 
 
-def classify_rt(arms: dict) -> str:
+def baseline(gold, null) -> str | None:
+    """Why a repository cannot be read through any injected arm, if it cannot."""
+    if gold is None or null is None:
+        return "unknown"
+    if gold["exec"] != "pass":
+        return "gold-fails-today"
+    if null["exec"] != "pass":
+        return "injection"
+    return None
+
+
+def classify_rt(arms: dict, base: str | None) -> str:
+    if base:
+        return base
     if any(a is None for a in arms.values()):
         return "unknown"
     c, f, a = arms["rtc"], arms["rtf"], arms["rta"]
@@ -135,37 +151,49 @@ def main():
     report = {"missing": sorted(m for m in man if m not in runs), "rt": {}, "rdxw": {}, "rdxp": {}, "rdxg": {}}
 
     by_pair = collections.defaultdict(dict)
+    null_mid = {}
     for mid, m in man.items():
         by_pair[(m["instance_id"], m["dependency"])][m["kind"]] = mid
+        if m["kind"] == "rtn":
+            null_mid[m["instance_id"]] = mid
+    # gold runs come from the existing `gold` set, whose instance id is the repository
+    base = {iid: baseline(runs.get(iid), runs.get(nm)) for iid, nm in null_mid.items()}
+    report["baseline"] = {iid: b or "ok" for iid, b in base.items()}
 
     for pair, kinds in sorted(by_pair.items()):
         key = "%s|%s" % pair
         if {"rta", "rtf", "rtc"} <= kinds.keys():
             arms = {k: runs.get(kinds[k]) for k in ("rta", "rtf", "rtc")}
-            report["rt"][key] = {"category": classify_rt(arms),
+            report["rt"][key] = {"category": classify_rt(arms, base.get(pair[0], "unknown")),
                                  "evidence": pool.get(pair, {}).get("evidence"),
                                  "tier": pool.get(pair, {}).get("tier"),
                                  "exec": {k: (v or {}).get("exec") for k, v in arms.items()}}
         if "rdxw" in kinds and kinds["rdxw"] in runs:
             cat, info = classify_rdxw(runs[kinds["rdxw"]])
-            report["rdxw"][key] = {"category": cat, "trace_state": man[kinds["rdxw"]]["trace_state"], **info}
+            report["rdxw"][key] = {"category": cat, "baseline": base.get(pair[0]) or "ok",
+                                   "trace_state": man[kinds["rdxw"]]["trace_state"], **info}
         if "rdxp" in kinds and kinds["rdxp"] in runs:
             r = runs[kinds["rdxp"]]
-            report["rdxp"][key] = {"exec": r["exec"], "trace_state": man[kinds["rdxp"]]["trace_state"],
+            report["rdxp"][key] = {"exec": r["exec"], "baseline": base.get(pair[0]) or "ok",
+                                   "trace_state": man[kinds["rdxp"]]["trace_state"],
                                    "probe": probe_summary(r["log"])}
         if "rdxg" in kinds and kinds["rdxg"] in runs:
             report["rdxg"][pair[0]] = {"exec": runs[kinds["rdxg"]]["exec"]}
 
-    print(f"runs found {len(runs)} of {len(man)} expected; missing {len(report['missing'])}")
+    print(f"probe runs found {len(man) - len(report['missing'])} of {len(man)}; "
+          f"gold runs found {sum(1 for i in null_mid if i in runs)} of {len(null_mid)}")
+    print("repository baseline (73):", dict(collections.Counter(report["baseline"].values())))
     print("\nprobe 2 (330 pairs):", dict(collections.Counter(v["category"] for v in report["rt"].values())))
     print("  by v1 evidence kind:")
     for (ev, cat), n in sorted(collections.Counter((v["evidence"], v["category"])
                                                     for v in report["rt"].values()).items()):
         print(f"    {ev} / {cat}: {n}")
     for state in ("loaded, no call", "traced"):
-        cnt = collections.Counter(v["category"] for v in report["rdxw"].values() if v["trace_state"] == state)
+        cnt = collections.Counter((v["baseline"], v["category"]) for v in report["rdxw"].values()
+                                  if v["trace_state"] == state)
         print(f"\nprobe 1, recorder + probe, v1 state '{state}':", dict(cnt))
-    print("\nprobe 1, probe only:", dict(collections.Counter((v["trace_state"], v["exec"]) for v in report["rdxp"].values())))
+    print("\nprobe 1, probe only:", dict(collections.Counter((v["baseline"], v["trace_state"], v["exec"])
+                                                           for v in report["rdxp"].values())))
     print("probe 1, gold only (per repository):", dict(collections.Counter(v["exec"] for v in report["rdxg"].values())))
     if a.out:
         json.dump(report, open(a.out, "w"), indent=1, default=str)

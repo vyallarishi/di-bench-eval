@@ -1,0 +1,34 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<
+diff --git a/pyproject.toml b/pyproject.toml
+index ae7f286..1b00401 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,10 @@ classifiers = [
+     "Operating System :: OS Independent",
+ ]
+ requires-python = ">=3.6"
+-dependencies = []
++dependencies = [
++    "flask >= 2",
++    "flask-sock >= 0.4",
++]
+ 
+ [project.readme]
+ file = "README.md"
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<

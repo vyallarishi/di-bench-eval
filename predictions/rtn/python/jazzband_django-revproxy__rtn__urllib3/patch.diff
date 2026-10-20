@@ -1,0 +1,34 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..de53856 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,10 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++    "Django>=3.0",
++    "urllib3>=1.12",
++]
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<

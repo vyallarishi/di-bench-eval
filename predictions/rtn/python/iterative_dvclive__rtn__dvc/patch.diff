@@ -1,0 +1,41 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..5ed4e77 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,17 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++  "dvc>=3.48.4",
++  "dvc-render>=1.0.0,<2",
++  "dvc-studio-client>=0.20,<1",
++  "funcy",
++  "gto",
++  "ruamel.yaml",
++  "scmrepo>=3,<4",
++  "psutil",
++  "pynvml"
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..3316bb8
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,3 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# UnpinBench null injection: no block, no recorder, no probe
++# <<< UnpinBench injected block <<<
