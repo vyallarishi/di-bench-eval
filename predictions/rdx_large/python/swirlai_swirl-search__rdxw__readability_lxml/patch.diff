@@ -1,0 +1,1703 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..f306e81
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,757 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++"""Injected by UnpinBench: record calls this repository makes into 'readability_lxml'."""
++import hashlib
++import json
++import os
++import re as _re
++import sys
++import threading
++
++_TARGETS = ['readability_lxml', 'readabilitylxml']
++_DEP = 'readability_lxml'
++_OWN = ['manage', 'swirl', 'swirl_load', 'swirl_server']
++_OUT = '/dev/stdout'
++_MAXREPR = 300
++_MARKER = "UNPINTRACE "
++try:
++    _TRACE_FD = os.dup(1)      # before pytest can redirect fd 1
++except Exception:
++    _TRACE_FD = 1
++_MAXCALLS = 2000
++_SITE_EXCLUDE = []   # files whose calls are internal to the replacement
++_USAGE = {}                 # repo-relative file -> project functions recorded at the usage site
++_USAGE_MODULES = {} # importable module name -> repo-relative files it may be loaded from
++
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__)}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_lock = threading.Lock()
++_count = [0]
++_ucount = [0]
++_depth = threading.local()
++_busy = threading.local()      # set while a record is being summarised; calls made then are not recorded
++_fcache = {}
++
++
++def _is_repo_file(fn):
++    if fn in _fcache:
++        return _fcache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _fcache[fn] = r
++    return r
++
++
++def _caller():
++    """(repo_origin, 'file:line') of the nearest frame outside the recorder."""
++    f = sys._getframe(2)
++    while f is not None:
++        fn = f.f_code.co_filename
++        if os.path.abspath(fn) not in _SELF:
++            r = _is_repo_file(fn)
++            if r is not None:
++                try:
++                    rel = os.path.relpath(os.path.realpath(fn), os.path.realpath(_ROOT))
++                except ValueError:
++                    rel = fn
++                return r, "%s:%d" % (rel, f.f_lineno)
++        f = f.f_back
++    return False, "?"
++
++
++def _summary(v, _d=0):
++    """Type-tagged, length-capped structural summary of a value."""
++    t = type(v)
++    name = getattr(t, "__name__", "?")
++    if v is None or isinstance(v, bool):
++        return {"t": name, "v": v}
++    if isinstance(v, int):
++        return {"t": "int", "v": v}
++    if isinstance(v, float):
++        # bit pattern so NaN/-0.0 compare exactly; G4a applies a tolerance rule
++        return {"t": "float", "v": repr(v)}
++    if isinstance(v, memoryview):
++        v = v.tobytes()
++    if isinstance(v, (str, bytes, bytearray)):
++        s = v if isinstance(v, str) else bytes(v).decode("utf-8", "replace")
++        out = {"t": name, "n": len(v), "v": s[:_MAXREPR]}
++        if len(s) > _MAXREPR:
++            # the prefix is for reading; the hash is what equality uses, so a
++            # replacement that differs only past the cap is still caught
++            out["h"] = hashlib.sha1(s.encode("utf-8", "replace")).hexdigest()[:16]
++        return out
++    if isinstance(v, (list, tuple, set, frozenset)) and _d < 3:
++        items = list(v)[:20]
++        out = {"t": name, "n": len(v), "items": [_summary(i, _d + 1) for i in items]}
++        if len(v) > 20:
++            out["h"] = _fingerprint(v)
++        return out
++    if isinstance(v, dict) and _d < 3:
++        keys = sorted(map(str, list(v)))[:20]
++        out = {"t": "dict", "n": len(v),
++               "items": [[k, _summary(v[k] if k in v else v.get(k), _d + 1)] for k in keys if k in v]}
++        if len(v) > 20:
++            out["h"] = _fingerprint(v)
++        return out
++    mod = getattr(t, "__module__", "") or ""
++    out = {"t": name, "mod": mod.split(".")[0]}
++    if callable(v) or name in ("generator", "coroutine", "async_generator"):
++        # A function or a lazy iterator has no value to compare until it is
++        # used; the recorder sees that use as a later call if the repository
++        # makes it. Record what it is, not a repr with an address in it.
++        q = getattr(v, "__qualname__", None) or getattr(
++            getattr(v, "gi_code", None) or getattr(v, "cr_code", None), "co_name", None)
++        out["r"] = "<%s %s>" % (name, q or "?")
++        return out
++    try:
++        r = repr(v)[:_MAXREPR]
++    except Exception:
++        r = "<unreprable>"
++    # a default repr carries the object's address, which differs on every run;
++    # keep the type only, so comparison is not defeated by allocation
++    import re as _re
++    out["r"] = _re.sub(r" at 0x[0-9a-fA-F]+", " at 0xADDR", r)
++    # structural fingerprint for array-likes, so numerics are comparable at all
++    for attr in ("shape", "dtype", "size"):
++        a = getattr(v, attr, None)
++        if a is not None and not callable(a):
++            out[attr] = str(a)[:64]
++    try:
++        if hasattr(v, "tolist") and getattr(v, "size", 1 << 30) <= 64:
++            out["list"] = _summary(v.tolist(), _d + 1)
++        elif hasattr(v, "to_numpy") and getattr(v, "size", 1 << 30) <= 64:
++            out["list"] = _summary(v.to_numpy().tolist(), _d + 1)
++    except Exception:
++        pass
++    # arrays and tables larger than the inline cap: hash the whole content,
++    # not the elided repr pandas and numpy print
++    try:
++        if "list" not in out and getattr(v, "size", 0) and hasattr(v, "tobytes"):
++            out["h"] = hashlib.sha1(v.tobytes()).hexdigest()[:16]
++        elif "list" not in out and hasattr(v, "to_csv") and getattr(v, "size", 1 << 30) <= 1000000:
++            out["h"] = hashlib.sha1(str(v.to_csv()).encode("utf-8", "replace")).hexdigest()[:16]
++    except Exception:
++        pass
++    # Observable structure. A repr can omit most of an object's state, and a
++    # replacement that returns a plausible-looking object of the right type
++    # could differ in exactly what the repr leaves out. Record the public,
++    # non-callable attributes (the interface the repository can actually read)
++    # and the length if it has one, depth-bounded like containers. This is the
++    # state-carving idea of Elbaum et al.: compare what is observable through
++    # the interface, not the object's identity.
++    if _d < 2:
++        try:
++            attrs = {}
++            d = getattr(v, "__dict__", None)
++            if isinstance(d, dict):
++                for k in sorted(d)[:16]:
++                    if k.startswith("_") or callable(d[k]):
++                        continue
++                    attrs[k] = _summary(d[k], _d + 1)
++            elif hasattr(v, "_fields"):
++                for k in list(v._fields)[:16]:
++                    attrs[k] = _summary(getattr(v, k), _d + 1)
++            if attrs:
++                out["attrs"] = attrs
++        except Exception:
++            pass
++        try:
++            if hasattr(v, "__len__"):
++                out["len"] = len(v)
++        except Exception:
++            pass
++    return out
++
++
++def _fingerprint(v):
++    """Deterministic hash of a whole value, address-stripped."""
++    try:
++        r = _re.sub(r" at 0x[0-9a-fA-F]+", " at 0xADDR", repr(v))
++    except Exception:
++        return None
++    return hashlib.sha1(r.encode("utf-8", "replace")).hexdigest()[:16]
++
++
++_MAXREC = 32768
++
++
++def _shrink(s):
++    """Replace a summary's expanded structure by a hash of that structure.
++
++    Equality over the shrunk form is equality over the full summary, since the
++    hash is taken of the summary itself; only readability is lost.
++    """
++    if isinstance(s, dict) and ("attrs" in s or "items" in s or "list" in s):
++        out = dict((k, v) for k, v in s.items() if k not in ("attrs", "items", "list"))
++        out["h"] = hashlib.sha1(json.dumps(s, sort_keys=True, default=str)
++                                .encode("utf-8", "replace")).hexdigest()[:16]
++        return out
++    return s
++
++
++def _bounded(rec):
++    """A record no larger than _MAXREC bytes: the trace travels through a CI
++    log, and one deep object must not crowd out the rest of the run."""
++    line = json.dumps(rec, default=str)
++    if len(line) <= _MAXREC:
++        return line
++    rec = dict(rec)
++    if "ret" in rec:
++        rec["ret"] = _shrink(rec["ret"])
++    rec["args"] = [_shrink(a) for a in rec.get("args", [])]
++    rec["kwargs"] = dict((k, _shrink(v)) for k, v in rec.get("kwargs", {}).items())
++    return json.dumps(rec, default=str)
++
++
++def _emit(rec, counter=None):
++    counter = _count if counter is None else counter
++    with _lock:
++        if counter[0] >= _MAXCALLS:
++            return
++        counter[0] += 1
++        try:
++            os.write(_TRACE_FD, ("%s%s" % (_MARKER, _bounded(rec))
++                                 + chr(10)).encode("utf-8", "replace"))
++        except Exception as e:
++            # Never silent: a trace that fails to write is indistinguishable
++            # from a dependency the tests do not exercise, and that ambiguity
++            # is exactly what the behavioural gate must not have.
++            try:
++                sys.stderr.write("UnpinBench recorder: write to %s failed: %s: %s"
++                                 % (_OUT, type(e).__name__, e) + chr(10))
++                sys.stderr.flush()
++            except Exception:
++                pass
++
++
++def _is_receiver(a):
++    """Does this look like a bound instance rather than a value?"""
++    if isinstance(a, (str, bytes, bytearray, int, float, bool, type(None),
++                      list, tuple, dict, set, frozenset)):
++        return False
++    return hasattr(a, "__dict__") or hasattr(a, "__slots__")
++
++
++def _summary_args(args):
++    """Summarise a call's arguments, recording a method receiver shallowly.
++
++    An instance method's first argument is the receiver, and it is the same
++    object on every call into that instance. Carving its attributes once per
++    call re-serialises the whole object state thousands of times: on
++    speakeasy/pefile, `self` is a parsed PE image, and the trace reached
++    138 MB over 21,394 calls with 98% of the bytes being the receiver.
++
++    The receiver's type and identity are what pairing needs; its contents are
++    not the call's input, and a replacement is not judged on them. So the
++    first argument is summarised at a depth that suppresses attribute carving
++    and every other argument in full.
++    """
++    out = []
++    for i, a in enumerate(args[:8]):
++        out.append(_summary(a, 2) if i == 0 and _is_receiver(a) else _summary(a))
++    return out
++
++
++def _record_call(qual, site, args, kwargs, out=None, exc=None, level=None,
++                 method=False, counter=None):
++    """Summarise one call and write it. Calls the summariser itself provokes
++    (a project __repr__ that reaches a wrapped function) are not recorded."""
++    if getattr(_busy, "on", False):
++        return
++    _busy.on = True
++    try:
++        rec = {"q": qual, "site": site, "pid": os.getpid()}
++        if level:
++            rec["level"] = level
++            rec["m"] = method
++        rec["args"] = _summary_args(args)
++        rec["kwargs"] = {k: _summary(v) for k, v in list(kwargs.items())[:8]}
++        if exc is not None:
++            rec["raised"] = type(exc).__name__
++            rec["msg"] = str(exc)[:200]
++        else:
++            rec["ret"] = _summary(out)
++        _emit(rec, counter)
++    except Exception:
++        pass
++    finally:
++        _busy.on = False
++
++
++def _wrap(fn, qual):
++    def wrapper(*args, **kwargs):
++        if getattr(_depth, "n", 0) or getattr(_busy, "on", False):   # D calling itself; summariser
++            return fn(*args, **kwargs)
++        is_repo, site = _caller()
++        if not is_repo:
++            return fn(*args, **kwargs)
++        if site.split(":")[0] in _SITE_EXCLUDE:      # the replacement calling itself
++            return fn(*args, **kwargs)
++        _depth.n = getattr(_depth, "n", 0) + 1
++        try:
++            try:
++                out = fn(*args, **kwargs)
++            except BaseException as e:
++                _record_call(qual, site, args, kwargs, exc=e)
++                raise
++            _record_call(qual, site, args, kwargs, out=out)
++            return out
++        finally:
++            _depth.n -= 1
++    try:
++        wrapper.__name__ = getattr(fn, "__name__", "wrapped")
++        wrapper.__qualname__ = qual
++        wrapper.__doc__ = getattr(fn, "__doc__", None)
++        wrapper.__wrapped__ = fn
++    except Exception:
++        pass
++    return wrapper
++
++
++# --- usage-site recording ---------------------------------------------------
++# A replacement that lives inside a modified module, or is inlined at the call
++# site, is not a callable the library-boundary hook can wrap: naming the
++# modified module records the project's own API, and an inlined rewrite makes
++# no call at all. The project's functions that USE the library keep their
++# names across the change, so they are wrapped instead, in both phases, and
++# their arguments and results are recorded under the function's qualified
++# name. G4a pairs those records by function and order.
++def _uwrap(fn, key, method):
++    import functools
++    import inspect
++    if inspect.iscoroutinefunction(fn):
++        async def wrapper(*args, **kwargs):
++            if getattr(_busy, "on", False):
++                return await fn(*args, **kwargs)
++            try:
++                out = await fn(*args, **kwargs)
++            except BaseException as e:
++                _record_call(key, key, args, kwargs, exc=e, level="usage", method=method, counter=_ucount)
++                raise
++            _record_call(key, key, args, kwargs, out=out, level="usage", method=method, counter=_ucount)
++            return out
++    else:
++        def wrapper(*args, **kwargs):
++            if getattr(_busy, "on", False):
++                return fn(*args, **kwargs)
++            try:
++                out = fn(*args, **kwargs)
++            except BaseException as e:
++                _record_call(key, key, args, kwargs, exc=e, level="usage", method=method, counter=_ucount)
++                raise
++            _record_call(key, key, args, kwargs, out=out, level="usage", method=method, counter=_ucount)
++            return out
++    try:
++        functools.update_wrapper(wrapper, fn)
++    except Exception:
++        pass
++    return wrapper
++
++
++def _wrap_usage(module, rel):
++    """Wrap the usage-site functions of `module` if it really is the file `rel`."""
++    import inspect
++    try:
++        f = getattr(module, "__file__", None) or ""
++        if os.path.relpath(os.path.realpath(f), _REAL_ROOT) != rel:
++            return
++    except Exception:
++        return
++    if getattr(module, "_unpinbench_usage_wrapped", None) == rel:
++        return
++    try:
++        setattr(module, "_unpinbench_usage_wrapped", rel)
++    except Exception:
++        pass
++    for qual in _USAGE.get(rel, []):
++        parts = qual.split(".")
++        owner = module
++        for p in parts[:-1]:
++            owner = getattr(owner, p, None)
++            if owner is None:
++                break
++        if owner is None:
++            continue
++        name = parts[-1]
++        try:
++            raw = inspect.getattr_static(owner, name)
++        except Exception:
++            continue
++        key = rel + "::" + qual
++        try:
++            if isinstance(raw, staticmethod):
++                setattr(owner, name, staticmethod(_uwrap(raw.__func__, key, False)))
++            elif isinstance(raw, classmethod):
++                setattr(owner, name, classmethod(_uwrap(raw.__func__, key, True)))
++            elif (inspect.isfunction(raw) and not inspect.isgeneratorfunction(raw)
++                  and not inspect.isasyncgenfunction(raw)):
++                # a generator's value is only seen when consumed, which the
++                # recorder cannot attribute; such functions are left alone
++                setattr(owner, name, _uwrap(raw, key, inspect.isclass(owner)))
++        except Exception:
++            continue
++
++
++def _instrument(mod, prefix, depth=0):
++    """Wrap public callables on a module and its public classes, in place."""
++    import inspect
++    for name in list(vars(mod)):
++        if name.startswith("_"):
++            continue
++        try:
++            obj = getattr(mod, name)
++        except Exception:
++            continue
++        qual = prefix + "." + name
++        try:
++            if inspect.isclass(obj):
++                mod_name = getattr(obj, "__module__", "") or ""
++                if depth < 1 and (mod_name.split(".")[0] in _TARGETS or mod_name in _TARGETS):
++                    for mname in list(vars(obj)):
++                        if mname.startswith("_") and mname not in ("__init__", "__call__"):
++                            continue
++                        try:
++                            m = inspect.getattr_static(obj, mname)
++                        except Exception:
++                            continue
++                        if isinstance(m, staticmethod):
++                            setattr(obj, mname, staticmethod(_wrap(m.__func__, qual + "." + mname)))
++                        elif isinstance(m, classmethod):
++                            setattr(obj, mname, classmethod(_wrap(m.__func__, qual + "." + mname)))
++                        elif inspect.isfunction(m):
++                            setattr(obj, mname, _wrap(m, qual + "." + mname))
++            elif inspect.isfunction(obj) or inspect.isbuiltin(obj):
++                setattr(mod, name, _wrap(obj, qual))
++        except Exception:
++            continue
++
++
++class _Hook:
++    """Instrument each target module the first time it finishes importing."""
++
++    def __init__(self):
++        self._seen = set()
++
++    def find_module(self, fullname, path=None):
++        return None
++
++    def find_spec(self, fullname, path=None, target=None):
++        # A target is either a top-level package (the library, e.g. "slugger")
++        # or an explicit dotted module (the replacement, e.g. "app.textutil").
++        # Matching only the root would never instrument a replacement that
++        # lives inside the repository's own package.
++        if fullname in self._seen:
++            return None
++        is_target = fullname.split(".")[0] in _TARGETS or fullname in _TARGETS
++        is_usage = fullname in _USAGE_MODULES
++        if not (is_target or is_usage):
++            return None
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is None or spec.loader is None or not hasattr(spec.loader, "exec_module"):
++                continue
++            inner, hook = spec.loader, self
++
++            class _L:
++                def create_module(self, s):
++                    return inner.create_module(s) if hasattr(inner, "create_module") else None
++
++                def exec_module(self, module):
++                    inner.exec_module(module)
++                    hook._seen.add(module.__name__)
++                    if is_target:
++                        try:
++                            _instrument(module, module.__name__)
++                        except Exception:
++                            pass
++                    if is_usage:
++                        for rel in _USAGE_MODULES.get(module.__name__, []):
++                            try:
++                                _wrap_usage(module, rel)
++                            except Exception:
++                                pass
++
++                def __getattr__(self, k):
++                    return getattr(inner, k)
++
++            spec.loader = _L()
++            return spec
++        return None
++
++
++_FLAG = "_unpinbench_recorder_" + "_".join(sorted(_TARGETS))
++
++
++def _install():
++    # sitecustomize.py and conftest.py both carry this module, so they define
++    # two distinct _Hook classes. isinstance() cannot recognise the other's
++    # instance, and two installed hooks delegate to each other forever
++    # (RecursionError at the first import). Guard on a marker instead.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _Hook())
++    for name in list(sys.modules):          # force re-import so the hook sees it
++        if name.split(".")[0] in _TARGETS:
++            del sys.modules[name]
++    for name in list(sys.modules):          # a usage module loaded before us is wrapped in place
++        if name in _USAGE_MODULES:
++            for rel in _USAGE_MODULES[name]:
++                try:
++                    _wrap_usage(sys.modules[name], rel)
++                except Exception:
++                    pass
++    try:
++        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
++                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++
++
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py rather than sitecustomize.py, this module is
++    # imported after pytest has already redirected fd 1, so the dup above
++    # points at the capture file and every trace line is swallowed. pytest
++    # keeps the real console on its FDCapture.targetfd_save; switch to it.
++    global _TRACE_FD
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            _TRACE_FD = saved
++            os.write(_TRACE_FD, ("UnpinBench recorder active (pytest saved fd %d): targets=%r"
++                                 % (saved, _TARGETS) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
++
++
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++"""Injected by UnpinBench probe: which calls into 'readability_lxml' does this repository make?
++
++Diagnostic only. It never changes a result: every hook swallows its own
++errors, and nothing is written to stdout or stderr except by the top-level
++process at exit, so a test that captures a subprocess's output sees nothing.
++"""
++import atexit as _pz_atexit
++import json as _pz_json
++import os as _pz_os
++import sys as _pz_sys
++import threading as _pz_th
++
++_PZ_FLAG = "_unpinbench_probe_" + 'readability_lxml'
++
++
++def _pz_main():
++    if getattr(_pz_sys, _PZ_FLAG, False):
++        return
++    setattr(_pz_sys, _PZ_FLAG, True)
++    names = frozenset(['readability', 'readability_lxml', 'readabilitylxml'])
++    own = frozenset(['manage', 'swirl', 'swirl_load', 'swirl_server'])
++    dm = {'swirl/web_page.py': {'f': [64], 'm': False}}
++    here = _pz_os.path.dirname(_pz_os.path.abspath(__file__))
++    root = _pz_os.path.realpath(here)
++    pre = root + _pz_os.sep
++    selfs = {_pz_os.path.realpath(_pz_os.path.join(root, n)) for n in ("sitecustomize.py", "conftest.py")}
++    stdlib = _pz_os.path.dirname(_pz_os.__file__)
++    marks = tuple("/%s-packages/%s%s" % (sp, n, tail)
++                  for sp in ("site", "dist") for n in names for tail in ("/", ".py"))
++    venv = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/")
++    testdirs = frozenset(['integration_tests', 'test', 'testing', 'tests', 'unit_tests', 'unittests'])
++    dfuncs = {rel: frozenset(v["f"]) for rel, v in dm.items()}
++    dmods = frozenset(rel for rel, v in dm.items() if v["m"])
++    kind, relof = {}, {}
++    st = {"calls": {}, "ccalls": {}, "dfn": {}, "dmod": {}, "imp": {}, "on": False}
++    outdir = "/tmp/unpinbench_probe"
++    top = _pz_os.environ.get("UNPINBENCH_PROBE_TOP")
++    me = str(_pz_os.getpid())
++    if not top:
++        _pz_os.environ["UNPINBENCH_PROBE_TOP"] = me
++
++    def classify(fn):
++        k = kind.get(fn)
++        if k is not None:
++            return k
++        if not fn or fn.startswith("<"):
++            k = "x"
++        elif any(m in fn for m in marks):
++            k = "D"
++        elif fn.startswith(stdlib + "/") or "/importlib/" in fn:
++            k = "x"
++        elif any(v in fn for v in venv) or "-packages/" in fn:
++            k = "o"
++        else:
++            real = _pz_os.path.realpath(fn)
++            if real in selfs:
++                k = "x"
++            elif real.startswith(pre):
++                rel = real[len(pre):]
++                parts = rel.split(_pz_os.sep)
++                nm = parts[-1]
++                test = (any(p in testdirs for p in parts[:-1]) or nm.startswith("test_")
++                        or nm.endswith("_test.py") or nm in ("conftest.py", "tests.py"))
++                k = "t" if test else "s"
++                relof[fn] = rel
++            else:
++                k = "o"
++        kind[fn] = k
++        return k
++
++    def caller(f):
++        n = 0
++        while f is not None and n < 64:
++            k = classify(f.f_code.co_filename)
++            if k != "x":
++                return k
++            f, n = f.f_back, n + 1
++        return "o"
++
++    def bump(d, key):
++        d[key] = d.get(key, 0) + 1
++
++    def prof(frame, event, arg):
++        try:
++            if event == "call":
++                co = frame.f_code
++                k = classify(co.co_filename)
++                if k == "D":
++                    c = caller(frame.f_back)
++                    if co.co_name == "<module>":
++                        bump(st["imp"], c)
++                    elif c in ("s", "t"):
++                        fn = co.co_filename
++                        bump(st["calls"], c + ":" + fn[fn.rfind("-packages/") + 10:] + ":" + co.co_name)
++                elif k == "s":
++                    rel = relof.get(co.co_filename)
++                    if co.co_name == "<module>":
++                        if rel in dmods:
++                            bump(st["dmod"], rel)
++                    elif co.co_firstlineno in dfuncs.get(rel, ()):
++                        bump(st["dfn"], "%s:%d" % (rel, co.co_firstlineno))
++            elif event == "c_call":
++                m = getattr(arg, "__module__", None)
++                if not isinstance(m, str):
++                    s = getattr(arg, "__self__", None)
++                    m = getattr(s, "__name__", None) if type(s).__name__ == "module" else type(s).__module__
++                if isinstance(m, str) and m.split(".")[0] in names:
++                    c = caller(frame)
++                    if c in ("s", "t"):
++                        bump(st["ccalls"], c + ":" + m + "." + str(getattr(arg, "__name__", "?")))
++        except Exception:
++            pass
++
++    def activate():
++        if st["on"]:
++            return
++        st["on"] = True
++        _pz_sys.setprofile(prof)
++        _pz_th.setprofile(prof)
++
++    class Trigger:
++        """Turns the profiler on at the first import of the repository, its tests or the
++        library, so pip, poetry and tox processes run at full speed."""
++
++        def find_spec(self, fullname, path=None, target=None):
++            if not st["on"]:
++                r = fullname.split(".")[0]
++                if r in own or r in names or r == "conftest" or r.startswith("test"):
++                    activate()
++            return None
++
++    def cap(d, n):
++        return dict(sorted(d.items(), key=lambda kv: -kv[1])[:n])
++
++    def dump():
++        try:
++            if not st["on"]:
++                return
++            rec = {"pid": me, "top": top or me, "argv0": _pz_os.path.basename(_pz_sys.argv[0] if _pz_sys.argv else ""),
++                   "calls": cap(st["calls"], 60), "ccalls": cap(st["ccalls"], 60),
++                   "dfn": cap(st["dfn"], 80), "dmod": st["dmod"], "imp": st["imp"],
++                   "n_calls": sum(st["calls"].values()), "n_ccalls": sum(st["ccalls"].values()),
++                   "n_dfn": len(st["dfn"])}
++            _pz_os.makedirs(outdir, exist_ok=True)
++            with open(_pz_os.path.join(outdir, me + ".json"), "w") as fh:
++                fh.write(_pz_json.dumps(rec))
++        except Exception:
++            pass
++
++    def report():
++        # Only a top-level process prints, and only at exit, when pytest has
++        # released fd 2: children leave a file the top-level process collects.
++        dump()
++        if top:
++            return
++        try:
++            fd = _pz_os.dup(2)
++            for f in sorted(_pz_os.listdir(outdir)):
++                try:
++                    rec = _pz_json.load(open(_pz_os.path.join(outdir, f)))
++                except Exception:
++                    continue
++                if rec.get("top") == me:
++                    _pz_os.write(fd, ("UNPINPROBE " + _pz_json.dumps(rec) + chr(10)).encode("utf-8", "replace"))
++        except Exception:
++            pass
++
++    if _pz_sys.argv and _pz_sys.argv[0]:
++        try:
++            if _pz_os.path.realpath(_pz_sys.argv[0]).startswith(pre):
++                activate()
++        except Exception:
++            pass
++    if any(n.split(".")[0] in names or n.split(".")[0] in own for n in list(_pz_sys.modules)):
++        activate()
++    _pz_sys.meta_path.insert(0, Trigger())
++    _pz_atexit.register(report)
++
++
++_pz_main()
++# <<< UnpinBench injected block <<<
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..3adf362 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,172 @@
++amqp==5.2.0
++annotated-types==0.7.0
++anyio==4.4.0
++asgiref==3.8.1
++asn1crypto==1.5.1
++attrs==23.2.0
++autobahn==23.6.2
++Automat==22.10.0
++beautifulsoup4==4.12.3
++billiard==4.2.0
++blis==0.7.11
++bs4==0.0.2
++cachetools==5.3.3
++catalogue==2.0.10
++celery==5.4.0
++certifi==2024.7.4
++cffi==1.16.0
++channels==4.1.0
++channels-redis==4.2.0
++chardet==5.2.0
++charset-normalizer==3.3.2
++click==8.1.7
++click-didyoumean==0.3.1
++click-plugins==1.1.1
++click-repl==0.3.0
++cloudpathlib==0.18.1
++confection==0.1.5
++constantly==23.10.4
++cron-descriptor==1.4.3
++cryptography==42.0.8
++cssselect==1.2.0
++cymem==2.0.8
++daphne==4.1.2
++distro==1.9.0
++Django==5.0.7
++django-celery-beat==2.6.0
++django-environ==0.11.2
++django-restframework==0.0.1
++django-timezone-field==7.0
++djangorestframework==3.15.2
++dnspython==2.6.1
++docutils==0.21.2
++drf-spectacular==0.27.2
++elastic-transport==8.13.1
++elasticsearch==8.14.0
++en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.7.1/en_core_web_lg-3.7.1-py3-none-any.whl#sha256=ab70aeb6172cde82508f7739f35ebc9918a3d07debeed637403c8f794ba3d3dc
++Events==0.5
++filelock==3.15.4
++fsspec==2024.6.1
++google-api-core==2.19.1
++google-auth==2.32.0
++google-cloud-bigquery==3.25.0
++google-cloud-core==2.4.1
++google-crc32c==1.5.0
++google-resumable-media==2.7.1
++googleapis-common-protos==1.63.2
++grpcio==1.64.1
++grpcio-status==1.64.1
++grpcio-tools==1.64.1
++h11==0.14.0
++h2==4.1.0
++hpack==4.0.0
++httpcore==1.0.5
++httpx==0.27.0
++huggingface-hub==0.23.4
++hyperframe==6.0.1
++hyperlink==21.0.0
++idna==3.7
++incremental==22.10.0
++inflection==0.5.1
++Jinja2==3.1.4
++joblib==1.4.2
++jsonpath-ng==1.6.1
++jsonschema==4.23.0
++jsonschema-specifications==2023.12.1
++kombu==5.3.7
++langcodes==3.4.0
++language_data==1.2.0
++lxml==5.2.2
++lxml_html_clean==0.1.1
++marisa-trie==1.2.0
++markdown-it-py==3.0.0
++MarkupSafe==2.1.5
++mdurl==0.1.2
++mpmath==1.3.0
++msal==1.29.0
++msgpack==1.0.8
++murmurhash==1.0.10
++natsort==8.4.0
++networkx==3.3
++nltk==3.8.1
++numpy==1.26.4
++openai==1.35.13
++opensearch-py==2.6.0
++oracledb==2.2.1
++packaging==24.1
++pandas==2.2.2
++pika==1.3.2
++pinecone-client==4.1.2
++pinecone-plugin-interface==0.0.7
++platformdirs==4.2.2
++ply==3.11
++portalocker==2.10.0
++preshed==3.0.9
++prompt_toolkit==3.0.47
++proto-plus==1.24.0
++protobuf==5.27.2
++psycopg2-binary==2.9.9
++pyahocorasick==2.1.0
++pyasn1==0.6.0
++pyasn1_modules==0.4.0
++pycparser==2.22
++pydantic==2.8.2
++pydantic_core==2.20.1
++Pygments==2.18.0
++PyJWT==2.8.0
++pymongo==4.8.0
++pyOpenSSL==24.1.0
++python-crontab==3.2.0
++python-dateutil==2.9.0.post0
++pytz==2024.1
++PyYAML==6.0.1
++qdrant-client==1.10.0
++readability-lxml==0.8.1
++redis==5.0.7
++referencing==0.35.1
++regex==2024.5.15
++requests==2.32.3
++rich==13.7.1
++rpds-py==0.19.0
++rsa==4.9
++safetensors==0.4.3
++service-identity==24.1.0
++setuptools==70.3.0
++shellingham==1.5.4
++six==1.16.0
++smart-open==7.0.4
++sniffio==1.3.1
++snowflake-connector-python==3.11.0
++sortedcontainers==2.4.0
++soupsieve==2.5
++spacy==3.7.5
++spacy-legacy==3.0.12
++spacy-loggers==1.0.5
++sqlparse==0.5.0
++srsly==2.4.8
++statistics==1.0.3.5
++sympy==1.13.0
++textblob==0.18.0.post0
++thinc==8.2.5
++tika==2.6.0
++tiktoken==0.7.0
++tokenizers==0.19.1
++tomlkit==0.13.0
++torch==2.3.1
++tqdm==4.66.4
++transformers==4.42.3
++Twisted==24.3.0
++txaio==23.1.1
++typer==0.12.3
++typing_extensions==4.12.2
++tzdata==2024.1
++uritemplate==4.1.1
++urllib3==2.2.2
++vine==5.1.0
++wasabi==1.1.3
++wcwidth==0.2.13
++weasel==0.4.1
++whitenoise==6.7.0
++wrapt==1.16.0
++xmltodict==0.13.0
++zope.interface==6.4.post2
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..f306e81
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,757 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++"""Injected by UnpinBench: record calls this repository makes into 'readability_lxml'."""
++import hashlib
++import json
++import os
++import re as _re
++import sys
++import threading
++
++_TARGETS = ['readability_lxml', 'readabilitylxml']
++_DEP = 'readability_lxml'
++_OWN = ['manage', 'swirl', 'swirl_load', 'swirl_server']
++_OUT = '/dev/stdout'
++_MAXREPR = 300
++_MARKER = "UNPINTRACE "
++try:
++    _TRACE_FD = os.dup(1)      # before pytest can redirect fd 1
++except Exception:
++    _TRACE_FD = 1
++_MAXCALLS = 2000
++_SITE_EXCLUDE = []   # files whose calls are internal to the replacement
++_USAGE = {}                 # repo-relative file -> project functions recorded at the usage site
++_USAGE_MODULES = {} # importable module name -> repo-relative files it may be loaded from
++
++_ROOT = os.path.dirname(os.path.abspath(__file__))
++_REAL_ROOT = os.path.realpath(_ROOT)
++_SELF = {os.path.abspath(__file__)}
++_REAL_SELF = {os.path.realpath(p) for p in _SELF}
++_VENV = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/", "/.git/")
++_STDLIB = os.path.dirname(os.__file__)
++_lock = threading.Lock()
++_count = [0]
++_ucount = [0]
++_depth = threading.local()
++_busy = threading.local()      # set while a record is being summarised; calls made then are not recorded
++_fcache = {}
++
++
++def _is_repo_file(fn):
++    if fn in _fcache:
++        return _fcache[fn]
++    if not fn or fn.startswith("<"):
++        r = None if fn.startswith("<frozen") else True
++    elif "site-packages" in fn or "dist-packages" in fn:
++        tail = fn.split("-packages", 1)[1].lstrip("/").split("/")
++        r = bool(tail) and tail[0].split(".")[0] in _OWN
++    elif fn.startswith(_STDLIB + "/") or "/importlib/" in fn:
++        r = None
++    elif any(v in fn for v in _VENV):
++        r = False
++    elif not os.path.isabs(fn):
++        r = True
++    else:
++        # Compare RESOLVED paths. abspath() alone is not enough: on macOS a
++        # temporary checkout is handed to us as /var/folders/... while frames
++        # report /private/var/folders/..., and any symlinked checkout on Linux
++        # does the same. The prefix test then fails for every repository
++        # frame, the whole repository is classified foreign, and the tool
++        # silently does nothing -- a blocker that blocks nothing, or a
++        # recorder that records nothing. In a CI log that is indistinguishable
++        # from a dependency the tests never exercise, which is the one
++        # confusion this project cannot afford.
++        real = os.path.realpath(fn)
++        if real.startswith(_REAL_ROOT + os.sep):
++            r = None if (os.path.abspath(fn) in _SELF or real in _REAL_SELF) else True
++        else:
++            r = False
++    _fcache[fn] = r
++    return r
++
++
++def _caller():
++    """(repo_origin, 'file:line') of the nearest frame outside the recorder."""
++    f = sys._getframe(2)
++    while f is not None:
++        fn = f.f_code.co_filename
++        if os.path.abspath(fn) not in _SELF:
++            r = _is_repo_file(fn)
++            if r is not None:
++                try:
++                    rel = os.path.relpath(os.path.realpath(fn), os.path.realpath(_ROOT))
++                except ValueError:
++                    rel = fn
++                return r, "%s:%d" % (rel, f.f_lineno)
++        f = f.f_back
++    return False, "?"
++
++
++def _summary(v, _d=0):
++    """Type-tagged, length-capped structural summary of a value."""
++    t = type(v)
++    name = getattr(t, "__name__", "?")
++    if v is None or isinstance(v, bool):
++        return {"t": name, "v": v}
++    if isinstance(v, int):
++        return {"t": "int", "v": v}
++    if isinstance(v, float):
++        # bit pattern so NaN/-0.0 compare exactly; G4a applies a tolerance rule
++        return {"t": "float", "v": repr(v)}
++    if isinstance(v, memoryview):
++        v = v.tobytes()
++    if isinstance(v, (str, bytes, bytearray)):
++        s = v if isinstance(v, str) else bytes(v).decode("utf-8", "replace")
++        out = {"t": name, "n": len(v), "v": s[:_MAXREPR]}
++        if len(s) > _MAXREPR:
++            # the prefix is for reading; the hash is what equality uses, so a
++            # replacement that differs only past the cap is still caught
++            out["h"] = hashlib.sha1(s.encode("utf-8", "replace")).hexdigest()[:16]
++        return out
++    if isinstance(v, (list, tuple, set, frozenset)) and _d < 3:
++        items = list(v)[:20]
++        out = {"t": name, "n": len(v), "items": [_summary(i, _d + 1) for i in items]}
++        if len(v) > 20:
++            out["h"] = _fingerprint(v)
++        return out
++    if isinstance(v, dict) and _d < 3:
++        keys = sorted(map(str, list(v)))[:20]
++        out = {"t": "dict", "n": len(v),
++               "items": [[k, _summary(v[k] if k in v else v.get(k), _d + 1)] for k in keys if k in v]}
++        if len(v) > 20:
++            out["h"] = _fingerprint(v)
++        return out
++    mod = getattr(t, "__module__", "") or ""
++    out = {"t": name, "mod": mod.split(".")[0]}
++    if callable(v) or name in ("generator", "coroutine", "async_generator"):
++        # A function or a lazy iterator has no value to compare until it is
++        # used; the recorder sees that use as a later call if the repository
++        # makes it. Record what it is, not a repr with an address in it.
++        q = getattr(v, "__qualname__", None) or getattr(
++            getattr(v, "gi_code", None) or getattr(v, "cr_code", None), "co_name", None)
++        out["r"] = "<%s %s>" % (name, q or "?")
++        return out
++    try:
++        r = repr(v)[:_MAXREPR]
++    except Exception:
++        r = "<unreprable>"
++    # a default repr carries the object's address, which differs on every run;
++    # keep the type only, so comparison is not defeated by allocation
++    import re as _re
++    out["r"] = _re.sub(r" at 0x[0-9a-fA-F]+", " at 0xADDR", r)
++    # structural fingerprint for array-likes, so numerics are comparable at all
++    for attr in ("shape", "dtype", "size"):
++        a = getattr(v, attr, None)
++        if a is not None and not callable(a):
++            out[attr] = str(a)[:64]
++    try:
++        if hasattr(v, "tolist") and getattr(v, "size", 1 << 30) <= 64:
++            out["list"] = _summary(v.tolist(), _d + 1)
++        elif hasattr(v, "to_numpy") and getattr(v, "size", 1 << 30) <= 64:
++            out["list"] = _summary(v.to_numpy().tolist(), _d + 1)
++    except Exception:
++        pass
++    # arrays and tables larger than the inline cap: hash the whole content,
++    # not the elided repr pandas and numpy print
++    try:
++        if "list" not in out and getattr(v, "size", 0) and hasattr(v, "tobytes"):
++            out["h"] = hashlib.sha1(v.tobytes()).hexdigest()[:16]
++        elif "list" not in out and hasattr(v, "to_csv") and getattr(v, "size", 1 << 30) <= 1000000:
++            out["h"] = hashlib.sha1(str(v.to_csv()).encode("utf-8", "replace")).hexdigest()[:16]
++    except Exception:
++        pass
++    # Observable structure. A repr can omit most of an object's state, and a
++    # replacement that returns a plausible-looking object of the right type
++    # could differ in exactly what the repr leaves out. Record the public,
++    # non-callable attributes (the interface the repository can actually read)
++    # and the length if it has one, depth-bounded like containers. This is the
++    # state-carving idea of Elbaum et al.: compare what is observable through
++    # the interface, not the object's identity.
++    if _d < 2:
++        try:
++            attrs = {}
++            d = getattr(v, "__dict__", None)
++            if isinstance(d, dict):
++                for k in sorted(d)[:16]:
++                    if k.startswith("_") or callable(d[k]):
++                        continue
++                    attrs[k] = _summary(d[k], _d + 1)
++            elif hasattr(v, "_fields"):
++                for k in list(v._fields)[:16]:
++                    attrs[k] = _summary(getattr(v, k), _d + 1)
++            if attrs:
++                out["attrs"] = attrs
++        except Exception:
++            pass
++        try:
++            if hasattr(v, "__len__"):
++                out["len"] = len(v)
++        except Exception:
++            pass
++    return out
++
++
++def _fingerprint(v):
++    """Deterministic hash of a whole value, address-stripped."""
++    try:
++        r = _re.sub(r" at 0x[0-9a-fA-F]+", " at 0xADDR", repr(v))
++    except Exception:
++        return None
++    return hashlib.sha1(r.encode("utf-8", "replace")).hexdigest()[:16]
++
++
++_MAXREC = 32768
++
++
++def _shrink(s):
++    """Replace a summary's expanded structure by a hash of that structure.
++
++    Equality over the shrunk form is equality over the full summary, since the
++    hash is taken of the summary itself; only readability is lost.
++    """
++    if isinstance(s, dict) and ("attrs" in s or "items" in s or "list" in s):
++        out = dict((k, v) for k, v in s.items() if k not in ("attrs", "items", "list"))
++        out["h"] = hashlib.sha1(json.dumps(s, sort_keys=True, default=str)
++                                .encode("utf-8", "replace")).hexdigest()[:16]
++        return out
++    return s
++
++
++def _bounded(rec):
++    """A record no larger than _MAXREC bytes: the trace travels through a CI
++    log, and one deep object must not crowd out the rest of the run."""
++    line = json.dumps(rec, default=str)
++    if len(line) <= _MAXREC:
++        return line
++    rec = dict(rec)
++    if "ret" in rec:
++        rec["ret"] = _shrink(rec["ret"])
++    rec["args"] = [_shrink(a) for a in rec.get("args", [])]
++    rec["kwargs"] = dict((k, _shrink(v)) for k, v in rec.get("kwargs", {}).items())
++    return json.dumps(rec, default=str)
++
++
++def _emit(rec, counter=None):
++    counter = _count if counter is None else counter
++    with _lock:
++        if counter[0] >= _MAXCALLS:
++            return
++        counter[0] += 1
++        try:
++            os.write(_TRACE_FD, ("%s%s" % (_MARKER, _bounded(rec))
++                                 + chr(10)).encode("utf-8", "replace"))
++        except Exception as e:
++            # Never silent: a trace that fails to write is indistinguishable
++            # from a dependency the tests do not exercise, and that ambiguity
++            # is exactly what the behavioural gate must not have.
++            try:
++                sys.stderr.write("UnpinBench recorder: write to %s failed: %s: %s"
++                                 % (_OUT, type(e).__name__, e) + chr(10))
++                sys.stderr.flush()
++            except Exception:
++                pass
++
++
++def _is_receiver(a):
++    """Does this look like a bound instance rather than a value?"""
++    if isinstance(a, (str, bytes, bytearray, int, float, bool, type(None),
++                      list, tuple, dict, set, frozenset)):
++        return False
++    return hasattr(a, "__dict__") or hasattr(a, "__slots__")
++
++
++def _summary_args(args):
++    """Summarise a call's arguments, recording a method receiver shallowly.
++
++    An instance method's first argument is the receiver, and it is the same
++    object on every call into that instance. Carving its attributes once per
++    call re-serialises the whole object state thousands of times: on
++    speakeasy/pefile, `self` is a parsed PE image, and the trace reached
++    138 MB over 21,394 calls with 98% of the bytes being the receiver.
++
++    The receiver's type and identity are what pairing needs; its contents are
++    not the call's input, and a replacement is not judged on them. So the
++    first argument is summarised at a depth that suppresses attribute carving
++    and every other argument in full.
++    """
++    out = []
++    for i, a in enumerate(args[:8]):
++        out.append(_summary(a, 2) if i == 0 and _is_receiver(a) else _summary(a))
++    return out
++
++
++def _record_call(qual, site, args, kwargs, out=None, exc=None, level=None,
++                 method=False, counter=None):
++    """Summarise one call and write it. Calls the summariser itself provokes
++    (a project __repr__ that reaches a wrapped function) are not recorded."""
++    if getattr(_busy, "on", False):
++        return
++    _busy.on = True
++    try:
++        rec = {"q": qual, "site": site, "pid": os.getpid()}
++        if level:
++            rec["level"] = level
++            rec["m"] = method
++        rec["args"] = _summary_args(args)
++        rec["kwargs"] = {k: _summary(v) for k, v in list(kwargs.items())[:8]}
++        if exc is not None:
++            rec["raised"] = type(exc).__name__
++            rec["msg"] = str(exc)[:200]
++        else:
++            rec["ret"] = _summary(out)
++        _emit(rec, counter)
++    except Exception:
++        pass
++    finally:
++        _busy.on = False
++
++
++def _wrap(fn, qual):
++    def wrapper(*args, **kwargs):
++        if getattr(_depth, "n", 0) or getattr(_busy, "on", False):   # D calling itself; summariser
++            return fn(*args, **kwargs)
++        is_repo, site = _caller()
++        if not is_repo:
++            return fn(*args, **kwargs)
++        if site.split(":")[0] in _SITE_EXCLUDE:      # the replacement calling itself
++            return fn(*args, **kwargs)
++        _depth.n = getattr(_depth, "n", 0) + 1
++        try:
++            try:
++                out = fn(*args, **kwargs)
++            except BaseException as e:
++                _record_call(qual, site, args, kwargs, exc=e)
++                raise
++            _record_call(qual, site, args, kwargs, out=out)
++            return out
++        finally:
++            _depth.n -= 1
++    try:
++        wrapper.__name__ = getattr(fn, "__name__", "wrapped")
++        wrapper.__qualname__ = qual
++        wrapper.__doc__ = getattr(fn, "__doc__", None)
++        wrapper.__wrapped__ = fn
++    except Exception:
++        pass
++    return wrapper
++
++
++# --- usage-site recording ---------------------------------------------------
++# A replacement that lives inside a modified module, or is inlined at the call
++# site, is not a callable the library-boundary hook can wrap: naming the
++# modified module records the project's own API, and an inlined rewrite makes
++# no call at all. The project's functions that USE the library keep their
++# names across the change, so they are wrapped instead, in both phases, and
++# their arguments and results are recorded under the function's qualified
++# name. G4a pairs those records by function and order.
++def _uwrap(fn, key, method):
++    import functools
++    import inspect
++    if inspect.iscoroutinefunction(fn):
++        async def wrapper(*args, **kwargs):
++            if getattr(_busy, "on", False):
++                return await fn(*args, **kwargs)
++            try:
++                out = await fn(*args, **kwargs)
++            except BaseException as e:
++                _record_call(key, key, args, kwargs, exc=e, level="usage", method=method, counter=_ucount)
++                raise
++            _record_call(key, key, args, kwargs, out=out, level="usage", method=method, counter=_ucount)
++            return out
++    else:
++        def wrapper(*args, **kwargs):
++            if getattr(_busy, "on", False):
++                return fn(*args, **kwargs)
++            try:
++                out = fn(*args, **kwargs)
++            except BaseException as e:
++                _record_call(key, key, args, kwargs, exc=e, level="usage", method=method, counter=_ucount)
++                raise
++            _record_call(key, key, args, kwargs, out=out, level="usage", method=method, counter=_ucount)
++            return out
++    try:
++        functools.update_wrapper(wrapper, fn)
++    except Exception:
++        pass
++    return wrapper
++
++
++def _wrap_usage(module, rel):
++    """Wrap the usage-site functions of `module` if it really is the file `rel`."""
++    import inspect
++    try:
++        f = getattr(module, "__file__", None) or ""
++        if os.path.relpath(os.path.realpath(f), _REAL_ROOT) != rel:
++            return
++    except Exception:
++        return
++    if getattr(module, "_unpinbench_usage_wrapped", None) == rel:
++        return
++    try:
++        setattr(module, "_unpinbench_usage_wrapped", rel)
++    except Exception:
++        pass
++    for qual in _USAGE.get(rel, []):
++        parts = qual.split(".")
++        owner = module
++        for p in parts[:-1]:
++            owner = getattr(owner, p, None)
++            if owner is None:
++                break
++        if owner is None:
++            continue
++        name = parts[-1]
++        try:
++            raw = inspect.getattr_static(owner, name)
++        except Exception:
++            continue
++        key = rel + "::" + qual
++        try:
++            if isinstance(raw, staticmethod):
++                setattr(owner, name, staticmethod(_uwrap(raw.__func__, key, False)))
++            elif isinstance(raw, classmethod):
++                setattr(owner, name, classmethod(_uwrap(raw.__func__, key, True)))
++            elif (inspect.isfunction(raw) and not inspect.isgeneratorfunction(raw)
++                  and not inspect.isasyncgenfunction(raw)):
++                # a generator's value is only seen when consumed, which the
++                # recorder cannot attribute; such functions are left alone
++                setattr(owner, name, _uwrap(raw, key, inspect.isclass(owner)))
++        except Exception:
++            continue
++
++
++def _instrument(mod, prefix, depth=0):
++    """Wrap public callables on a module and its public classes, in place."""
++    import inspect
++    for name in list(vars(mod)):
++        if name.startswith("_"):
++            continue
++        try:
++            obj = getattr(mod, name)
++        except Exception:
++            continue
++        qual = prefix + "." + name
++        try:
++            if inspect.isclass(obj):
++                mod_name = getattr(obj, "__module__", "") or ""
++                if depth < 1 and (mod_name.split(".")[0] in _TARGETS or mod_name in _TARGETS):
++                    for mname in list(vars(obj)):
++                        if mname.startswith("_") and mname not in ("__init__", "__call__"):
++                            continue
++                        try:
++                            m = inspect.getattr_static(obj, mname)
++                        except Exception:
++                            continue
++                        if isinstance(m, staticmethod):
++                            setattr(obj, mname, staticmethod(_wrap(m.__func__, qual + "." + mname)))
++                        elif isinstance(m, classmethod):
++                            setattr(obj, mname, classmethod(_wrap(m.__func__, qual + "." + mname)))
++                        elif inspect.isfunction(m):
++                            setattr(obj, mname, _wrap(m, qual + "." + mname))
++            elif inspect.isfunction(obj) or inspect.isbuiltin(obj):
++                setattr(mod, name, _wrap(obj, qual))
++        except Exception:
++            continue
++
++
++class _Hook:
++    """Instrument each target module the first time it finishes importing."""
++
++    def __init__(self):
++        self._seen = set()
++
++    def find_module(self, fullname, path=None):
++        return None
++
++    def find_spec(self, fullname, path=None, target=None):
++        # A target is either a top-level package (the library, e.g. "slugger")
++        # or an explicit dotted module (the replacement, e.g. "app.textutil").
++        # Matching only the root would never instrument a replacement that
++        # lives inside the repository's own package.
++        if fullname in self._seen:
++            return None
++        is_target = fullname.split(".")[0] in _TARGETS or fullname in _TARGETS
++        is_usage = fullname in _USAGE_MODULES
++        if not (is_target or is_usage):
++            return None
++        for finder in sys.meta_path:
++            if finder is self or not hasattr(finder, "find_spec"):
++                continue
++            spec = finder.find_spec(fullname, path, target)
++            if spec is None or spec.loader is None or not hasattr(spec.loader, "exec_module"):
++                continue
++            inner, hook = spec.loader, self
++
++            class _L:
++                def create_module(self, s):
++                    return inner.create_module(s) if hasattr(inner, "create_module") else None
++
++                def exec_module(self, module):
++                    inner.exec_module(module)
++                    hook._seen.add(module.__name__)
++                    if is_target:
++                        try:
++                            _instrument(module, module.__name__)
++                        except Exception:
++                            pass
++                    if is_usage:
++                        for rel in _USAGE_MODULES.get(module.__name__, []):
++                            try:
++                                _wrap_usage(module, rel)
++                            except Exception:
++                                pass
++
++                def __getattr__(self, k):
++                    return getattr(inner, k)
++
++            spec.loader = _L()
++            return spec
++        return None
++
++
++_FLAG = "_unpinbench_recorder_" + "_".join(sorted(_TARGETS))
++
++
++def _install():
++    # sitecustomize.py and conftest.py both carry this module, so they define
++    # two distinct _Hook classes. isinstance() cannot recognise the other's
++    # instance, and two installed hooks delegate to each other forever
++    # (RecursionError at the first import). Guard on a marker instead.
++    if getattr(sys, _FLAG, False):
++        return
++    setattr(sys, _FLAG, True)
++    sys.meta_path.insert(0, _Hook())
++    for name in list(sys.modules):          # force re-import so the hook sees it
++        if name.split(".")[0] in _TARGETS:
++            del sys.modules[name]
++    for name in list(sys.modules):          # a usage module loaded before us is wrapped in place
++        if name in _USAGE_MODULES:
++            for rel in _USAGE_MODULES[name]:
++                try:
++                    _wrap_usage(sys.modules[name], rel)
++                except Exception:
++                    pass
++    try:
++        sys.stderr.write("UnpinBench recorder active: targets=%r out=%s pid=%d"
++                         % (_TARGETS, _OUT, os.getpid()) + chr(10))
++        sys.stderr.flush()
++    except Exception:
++        pass
++
++
++_install()
++
++
++def _unpinbench_pytest_fd(config):
++    # Loaded through conftest.py rather than sitecustomize.py, this module is
++    # imported after pytest has already redirected fd 1, so the dup above
++    # points at the capture file and every trace line is swallowed. pytest
++    # keeps the real console on its FDCapture.targetfd_save; switch to it.
++    global _TRACE_FD
++    try:
++        cap = config.pluginmanager.get_plugin("capturemanager")
++        out = getattr(getattr(cap, "_global_capturing", None), "out", None)
++        saved = getattr(out, "targetfd_save", None)
++        if saved is not None:
++            _TRACE_FD = saved
++            os.write(_TRACE_FD, ("UnpinBench recorder active (pytest saved fd %d): targets=%r"
++                                 % (saved, _TARGETS) + chr(10)).encode("utf-8", "replace"))
++    except Exception:
++        pass
++
++
++pytest_configure = _unpinbench_pytest_fd
++
++
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++"""Injected by UnpinBench probe: which calls into 'readability_lxml' does this repository make?
++
++Diagnostic only. It never changes a result: every hook swallows its own
++errors, and nothing is written to stdout or stderr except by the top-level
++process at exit, so a test that captures a subprocess's output sees nothing.
++"""
++import atexit as _pz_atexit
++import json as _pz_json
++import os as _pz_os
++import sys as _pz_sys
++import threading as _pz_th
++
++_PZ_FLAG = "_unpinbench_probe_" + 'readability_lxml'
++
++
++def _pz_main():
++    if getattr(_pz_sys, _PZ_FLAG, False):
++        return
++    setattr(_pz_sys, _PZ_FLAG, True)
++    names = frozenset(['readability', 'readability_lxml', 'readabilitylxml'])
++    own = frozenset(['manage', 'swirl', 'swirl_load', 'swirl_server'])
++    dm = {'swirl/web_page.py': {'f': [64], 'm': False}}
++    here = _pz_os.path.dirname(_pz_os.path.abspath(__file__))
++    root = _pz_os.path.realpath(here)
++    pre = root + _pz_os.sep
++    selfs = {_pz_os.path.realpath(_pz_os.path.join(root, n)) for n in ("sitecustomize.py", "conftest.py")}
++    stdlib = _pz_os.path.dirname(_pz_os.__file__)
++    marks = tuple("/%s-packages/%s%s" % (sp, n, tail)
++                  for sp in ("site", "dist") for n in names for tail in ("/", ".py"))
++    venv = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/")
++    testdirs = frozenset(['integration_tests', 'test', 'testing', 'tests', 'unit_tests', 'unittests'])
++    dfuncs = {rel: frozenset(v["f"]) for rel, v in dm.items()}
++    dmods = frozenset(rel for rel, v in dm.items() if v["m"])
++    kind, relof = {}, {}
++    st = {"calls": {}, "ccalls": {}, "dfn": {}, "dmod": {}, "imp": {}, "on": False}
++    outdir = "/tmp/unpinbench_probe"
++    top = _pz_os.environ.get("UNPINBENCH_PROBE_TOP")
++    me = str(_pz_os.getpid())
++    if not top:
++        _pz_os.environ["UNPINBENCH_PROBE_TOP"] = me
++
++    def classify(fn):
++        k = kind.get(fn)
++        if k is not None:
++            return k
++        if not fn or fn.startswith("<"):
++            k = "x"
++        elif any(m in fn for m in marks):
++            k = "D"
++        elif fn.startswith(stdlib + "/") or "/importlib/" in fn:
++            k = "x"
++        elif any(v in fn for v in venv) or "-packages/" in fn:
++            k = "o"
++        else:
++            real = _pz_os.path.realpath(fn)
++            if real in selfs:
++                k = "x"
++            elif real.startswith(pre):
++                rel = real[len(pre):]
++                parts = rel.split(_pz_os.sep)
++                nm = parts[-1]
++                test = (any(p in testdirs for p in parts[:-1]) or nm.startswith("test_")
++                        or nm.endswith("_test.py") or nm in ("conftest.py", "tests.py"))
++                k = "t" if test else "s"
++                relof[fn] = rel
++            else:
++                k = "o"
++        kind[fn] = k
++        return k
++
++    def caller(f):
++        n = 0
++        while f is not None and n < 64:
++            k = classify(f.f_code.co_filename)
++            if k != "x":
++                return k
++            f, n = f.f_back, n + 1
++        return "o"
++
++    def bump(d, key):
++        d[key] = d.get(key, 0) + 1
++
++    def prof(frame, event, arg):
++        try:
++            if event == "call":
++                co = frame.f_code
++                k = classify(co.co_filename)
++                if k == "D":
++                    c = caller(frame.f_back)
++                    if co.co_name == "<module>":
++                        bump(st["imp"], c)
++                    elif c in ("s", "t"):
++                        fn = co.co_filename
++                        bump(st["calls"], c + ":" + fn[fn.rfind("-packages/") + 10:] + ":" + co.co_name)
++                elif k == "s":
++                    rel = relof.get(co.co_filename)
++                    if co.co_name == "<module>":
++                        if rel in dmods:
++                            bump(st["dmod"], rel)
++                    elif co.co_firstlineno in dfuncs.get(rel, ()):
++                        bump(st["dfn"], "%s:%d" % (rel, co.co_firstlineno))
++            elif event == "c_call":
++                m = getattr(arg, "__module__", None)
++                if not isinstance(m, str):
++                    s = getattr(arg, "__self__", None)
++                    m = getattr(s, "__name__", None) if type(s).__name__ == "module" else type(s).__module__
++                if isinstance(m, str) and m.split(".")[0] in names:
++                    c = caller(frame)
++                    if c in ("s", "t"):
++                        bump(st["ccalls"], c + ":" + m + "." + str(getattr(arg, "__name__", "?")))
++        except Exception:
++            pass
++
++    def activate():
++        if st["on"]:
++            return
++        st["on"] = True
++        _pz_sys.setprofile(prof)
++        _pz_th.setprofile(prof)
++
++    class Trigger:
++        """Turns the profiler on at the first import of the repository, its tests or the
++        library, so pip, poetry and tox processes run at full speed."""
++
++        def find_spec(self, fullname, path=None, target=None):
++            if not st["on"]:
++                r = fullname.split(".")[0]
++                if r in own or r in names or r == "conftest" or r.startswith("test"):
++                    activate()
++            return None
++
++    def cap(d, n):
++        return dict(sorted(d.items(), key=lambda kv: -kv[1])[:n])
++
++    def dump():
++        try:
++            if not st["on"]:
++                return
++            rec = {"pid": me, "top": top or me, "argv0": _pz_os.path.basename(_pz_sys.argv[0] if _pz_sys.argv else ""),
++                   "calls": cap(st["calls"], 60), "ccalls": cap(st["ccalls"], 60),
++                   "dfn": cap(st["dfn"], 80), "dmod": st["dmod"], "imp": st["imp"],
++                   "n_calls": sum(st["calls"].values()), "n_ccalls": sum(st["ccalls"].values()),
++                   "n_dfn": len(st["dfn"])}
++            _pz_os.makedirs(outdir, exist_ok=True)
++            with open(_pz_os.path.join(outdir, me + ".json"), "w") as fh:
++                fh.write(_pz_json.dumps(rec))
++        except Exception:
++            pass
++
++    def report():
++        # Only a top-level process prints, and only at exit, when pytest has
++        # released fd 2: children leave a file the top-level process collects.
++        dump()
++        if top:
++            return
++        try:
++            fd = _pz_os.dup(2)
++            for f in sorted(_pz_os.listdir(outdir)):
++                try:
++                    rec = _pz_json.load(open(_pz_os.path.join(outdir, f)))
++                except Exception:
++                    continue
++                if rec.get("top") == me:
++                    _pz_os.write(fd, ("UNPINPROBE " + _pz_json.dumps(rec) + chr(10)).encode("utf-8", "replace"))
++        except Exception:
++            pass
++
++    if _pz_sys.argv and _pz_sys.argv[0]:
++        try:
++            if _pz_os.path.realpath(_pz_sys.argv[0]).startswith(pre):
++                activate()
++        except Exception:
++            pass
++    if any(n.split(".")[0] in names or n.split(".")[0] in own for n in list(_pz_sys.modules)):
++        activate()
++    _pz_sys.meta_path.insert(0, Trigger())
++    _pz_atexit.register(report)
++
++
++_pz_main()
++# <<< UnpinBench injected block <<<

@@ -1,0 +1,23 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3449542..5ed4e77 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,17 @@ classifiers = [
+   "Programming Language :: Python :: 3.12"
+ ]
+ dynamic = ["version"]
+-dependencies = []
++dependencies = [
++  "dvc>=3.48.4",
++  "dvc-render>=1.0.0,<2",
++  "dvc-studio-client>=0.20,<1",
++  "funcy",
++  "gto",
++  "ruamel.yaml",
++  "scmrepo>=3,<4",
++  "psutil",
++  "pynvml"
++]
+ 
+ [project.optional-dependencies]
+ image = ["numpy", "pillow"]

@@ -1,0 +1,404 @@
+diff --git a/conftest.py b/conftest.py
+new file mode 100644
+index 0000000..556b873
+--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1,188 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++"""Injected by UnpinBench probe: which calls into 'sqlalchemy_utils' does this repository make?
++
++Diagnostic only. It never changes a result: every hook swallows its own
++errors, and nothing is written to stdout or stderr except by the top-level
++process at exit, so a test that captures a subprocess's output sees nothing.
++"""
++import atexit as _pz_atexit
++import json as _pz_json
++import os as _pz_os
++import sys as _pz_sys
++import threading as _pz_th
++
++_PZ_FLAG = "_unpinbench_probe_" + 'sqlalchemy_utils'
++
++
++def _pz_main():
++    if getattr(_pz_sys, _PZ_FLAG, False):
++        return
++    setattr(_pz_sys, _PZ_FLAG, True)
++    names = frozenset(['sqlalchemy_utils', 'sqlalchemyutils'])
++    own = frozenset(['sqlalchemy_searchable', 'tests'])
++    dm = {'sqlalchemy_searchable/__init__.py': {'f': [36, 227], 'm': False}}
++    here = _pz_os.path.dirname(_pz_os.path.abspath(__file__))
++    root = _pz_os.path.realpath(here)
++    pre = root + _pz_os.sep
++    selfs = {_pz_os.path.realpath(_pz_os.path.join(root, n)) for n in ("sitecustomize.py", "conftest.py")}
++    stdlib = _pz_os.path.dirname(_pz_os.__file__)
++    marks = tuple("/%s-packages/%s%s" % (sp, n, tail)
++                  for sp in ("site", "dist") for n in names for tail in ("/", ".py"))
++    venv = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/")
++    testdirs = frozenset(['integration_tests', 'test', 'testing', 'tests', 'unit_tests', 'unittests'])
++    dfuncs = {rel: frozenset(v["f"]) for rel, v in dm.items()}
++    dmods = frozenset(rel for rel, v in dm.items() if v["m"])
++    kind, relof = {}, {}
++    st = {"calls": {}, "ccalls": {}, "dfn": {}, "dmod": {}, "imp": {}, "on": False}
++    outdir = "/tmp/unpinbench_probe"
++    top = _pz_os.environ.get("UNPINBENCH_PROBE_TOP")
++    me = str(_pz_os.getpid())
++    if not top:
++        _pz_os.environ["UNPINBENCH_PROBE_TOP"] = me
++
++    def classify(fn):
++        k = kind.get(fn)
++        if k is not None:
++            return k
++        if not fn or fn.startswith("<"):
++            k = "x"
++        elif any(m in fn for m in marks):
++            k = "D"
++        elif fn.startswith(stdlib + "/") or "/importlib/" in fn:
++            k = "x"
++        elif any(v in fn for v in venv) or "-packages/" in fn:
++            k = "o"
++        else:
++            real = _pz_os.path.realpath(fn)
++            if real in selfs:
++                k = "x"
++            elif real.startswith(pre):
++                rel = real[len(pre):]
++                parts = rel.split(_pz_os.sep)
++                nm = parts[-1]
++                test = (any(p in testdirs for p in parts[:-1]) or nm.startswith("test_")
++                        or nm.endswith("_test.py") or nm in ("conftest.py", "tests.py"))
++                k = "t" if test else "s"
++                relof[fn] = rel
++            else:
++                k = "o"
++        kind[fn] = k
++        return k
++
++    def caller(f):
++        n = 0
++        while f is not None and n < 64:
++            k = classify(f.f_code.co_filename)
++            if k != "x":
++                return k
++            f, n = f.f_back, n + 1
++        return "o"
++
++    def bump(d, key):
++        d[key] = d.get(key, 0) + 1
++
++    def prof(frame, event, arg):
++        try:
++            if event == "call":
++                co = frame.f_code
++                k = classify(co.co_filename)
++                if k == "D":
++                    c = caller(frame.f_back)
++                    if co.co_name == "<module>":
++                        bump(st["imp"], c)
++                    elif c in ("s", "t"):
++                        fn = co.co_filename
++                        bump(st["calls"], c + ":" + fn[fn.rfind("-packages/") + 10:] + ":" + co.co_name)
++                elif k == "s":
++                    rel = relof.get(co.co_filename)
++                    if co.co_name == "<module>":
++                        if rel in dmods:
++                            bump(st["dmod"], rel)
++                    elif co.co_firstlineno in dfuncs.get(rel, ()):
++                        bump(st["dfn"], "%s:%d" % (rel, co.co_firstlineno))
++            elif event == "c_call":
++                m = getattr(arg, "__module__", None)
++                if not isinstance(m, str):
++                    s = getattr(arg, "__self__", None)
++                    m = getattr(s, "__name__", None) if type(s).__name__ == "module" else type(s).__module__
++                if isinstance(m, str) and m.split(".")[0] in names:
++                    c = caller(frame)
++                    if c in ("s", "t"):
++                        bump(st["ccalls"], c + ":" + m + "." + str(getattr(arg, "__name__", "?")))
++        except Exception:
++            pass
++
++    def activate():
++        if st["on"]:
++            return
++        st["on"] = True
++        _pz_sys.setprofile(prof)
++        _pz_th.setprofile(prof)
++
++    class Trigger:
++        """Turns the profiler on at the first import of the repository, its tests or the
++        library, so pip, poetry and tox processes run at full speed."""
++
++        def find_spec(self, fullname, path=None, target=None):
++            if not st["on"]:
++                r = fullname.split(".")[0]
++                if r in own or r in names or r == "conftest" or r.startswith("test"):
++                    activate()
++            return None
++
++    def cap(d, n):
++        return dict(sorted(d.items(), key=lambda kv: -kv[1])[:n])
++
++    def dump():
++        try:
++            if not st["on"]:
++                return
++            rec = {"pid": me, "top": top or me, "argv0": _pz_os.path.basename(_pz_sys.argv[0] if _pz_sys.argv else ""),
++                   "calls": cap(st["calls"], 60), "ccalls": cap(st["ccalls"], 60),
++                   "dfn": cap(st["dfn"], 80), "dmod": st["dmod"], "imp": st["imp"],
++                   "n_calls": sum(st["calls"].values()), "n_ccalls": sum(st["ccalls"].values()),
++                   "n_dfn": len(st["dfn"])}
++            _pz_os.makedirs(outdir, exist_ok=True)
++            with open(_pz_os.path.join(outdir, me + ".json"), "w") as fh:
++                fh.write(_pz_json.dumps(rec))
++        except Exception:
++            pass
++
++    def report():
++        # Only a top-level process prints, and only at exit, when pytest has
++        # released fd 2: children leave a file the top-level process collects.
++        dump()
++        if top:
++            return
++        try:
++            fd = _pz_os.dup(2)
++            for f in sorted(_pz_os.listdir(outdir)):
++                try:
++                    rec = _pz_json.load(open(_pz_os.path.join(outdir, f)))
++                except Exception:
++                    continue
++                if rec.get("top") == me:
++                    _pz_os.write(fd, ("UNPINPROBE " + _pz_json.dumps(rec) + chr(10)).encode("utf-8", "replace"))
++        except Exception:
++            pass
++
++    if _pz_sys.argv and _pz_sys.argv[0]:
++        try:
++            if _pz_os.path.realpath(_pz_sys.argv[0]).startswith(pre):
++                activate()
++        except Exception:
++            pass
++    if any(n.split(".")[0] in names or n.split(".")[0] in own for n in list(_pz_sys.modules)):
++        activate()
++    _pz_sys.meta_path.insert(0, Trigger())
++    _pz_atexit.register(report)
++
++
++_pz_main()
++# <<< UnpinBench injected block <<<
+diff --git a/pyproject.toml b/pyproject.toml
+index 6c15ed9..3af7fe3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -27,7 +27,10 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+     "Topic :: Software Development :: Libraries :: Python Modules",
+ ]
+-dependencies = []
++dependencies = [
++    "SQLAlchemy-Utils>=0.40.0",
++    "SQLAlchemy>=1.4",
++]
+ 
+ [project.urls]
+ Code            = "https://github.com/falcony-io/sqlalchemy-searchable"
+diff --git a/sitecustomize.py b/sitecustomize.py
+new file mode 100644
+index 0000000..556b873
+--- /dev/null
++++ b/sitecustomize.py
+@@ -0,0 +1,188 @@
++# >>> UnpinBench injected block (do not edit) >>>
++# fmt: off
++# flake8: noqa
++# ruff: noqa
++# pylint: skip-file
++# mypy: ignore-errors
++# isort: skip_file
++"""Injected by UnpinBench probe: which calls into 'sqlalchemy_utils' does this repository make?
++
++Diagnostic only. It never changes a result: every hook swallows its own
++errors, and nothing is written to stdout or stderr except by the top-level
++process at exit, so a test that captures a subprocess's output sees nothing.
++"""
++import atexit as _pz_atexit
++import json as _pz_json
++import os as _pz_os
++import sys as _pz_sys
++import threading as _pz_th
++
++_PZ_FLAG = "_unpinbench_probe_" + 'sqlalchemy_utils'
++
++
++def _pz_main():
++    if getattr(_pz_sys, _PZ_FLAG, False):
++        return
++    setattr(_pz_sys, _PZ_FLAG, True)
++    names = frozenset(['sqlalchemy_utils', 'sqlalchemyutils'])
++    own = frozenset(['sqlalchemy_searchable', 'tests'])
++    dm = {'sqlalchemy_searchable/__init__.py': {'f': [36, 227], 'm': False}}
++    here = _pz_os.path.dirname(_pz_os.path.abspath(__file__))
++    root = _pz_os.path.realpath(here)
++    pre = root + _pz_os.sep
++    selfs = {_pz_os.path.realpath(_pz_os.path.join(root, n)) for n in ("sitecustomize.py", "conftest.py")}
++    stdlib = _pz_os.path.dirname(_pz_os.__file__)
++    marks = tuple("/%s-packages/%s%s" % (sp, n, tail)
++                  for sp in ("site", "dist") for n in names for tail in ("/", ".py"))
++    venv = ("/.venv/", "/venv/", "/.tox/", "/.nox/", "/.eggs/", "/node_modules/")
++    testdirs = frozenset(['integration_tests', 'test', 'testing', 'tests', 'unit_tests', 'unittests'])
++    dfuncs = {rel: frozenset(v["f"]) for rel, v in dm.items()}
++    dmods = frozenset(rel for rel, v in dm.items() if v["m"])
++    kind, relof = {}, {}
++    st = {"calls": {}, "ccalls": {}, "dfn": {}, "dmod": {}, "imp": {}, "on": False}
++    outdir = "/tmp/unpinbench_probe"
++    top = _pz_os.environ.get("UNPINBENCH_PROBE_TOP")
++    me = str(_pz_os.getpid())
++    if not top:
++        _pz_os.environ["UNPINBENCH_PROBE_TOP"] = me
++
++    def classify(fn):
++        k = kind.get(fn)
++        if k is not None:
++            return k
++        if not fn or fn.startswith("<"):
++            k = "x"
++        elif any(m in fn for m in marks):
++            k = "D"
++        elif fn.startswith(stdlib + "/") or "/importlib/" in fn:
++            k = "x"
++        elif any(v in fn for v in venv) or "-packages/" in fn:
++            k = "o"
++        else:
++            real = _pz_os.path.realpath(fn)
++            if real in selfs:
++                k = "x"
++            elif real.startswith(pre):
++                rel = real[len(pre):]
++                parts = rel.split(_pz_os.sep)
++                nm = parts[-1]
++                test = (any(p in testdirs for p in parts[:-1]) or nm.startswith("test_")
++                        or nm.endswith("_test.py") or nm in ("conftest.py", "tests.py"))
++                k = "t" if test else "s"
++                relof[fn] = rel
++            else:
++                k = "o"
++        kind[fn] = k
++        return k
++
++    def caller(f):
++        n = 0
++        while f is not None and n < 64:
++            k = classify(f.f_code.co_filename)
++            if k != "x":
++                return k
++            f, n = f.f_back, n + 1
++        return "o"
++
++    def bump(d, key):
++        d[key] = d.get(key, 0) + 1
++
++    def prof(frame, event, arg):
++        try:
++            if event == "call":
++                co = frame.f_code
++                k = classify(co.co_filename)
++                if k == "D":
++                    c = caller(frame.f_back)
++                    if co.co_name == "<module>":
++                        bump(st["imp"], c)
++                    elif c in ("s", "t"):
++                        fn = co.co_filename
++                        bump(st["calls"], c + ":" + fn[fn.rfind("-packages/") + 10:] + ":" + co.co_name)
++                elif k == "s":
++                    rel = relof.get(co.co_filename)
++                    if co.co_name == "<module>":
++                        if rel in dmods:
++                            bump(st["dmod"], rel)
++                    elif co.co_firstlineno in dfuncs.get(rel, ()):
++                        bump(st["dfn"], "%s:%d" % (rel, co.co_firstlineno))
++            elif event == "c_call":
++                m = getattr(arg, "__module__", None)
++                if not isinstance(m, str):
++                    s = getattr(arg, "__self__", None)
++                    m = getattr(s, "__name__", None) if type(s).__name__ == "module" else type(s).__module__
++                if isinstance(m, str) and m.split(".")[0] in names:
++                    c = caller(frame)
++                    if c in ("s", "t"):
++                        bump(st["ccalls"], c + ":" + m + "." + str(getattr(arg, "__name__", "?")))
++        except Exception:
++            pass
++
++    def activate():
++        if st["on"]:
++            return
++        st["on"] = True
++        _pz_sys.setprofile(prof)
++        _pz_th.setprofile(prof)
++
++    class Trigger:
++        """Turns the profiler on at the first import of the repository, its tests or the
++        library, so pip, poetry and tox processes run at full speed."""
++
++        def find_spec(self, fullname, path=None, target=None):
++            if not st["on"]:
++                r = fullname.split(".")[0]
++                if r in own or r in names or r == "conftest" or r.startswith("test"):
++                    activate()
++            return None
++
++    def cap(d, n):
++        return dict(sorted(d.items(), key=lambda kv: -kv[1])[:n])
++
++    def dump():
++        try:
++            if not st["on"]:
++                return
++            rec = {"pid": me, "top": top or me, "argv0": _pz_os.path.basename(_pz_sys.argv[0] if _pz_sys.argv else ""),
++                   "calls": cap(st["calls"], 60), "ccalls": cap(st["ccalls"], 60),
++                   "dfn": cap(st["dfn"], 80), "dmod": st["dmod"], "imp": st["imp"],
++                   "n_calls": sum(st["calls"].values()), "n_ccalls": sum(st["ccalls"].values()),
++                   "n_dfn": len(st["dfn"])}
++            _pz_os.makedirs(outdir, exist_ok=True)
++            with open(_pz_os.path.join(outdir, me + ".json"), "w") as fh:
++                fh.write(_pz_json.dumps(rec))
++        except Exception:
++            pass
++
++    def report():
++        # Only a top-level process prints, and only at exit, when pytest has
++        # released fd 2: children leave a file the top-level process collects.
++        dump()
++        if top:
++            return
++        try:
++            fd = _pz_os.dup(2)
++            for f in sorted(_pz_os.listdir(outdir)):
++                try:
++                    rec = _pz_json.load(open(_pz_os.path.join(outdir, f)))
++                except Exception:
++                    continue
++                if rec.get("top") == me:
++                    _pz_os.write(fd, ("UNPINPROBE " + _pz_json.dumps(rec) + chr(10)).encode("utf-8", "replace"))
++        except Exception:
++            pass
++
++    if _pz_sys.argv and _pz_sys.argv[0]:
++        try:
++            if _pz_os.path.realpath(_pz_sys.argv[0]).startswith(pre):
++                activate()
++        except Exception:
++            pass
++    if any(n.split(".")[0] in names or n.split(".")[0] in own for n in list(_pz_sys.modules)):
++        activate()
++    _pz_sys.meta_path.insert(0, Trigger())
++    _pz_atexit.register(report)
++
++
++_pz_main()
++# <<< UnpinBench injected block <<<

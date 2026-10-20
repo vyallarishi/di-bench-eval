@@ -166,7 +166,7 @@ def main():
     out_rows = []
     skipped = []
 
-    if a.set in ("cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large", "repeat", "repeat_large", "repeat_blind", "repeat_blind_large", "references", "references_large", "agent_gpt51", "agent_gpt51_large", "c18", "pg75ci", "pg75ci_large", "pgci", "mutantci", "agent_qwen_qwen3_coder", "agent_qwen_qwen3_coder_large", "agent_z_ai_glm_4_6", "agent_z_ai_glm_4_6_large"):
+    if a.set in ("cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large", "repeat", "repeat_large", "repeat_blind", "repeat_blind_large", "references", "references_large", "agent_gpt51", "agent_gpt51_large", "c18", "pg75ci", "pg75ci_large", "pgci", "mutantci", "agent_qwen_qwen3_coder", "agent_qwen_qwen3_coder_large", "agent_z_ai_glm_4_6", "agent_z_ai_glm_4_6_large", "rdx", "rdx_large", "rta", "rta_large", "rtf", "rtf_large", "rtc", "rtc_large"):
         # pre-built variants: pilot/<set>.jsonl rows (mutant-style ids <iid>__<kind>__<dep>) and
         # predictions/<set>/python/<id>/patch.diff; each needs a repo-data symlink to its base instance
         src_rows = [json.loads(l) for l in open(pathlib.Path("pilot") / f"{a.set}.jsonl") if l.strip()]
