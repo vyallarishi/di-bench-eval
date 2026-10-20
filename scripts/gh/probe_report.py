@@ -6,7 +6,13 @@ cannot choose its own bucket. A run whose instrument left no evidence is
 "unknown", never folded into a substantive category.
 
 Probe 2, per pool pair, from the three block arms:
-  drift        rtc passes: the v1 detection does not reproduce today
+  needs-uninstall  rtc passes: with the package still installed and its import
+               blocked, nothing fails. The arms keep the gold manifest, while
+               v1 deleted the declaration, which usually uninstalls the package,
+               so v1 likely detected a non-import use (static files, a plugin,
+               a CLI); genuine drift since screening cannot be told apart here.
+               (Renamed from "drift" after reading the 16 logs on 20 Oct: 11
+               are indirect-tier pairs with no importing file.)
   guard        rtc fails, rtf passes: the detection came from the v1 guard defect
   test-only    rtf fails, rta passes: detected only because test files import it
   runtime      rta fails with the block message: runtime code needs the library
@@ -129,7 +135,7 @@ def classify_rt(arms: dict, base: str | None) -> str:
         if arm["exec"] == "pass" and BLOCK_ANNOUNCE not in arm["log"]:
             return "unknown"
     if c["exec"] == "pass":
-        return "drift"
+        return "needs-uninstall"
     if f["exec"] == "pass":
         return "guard"
     if a["exec"] == "pass":
