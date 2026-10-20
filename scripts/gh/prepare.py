@@ -146,7 +146,7 @@ def declared(text: str) -> set:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", required=True, choices=["gold", "recovered", "mutation", "cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large", "repeat", "repeat_large", "repeat_blind", "repeat_blind_large", "references", "references_large", "agent_gpt51", "agent_gpt51_large", "c18", "pg75ci", "pg75ci_large", "pgci", "mutantci", "agent_qwen_qwen3_coder", "agent_qwen_qwen3_coder_large", "agent_z_ai_glm_4_6", "agent_z_ai_glm_4_6_large"])
+    ap.add_argument("--set", required=True, choices=["gold", "recovered", "mutation", "cheats", "agent", "blocked", "blocked_large", "scoped", "scoped_large", "all", "all_large", "trace", "trace_large", "requeue", "requeue_large", "repeat", "repeat_large", "repeat_blind", "repeat_blind_large", "references", "references_large", "agent_gpt51", "agent_gpt51_large", "c18", "pg75ci", "pg75ci_large", "pgci", "mutantci", "agent_qwen_qwen3_coder", "agent_qwen_qwen3_coder_large", "agent_z_ai_glm_4_6", "agent_z_ai_glm_4_6_large", "rdx", "rdx_large", "rta", "rta_large", "rtf", "rtf_large", "rtc", "rtc_large"])
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--repo-data", required=True)
     ap.add_argument("--predictions", default="predictions/qwen2.5-coder-7b")
