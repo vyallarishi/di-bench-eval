@@ -7,8 +7,10 @@ turns that record into a check anyone can run: per repository, the unmodified
 the workflow told to honour it (act --env PIP_CONSTRAINT / UV_CONSTRAINT).
 Nothing about the repository or its workflow changes.
 
-A package the logs saw with more than one version is left unpinned, and so is
-the project's own distribution. Installers that resolve on their own (poetry)
+A package the logs saw with more than one version is left unpinned, and so are
+the project's own distribution and build backends: pip applies constraints
+inside build environments, where each package asks for its own backend version
+(a smoke run failed on flit-core, recorded at 4.1.0 and needed at <4). Installers that resolve on their own (poetry)
 do not read the constraints; envpin_report.py measures what was actually
 installed, so an unpinned run cannot be mistaken for a pinned one.
 
@@ -33,6 +35,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 FIELDS = ["instance_id", "metadata", "language", "act_command", "ci_file",
           "patch", "build_files", "env_specs"]
 PINS = ".undep-constraints.txt"
+# resolved per package inside its build environment, not part of the test environment
+BUILD_TOOLS = {"setuptools", "wheel", "flit-core", "flit", "hatchling", "hatch-vcs", "hatch-fancy-pypi-readme",
+               "poetry-core", "setuptools-scm", "pdm-backend", "pdm-pep517", "maturin", "cython",
+               "scikit-build", "scikit-build-core", "meson", "meson-python", "pybind11", "cmake", "ninja",
+               "calver", "pbr", "versioneer"}
 ENV = f" --env PIP_CONSTRAINT=/project/{PINS} --env UV_CONSTRAINT=/project/{PINS}"
 
 
@@ -53,7 +60,7 @@ def pins_for(record: dict, own: set[str]) -> tuple[dict, list]:
             seen.setdefault(name, set()).update(vers)
     pins = {}
     for name, vers in sorted(seen.items()):
-        if len(vers) != 1 or name in own:
+        if len(vers) != 1 or name in own or name in BUILD_TOOLS:
             continue
         v = next(iter(vers))
         if "+g" in v or re.search(r"\.d20\d{6}", v):
