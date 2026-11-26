@@ -1,0 +1,58 @@
+diff --git a/.undep-constraints.txt b/.undep-constraints.txt
+new file mode 100644
+index 0000000..c6d7885
+--- /dev/null
++++ b/.undep-constraints.txt
+@@ -0,0 +1,36 @@
++asgiref==3.7.2
++cachetools==5.5.2
++certifi==2026.7.22
++chardet==5.2.0
++charset-normalizer==3.5.2
++codecov==2.1.13
++colorama==0.4.6
++coverage==7.2.7
++cssselect==1.2.0
++diazo==1.5.0
++distlib==0.4.3
++filelock==3.12.2
++flake8==5.0.4
++idna==3.10
++lxml==5.4.0
++mccabe==0.7.0
++packaging==24.0
++pip==24.0
++platformdirs==4.0.0
++pluggy==1.2.0
++pycodestyle==2.9.1
++pyflakes==2.5.0
++pyproject-api==1.5.3
++requests==2.31.0
++setuptools==68.0.0
++setuptools-scm==7.1.0
++six==1.17.0
++sqlparse==0.4.4
++tomli==2.0.1
++tox==4.8.0
++tox-gh-actions==3.5.0
++typing-extensions==4.7.1
++urllib3==2.0.7
++virtualenv==20.26.6
++wheel==0.42.0
++zipp==3.15.0
+diff --git a/pyproject.toml b/pyproject.toml
+index 677b78d..de53856 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -40,7 +40,10 @@ classifiers = [
+     "Topic :: Internet :: WWW/HTTP",
+     "Topic :: Software Development :: Libraries",
+ ]
+-dependencies = []
++dependencies = [
++    "Django>=3.0",
++    "urllib3>=1.12",
++]
+ optional-dependencies.diazo = [
+     "diazo>=1.0.5",
+     "lxml>=3.4",

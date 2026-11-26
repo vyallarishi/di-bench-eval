@@ -1,0 +1,42 @@
+diff --git a/.undep-constraints.txt b/.undep-constraints.txt
+new file mode 100644
+index 0000000..0939e70
+--- /dev/null
++++ b/.undep-constraints.txt
+@@ -0,0 +1,22 @@
++black==24.3.0
++cachetools==7.2.1
++click==8.5.0
++colorama==0.4.6
++distlib==0.4.3
++filelock==4.0.12
++mypy-extensions==1.1.0
++packaging==26.3
++pathspec==1.1.1
++pip==26.2.1
++pluggy==1.6.0
++portpicker==1.6.0
++psutil==7.2.2
++pygments==2.21.0
++pyink==24.3.0
++pytest==9.1.1
++python-discovery==1.6.1
++pytz==2026.5
++pyyaml==6.0.3
++setuptools==84.0.0
++tomli-w==1.2.0
++typing-extensions==4.16.0
+diff --git a/pyproject.toml b/pyproject.toml
+index 2444159..ca2c17e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -8,6 +8,9 @@ version = "1.12.4"
+ description = "Automation framework for special end-to-end test cases"
+ requires-python = ">=3.11"
+ dependencies = [
++    "portpicker",
++    "pywin32; platform_system == \"Windows\"",
++    "pyyaml",
+ ]
+ 
+ [[project.maintainers]]

@@ -1,0 +1,37 @@
+diff --git a/.undep-constraints.txt b/.undep-constraints.txt
+new file mode 100644
+index 0000000..686a078
+--- /dev/null
++++ b/.undep-constraints.txt
+@@ -0,0 +1,14 @@
++autopep8==2.3.2
++exceptiongroup==1.3.1
++flake8==7.4.1
++flake8-no-implicit-concat==0.3.7
++iniconfig==2.1.0
++mccabe==0.7.0
++numpy==1.24.4
++packaging==26.2
++pluggy==1.5.0
++pycodestyle==2.15.0
++pytest==8.3.5
++python-dateutil==2.9.0.post0
++six==1.17.0
++typing-extensions==4.13.2
+diff --git a/pyproject.toml b/pyproject.toml
+index 2e7523e..238f6b3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,7 +13,11 @@ authors = [
+     {name = "Jeff Terrace and contributors", email = "jterrace@gmail.com"},
+ ]
+ license = {text = "BSD"}
+-dependencies = []
++dependencies = [
++    "python-dateutil>=2.2",
++    "numpy",
++    'unittest2; python_version<"2.7"',
++]
+ 
+ [project.optional-dependencies]
+ prettyprint = ["lxml"]

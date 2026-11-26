@@ -1,0 +1,57 @@
+diff --git a/.undep-constraints.txt b/.undep-constraints.txt
+new file mode 100644
+index 0000000..e0f192b
+--- /dev/null
++++ b/.undep-constraints.txt
+@@ -0,0 +1,32 @@
++annotated-doc==0.0.5
++black==23.12.1
++click==8.1.8
++coverage==7.6.1
++exceptiongroup==1.3.1
++iniconfig==2.1.0
++lightgbm==4.6.0
++markdown-it-py==3.0.0
++mdurl==0.1.2
++mypy==1.11.2
++mypy-extensions==1.1.0
++numpy==2.0.2
++packaging==26.3
++pandas==2.3.3
++pandas-stubs==2.2.2.240807
++pathspec==1.1.1
++pip==26.0.1
++platformdirs==4.4.0
++pluggy==1.6.0
++pygments==2.21.0
++pytest==7.4.4
++python-dateutil==2.9.0.post0
++regex==2026.1.15
++rich==15.0.0
++ruff==0.6.8
++scipy==1.13.1
++shellingham==1.5.4
++six==1.17.0
++typer==0.23.2
++types-pytz==2025.2.0.20251108
++types-regex==2026.1.15.20260116
++typing-extensions==4.16.0
+diff --git a/pyproject.toml b/pyproject.toml
+index d9ae225..e8fd26c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,7 +19,13 @@ classifiers = [
+     "Programming Language :: Python :: 3.12",
+     "Programming Language :: Python :: 3.13",
+ ]
+-dependencies = []
++dependencies = [
++    "lightgbm>=3.3",
++    "numpy",
++    "pandas",
++    "regex",
++    "typer>=0.3.2",
++]
+ 
+ [project.scripts]
+ nmdiv = "namedivider.cli:app"

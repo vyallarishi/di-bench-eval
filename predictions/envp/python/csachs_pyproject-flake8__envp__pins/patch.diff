@@ -1,0 +1,27 @@
+diff --git a/.undep-constraints.txt b/.undep-constraints.txt
+new file mode 100644
+index 0000000..e9f3ad2
+--- /dev/null
++++ b/.undep-constraints.txt
+@@ -0,0 +1,5 @@
++flake8==7.0.0
++mccabe==0.7.0
++pip==25.0.1
++pycodestyle==2.11.1
++pyflakes==3.2.0
+diff --git a/pyproject.toml b/pyproject.toml
+index d728d6b..7b06747 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -10,7 +10,10 @@ readme = "README.md"
+ license = { file = "LICENSE" } 
+ classifiers = []
+ requires-python = ">=3.8.1"
+-dependencies = []
++dependencies = [
++    "tomli; python_version < '3.11'",
++    "flake8 == 7.0.0"
++]
+ 
+ [project.urls]
+ Home = "https://github.com/csachs/pyproject-flake8"

@@ -1,0 +1,86 @@
+diff --git a/.undep-constraints.txt b/.undep-constraints.txt
+new file mode 100644
+index 0000000..b336107
+--- /dev/null
++++ b/.undep-constraints.txt
+@@ -0,0 +1,64 @@
++annotated-types==0.8.0
++babel==2.18.0
++backrefs==8.0
++black==24.10.0
++certifi==2026.7.22
++cfgv==3.5.0
++chardet==7.6.0
++charset-normalizer==3.5.2
++click==8.1.7
++colorama==0.4.6
++coverage==7.16.2
++deptry==0.12.0
++distlib==0.4.3
++exceptiongroup==1.3.1
++ghp-import==2.1.0
++griffe==2.3.0
++griffecli==2.3.0
++griffelib==2.3.0
++identify==2.6.20
++idna==3.20
++jinja2==3.1.6
++librt==0.16.0
++markdown==3.5.2
++mergedeep==1.3.4
++mkdocs==1.6.1
++mkdocs-autorefs==1.4.4
++mkdocs-get-deps==0.2.2
++mkdocs-material==9.7.7
++mkdocs-material-extensions==1.3.1
++mkdocstrings==0.23.0
++mkdocstrings-python==1.9.1
++mypy==1.20.2
++mypy-extensions==1.1.0
++nodeenv==1.11.0
++packaging==26.3
++paginate==0.5.7
++pathspec==1.1.1
++pip==26.2.1
++pluggy==1.6.0
++poetry==2.5.1
++pre-commit==3.8.0
++pydantic==2.8.2
++pydantic-core==2.20.1
++pygments==2.21.0
++pymdown-extensions==10.7.1
++pytest==7.4.4
++pytest-cov==4.1.0
++python-dateutil==2.9.0.post0
++python-discovery==1.6.1
++python-dotenv==1.0.1
++python-slugify==8.0.4
++pyyaml==6.0.3
++pyyaml-env-tag==1.1
++requests==2.32.3
++ruff==0.5.7
++setuptools==84.0.0
++six==1.17.0
++text-unidecode==1.3
++tomli-w==1.2.0
++tox-gh-actions==3.5.0
++types-python-slugify==8.0.2.20240310
++typing-extensions==4.16.0
++urllib3==2.8.0
++watchdog==6.0.0
+diff --git a/pyproject.toml b/pyproject.toml
+index 680109d..346da4f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,6 +11,11 @@ packages = [
+ 
+ [tool.poetry.dependencies]
+ python = ">=3.10,<4.0"
++pydantic = "2.8.2"
++requests = "2.32.3"
++python-slugify = "8.0.4"
++python-dotenv = "1.0.1"
++click = "8.1.7"
+ 
+ [tool.poetry.scripts]
+ hl = "humanlayer.cli.main:cli"

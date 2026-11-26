@@ -1,0 +1,151 @@
+diff --git a/.undep-constraints.txt b/.undep-constraints.txt
+new file mode 100644
+index 0000000..8126af5
+--- /dev/null
++++ b/.undep-constraints.txt
+@@ -0,0 +1,115 @@
++absl-py==2.3.1
++attrs==26.1.0
++babel==2.18.0
++beautifulsoup4==4.15.0
++black==25.11.0
++bleach==6.2.0
++bracex==2.6
++certifi==2026.7.22
++cfgv==3.4.0
++charset-normalizer==3.5.2
++chex==0.1.90
++click==8.1.8
++colorama==0.4.6
++coverage==7.10.7
++defusedxml==0.7.1
++distlib==0.4.3
++editorconfig==0.17.1
++etils==1.5.2
++exceptiongroup==1.3.1
++execnet==2.1.2
++fastjsonschema==2.21.2
++filelock==3.19.1
++flake8==7.3.0
++flax==0.8.5
++fsspec==2025.10.0
++ghp-import==2.1.0
++gitdb==4.0.12
++gitpython==3.2.0
++griffe==1.14.0
++humanize==4.13.0
++identify==2.6.15
++idna==3.20
++importlib-metadata==8.7.1
++importlib-resources==6.5.2
++iniconfig==2.1.0
++isort==6.1.0
++jax==0.4.30
++jaxlib==0.4.30
++jinja2==3.1.6
++jsbeautifier==2.0.3
++jsonschema==4.25.1
++jsonschema-specifications==2025.9.1
++jupyter-client==8.6.3
++jupyter-core==5.8.1
++jupyterlab-pygments==0.3.0
++librt==0.16.0
++markdown==3.5.2
++markdown-it-py==3.0.0
++mccabe==0.7.0
++mdurl==0.1.2
++mergedeep==1.3.4
++mistune==3.3.4
++mkdocs==1.5.3
++mkdocs-autorefs==1.4.4
++mkdocs-git-revision-date-plugin==0.3.2
++mkdocs-include-markdown-plugin==6.0.1
++mkdocs-material==9.4.2
++mkdocs-material-extensions==1.3.1
++mkdocs-mermaid2-plugin==1.1.1
++mkdocstrings==0.23.0
++mkdocstrings-python==1.9.1
++mknotebooks==0.8.0
++ml-dtypes==0.5.4
++msgpack==1.1.2
++mypy==1.19.1
++mypy-extensions==1.1.0
++nbclient==0.10.2
++nbconvert==7.17.1
++nbformat==5.10.4
++nest-asyncio==1.6.0
++nodeenv==1.11.0
++numpy==2.0.2
++opt-einsum==3.4.0
++optax==0.2.4
++orbax-checkpoint==0.6.4
++packaging==26.3
++paginate==0.5.7
++pandocfilters==1.5.1
++pathspec==1.1.1
++platformdirs==4.4.0
++pluggy==1.6.0
++pre-commit==4.3.0
++protobuf==6.33.6
++pycodestyle==2.14.0
++pyflakes==3.4.0
++pygments==2.21.0
++pymdown-extensions==10.7.1
++pytest==8.4.2
++pytest-cov==7.1.0
++pytest-xdist==3.8.0
++python-dateutil==2.9.0.post0
++python-discovery==1.6.1
++pytokens==0.4.1
++pyyaml==6.0.3
++pyyaml-env-tag==1.1
++pyzmq==27.2.0
++referencing==0.36.2
++regex==2026.1.15
++requests==2.32.5
++rich==15.0.0
++rpds-py==0.27.1
++scipy==1.13.1
++six==1.17.0
++smmap==5.0.3
++soupsieve==2.8.4
++tensorstore==0.1.69
++tinycss2==1.4.0
++tornado==6.5.10
++traitlets==5.15.1
++typing-extensions==4.16.0
++urllib3==2.6.3
++watchdog==6.0.0
++wcmatch==8.5.2
++webencodings==0.5.1
++zipp==3.23.1
+diff --git a/pyproject.toml b/pyproject.toml
+index 9f44ab2..daf68a5 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -16,7 +16,7 @@ name = "flashbax"
+ description = "Flashbax is an experience replay library oriented around JAX. Tailored to integrate seamlessly with JAX's Just-In-Time (JIT) compilation."
+ readme = "README.md"
+ authors = [
+-  {name="InstaDeep",  email = "hello@instadeep.com"},
++  {name="InstaDeep" , email = "hello@instadeep.com"},
+ ]
+ requires-python = ">=3.9"
+ version = "0.1.2"
+@@ -32,7 +32,15 @@ classifiers=[
+         "License :: OSI Approved :: Apache Software License",
+     ]
+ keywords=["reinforcement-learning", "python", "jax", "memory"]
+-dependencies = []
++dependencies = [
++    'flax>=0.6.11',
++    'chex>=0.1.8',
++    'jax>=0.4.25',
++    'jaxlib>=0.4.20',
++    'numpy>=1.19.5',
++    'typing_extensions>=4.6.0',
++    'tensorstore>=0.1.51'
++]
+ 
+ [project.optional-dependencies]
+ dev = [
